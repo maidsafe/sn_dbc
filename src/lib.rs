@@ -22,12 +22,15 @@ struct DbcContent {
     owner: PubKey,          // Will be blinded by using Hash(Hash(PubKey + self.parent))
     amount: u64,
 }
-
+// TODO, we may wish to add a nonce such that
+// All output DBCs hash to have no common leading bits
+// i.e. log base2 (num_outputs) == num leading bits that must be differnt
+// This means a DBCs parent has to have been in a differnt section
 impl DbcContent {
     // Create a new DbcContent for signing, blind the owner from the mint
     pub fn new(parent: DbcContentHash, owner: PubKey, amount: u64) -> Self {
         let mut owner = owner;
-        for _ in 0..amount {
+        for _ in 0..amount % 1000 {
             owner = sha3_256(&owner); // owner not visible to mint.
         }
         DbcContent {
