@@ -9,3 +9,8 @@ edition = "2018"
 [dependencies]
 tiny-keccak = { version = "2.0.0", features = ["sha3"] }
 serde_json = "1.0.64"
+thiserror = "1.0.24"
+
+[dependencies.serde]
+  version = "1.0.111"
+  features = [ "derive", "rc" ]
