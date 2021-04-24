@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
-ase serde_json::Result;
+use serde_json::Result;
 use tiny_keccak::{Hasher, Sha3};
 /// These typdefs are to simplify algorithm for now and will be removed for production.
 pub(crate) type Hash = [u8; 32];
-pub(crate)type PubKey = [u8; 32]; // tmp
-pub(crate)type DbcContentHash = [u8; 32];
-pub(crate)type DbcSpentHash = [u8; 32];
+pub(crate) type PubKey = [u8; 32]; // tmp
+pub(crate) type DbcContentHash = [u8; 32];
+pub(crate) type DbcSpentHash = [u8; 32];
 mod dbc;
 
 fn sha3_256(input: &[u8]) -> Hash {
@@ -16,7 +16,7 @@ fn sha3_256(input: &[u8]) -> Hash {
     output
 }
 
-/// This is the content of a DBC, it is unique as the parent hash is included 
+/// This is the content of a DBC, it is unique as the parent hash is included
 #[derive(Serialize, Deserialize)]
 struct DbcContent {
     parent: DbcContentHash, // Hash of parent DbcContent. Also used as a nonce
@@ -42,7 +42,6 @@ impl DbcContent {
         sha3_256(&data)
     }
 }
-
 
 /// The spent identifier of the outputs created from this input
 /// Note these are hashes and not identifiers as the Dbc is not addressable on the network.
