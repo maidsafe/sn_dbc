@@ -9,7 +9,8 @@ pub(crate) type DbcSpentHash = [u8; 32];
 mod dbc;
 mod dbc_content;
 mod dbc_spent;
-
+pub mod error;
+mod mint;
 fn sha3_256(input: &[u8]) -> Hash {
     let mut sha3 = Sha3::v256();
     let mut output = [0; 32];
