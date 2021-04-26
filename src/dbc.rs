@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{DbcContent, DbcSpent, PubKey, Result, Signature};
+use crate::{DbcContent, DbcSpent, Error, PubKey, Result, Signature};
 
 pub struct Dbc {
     pub content: DbcContent,
@@ -16,7 +16,16 @@ pub struct Dbc {
 }
 
 impl Dbc {
-    pub fn mint(input: Dbc, outputs: Vec<Dbc>) -> Result<Vec<Self>> {
-        Ok(vec![])
+    // Check there exists a DbcSpent with the output containing this Dbc
+    // Check there DOES NOT exist a DbcSpent with this Dbc as parent (already minted)
+    pub fn confirm_valid(&self) -> Result<(), Error> {
+        todo!();
+        // if network.get(self.parent()).await {
+        //     return err(Error::DoubleSpend);
+        // }
+    }
+    // Check the output values summed are  =< input value
+    pub fn mint(input: Dbc, outputs: Vec<Dbc>) -> Result<DbcSpent> {
+        // self.confirm_valid()?;
     }
 }
