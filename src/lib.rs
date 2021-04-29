@@ -15,15 +15,20 @@ pub(crate) type DbcContentHash = [u8; 32];
 pub(crate) type DbcSpentHash = [u8; 32];
 mod dbc;
 mod dbc_content;
-mod dbc_spent;
+mod dbc_transaction;
 mod error;
 mod mint;
+mod threshold_crypto;
+mod vecmap;
+mod vecset;
 
 pub use crate::{
     dbc::Dbc,
     dbc_content::DbcContent,
-    dbc_spent::DbcSpent,
+    dbc_transaction::DbcTransaction,
     error::{Error, Result},
+    vecmap::VecMap,
+    vecset::VecSet,
 };
 
 fn sha3_256(input: &[u8]) -> Hash {
@@ -33,8 +38,6 @@ fn sha3_256(input: &[u8]) -> Hash {
     sha3.finalize(&mut output);
     output
 }
-
-/// This is the content of a DBC, it is unique as the parent hash is included
 
 #[cfg(test)]
 mod tests {
@@ -56,15 +59,15 @@ mod tests {
         let owner = [0; 32];
         let amount = 1000;
         let content = DbcContent::new(parent, owner, amount);
-        let parent_spent = DbcSpent {
-            input: [0; 32],
-            output: vec![[0; 32]],
+        let transaction = DbcTransaction {
+            inputs: vec![[0; 32]].into_iter().collect(),
+            outputs: vec![[0; 32]].into_iter().collect(),
         };
-        let dbc = Dbc {
-            content,
-            parent_spent,
-            mint_key: [0; 32],
-            mint_sig: [0; 32],
-        };
+        // let dbc = Dbc {
+        //     content,
+        //     transaction,
+        //     mint_key: [0; 32],
+        //     mint_sig: [0; 32],
+        // };
     }
 }

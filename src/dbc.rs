@@ -5,19 +5,19 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
+use std::collections::BTreeMap;
 
-use crate::{DbcContent, DbcSpent, Error, PubKey, Result, Signature};
+use crate::{DbcContent, DbcContentHash, DbcTransaction, Error, PubKey, Result, Signature};
 
 pub struct Dbc {
     pub content: DbcContent,
-    pub parent_spent: DbcSpent,
-    pub mint_key: PubKey,
-    pub mint_sig: Signature, // (self.parent_spent),
+    pub transaction: DbcTransaction,
+    pub transaction_sigs: BTreeMap<DbcContentHash, (PubKey, Signature)>,
 }
 
 impl Dbc {
-    // Check there exists a DbcSpent with the output containing this Dbc
-    // Check there DOES NOT exist a DbcSpent with this Dbc as parent (already minted)
+    // Check there exists a DbcTransaction with the output containing this Dbc
+    // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
     pub fn confirm_valid(&self) -> Result<(), Error> {
         todo!();
         // if network.get(self.parent()).await {
@@ -25,7 +25,8 @@ impl Dbc {
         // }
     }
     // Check the output values summed are  =< input value
-    pub fn mint(input: Dbc, outputs: Vec<Dbc>) -> Result<DbcSpent> {
+    pub fn mint(input: Dbc, outputs: Vec<Dbc>) -> Result<DbcTransaction> {
         // self.confirm_valid()?;
+        todo!()
     }
 }

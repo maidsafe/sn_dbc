@@ -13,7 +13,7 @@
 // input is vaid
 // Outputs <= input value
 
-use crate::{Dbc, DbcSpent, Result};
+use crate::{Dbc, DbcTransaction, Result};
 
 /*
 Algorithm
@@ -30,7 +30,7 @@ Verify the dbc.section_sig signature is a valid signature of dbc.parent_spent.
 dbc.section_key.verify(dbc.section_sig, hash(dbc.parent_spent))
 Outputs signed with BLS public key share
 */
-pub fn mint(input: Dbc, output: Vec<Dbc>) -> Result<DbcSpent> {
+pub fn mint(input: Dbc, output: Vec<Dbc>) -> Result<DbcTransaction> {
     unimplemented!();
 }
 // Notes

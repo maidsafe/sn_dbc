@@ -7,17 +7,18 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::DbcContentHash;
+use std::collections::BTreeSet;
 
 /// The spent identifier of the outputs created from this input
 /// Note these are hashes and not identifiers as the Dbc is not addressable on the network.
 /// i.e. a Dbc can be stored anywhere, even offline.
-pub struct DbcSpent {
-    pub input: DbcContentHash,
-    pub output: Vec<DbcContentHash>,
+pub struct DbcTransaction {
+    pub inputs: BTreeSet<DbcContentHash>,
+    pub outputs: BTreeSet<DbcContentHash>,
 }
 
-impl DbcSpent {
-    fn new(input: DbcContentHash, output: Vec<DbcContentHash>) -> Self {
-        Self { input, output }
+impl DbcTransaction {
+    fn new(inputs: BTreeSet<DbcContentHash>, outputs: BTreeSet<DbcContentHash>) -> Self {
+        Self { inputs, outputs }
     }
 }
