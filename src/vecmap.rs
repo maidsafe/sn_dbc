@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct VecMap<K, V>(Vec<(K, V)>);
 
 impl<K, V> Default for VecMap<K, V> {
@@ -6,6 +6,23 @@ impl<K, V> Default for VecMap<K, V> {
         Self(Vec::default())
     }
 }
+
+impl<K: Eq, V: Eq> PartialEq for VecMap<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.0.len() != other.0.len() {
+            return false;
+        }
+        for (k, v) in self.0.iter() {
+            match other.get(k) {
+                None => return false,
+                Some(other_v) if other_v != v => return false,
+                _ => (),
+            }
+        }
+        true
+    }
+}
+impl<K: Eq, V: Eq> Eq for VecMap<K, V> {}
 
 impl<K: Eq, V> VecMap<K, V> {
     pub fn new() -> Self {
@@ -68,6 +85,14 @@ mod tests {
     use super::*;
     use quickcheck_macros::quickcheck;
     use std::collections::BTreeMap;
+
+    #[quickcheck]
+    fn prop_eq(elements: Vec<u8>) {
+        let mut forward_map: VecMap<_, _> = elements.iter().cloned().map(|k| (k, 0)).collect();
+        let mut reverse_map: VecMap<_, _> = elements.into_iter().rev().map(|k| (k, 0)).collect();
+
+        assert_eq!(forward_map, reverse_map);
+    }
 
     #[quickcheck]
     fn prop_identical_to_btree_map(instructions: Vec<(u8, u8, u8)>) {

@@ -20,6 +20,7 @@ pub enum Error {
     Ed25519(#[from] ed25519::ed25519::Error),
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct ThresholdPublicKey {
     participants: VecSet<PublicKey>,
     threshold: u64,

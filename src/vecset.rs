@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct VecSet<T>(Vec<T>);
 
 impl<T> Default for VecSet<T> {
@@ -6,6 +6,22 @@ impl<T> Default for VecSet<T> {
         Self(Vec::default())
     }
 }
+
+impl<T: Eq> PartialEq for VecSet<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.0.len() != other.0.len() {
+            return false;
+        }
+        for v in self.0.iter() {
+            if !other.contains(v) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl<T: Eq> Eq for VecSet<T> {}
 
 impl<T: Eq> VecSet<T> {
     pub fn new() -> Self {
@@ -67,6 +83,14 @@ mod tests {
     use super::*;
     use quickcheck_macros::quickcheck;
     use std::collections::BTreeSet;
+
+    #[quickcheck]
+    fn prop_eq(elements: Vec<u8>) {
+        let mut forward_set: VecSet<_> = elements.iter().cloned().collect();
+        let mut reverse_set: VecSet<_> = elements.into_iter().rev().collect();
+
+        assert_eq!(forward_set, reverse_set);
+    }
 
     #[quickcheck]
     fn prop_identical_to_btree_set(instructions: Vec<(u8, u8)>) {
