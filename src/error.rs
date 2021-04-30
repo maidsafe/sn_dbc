@@ -24,10 +24,14 @@ pub enum Error {
     FailedSignature,
     #[error("Unrecognised authority.")]
     UnrecognisedAuthority,
+    #[error("At least one transaction input is missing a signature.")]
+    MissingSignatureForInput,
     #[error("Output DBCs must <= input dbc")]
     DoubleSpend,
     #[error("Dbc Content is not a member of transaction outputs")]
     DbcContentNotPresentInTransactionOutput,
+    #[error("Dbc Content parents is not the same transaction inputs")]
+    DbcContentParentsDifferentFromTransactionInputs,
     #[error("Threshold Crypto Error {0}")]
     ThresholdCrypto(#[from] crate::threshold_crypto::Error),
     /// I/O error.

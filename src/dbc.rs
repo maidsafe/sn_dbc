@@ -89,6 +89,7 @@ mod tests {
             Err(Error::DbcContentNotPresentInTransactionOutput)
         ));
     }
+
     #[quickcheck]
     fn prop_invalid_if_content_parents_is_not_transaction_inputs(
         amount: u64,
@@ -102,7 +103,7 @@ mod tests {
         let parents: BTreeSet<DbcContentHash> =
             inputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
 
-        let output_hashes: BTreeSet<DbcContentHash> =
+        let mut output_hashes: BTreeSet<DbcContentHash> =
             outputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
 
         let content = DbcContent { parents, amount };
@@ -128,5 +129,138 @@ mod tests {
             dbc.confirm_valid(&[&thresh_key]),
             Err(Error::DbcContentParentsDifferentFromTransactionInputs)
         ));
+    }
+
+    #[quickcheck]
+    fn prop_mix_of_invalid_and_valid_sigs(
+        amount: u64,
+        inputs: Vec<u8>,
+        outputs: Vec<u8>,
+        mints: u8,
+        invalid_mints: u8,
+    ) {
+        let input_hashes: BTreeSet<DbcContentHash> =
+            inputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
+
+        let mut output_hashes: BTreeSet<DbcContentHash> =
+            outputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
+
+        let content = DbcContent {
+            parents: input_hashes.clone(),
+            amount,
+        };
+        output_hashes.insert(content.hash());
+
+        let transaction = DbcTransaction::new(input_hashes.clone(), output_hashes);
+
+        let id = ed25519_keypair();
+        let thresh_key = ThresholdPublicKey::new(1, vec![id.public].into_iter().collect()).unwrap();
+        let mut thresh_sig = ThresholdSignature::new();
+        thresh_sig.add_share(id.public, id.sign(&content.hash()));
+
+        let mint_ids: Vec<_> = (0..mints).map(|_| ed25519_keypair()).collect();
+        let invalid_mint_ids: Vec<_> = (0..invalid_mints).map(|_| ed25519_keypair()).collect();
+
+        let dbc = Dbc {
+            content,
+            transaction,
+            transaction_sigs: input_hashes
+                .iter()
+                .zip(invalid_mint_ids)
+                .map(|(in_hash, mint_id)| {
+                    let thresh_key =
+                        ThresholdPublicKey::new(1, vec![mint_id.public].into_iter().collect())
+                            .unwrap();
+                    let mut thresh_sig = ThresholdSignature::new();
+                    thresh_sig.add_share(mint_id.public, mint_id.sign(in_hash));
+
+                    (*in_hash, (thresh_key, thresh_sig))
+                })
+                .chain(
+                    input_hashes
+                        .iter()
+                        .skip(invalid_mints as usize)
+                        .zip(mint_ids)
+                        .map(|(in_hash, mint_id)| {
+                            let thresh_key = ThresholdPublicKey::new(
+                                1,
+                                vec![mint_id.public].into_iter().collect(),
+                            )
+                            .unwrap();
+                            let mut thresh_sig = ThresholdSignature::new();
+                            thresh_sig.add_share(mint_id.public, mint_id.sign(in_hash));
+
+                            (*in_hash, (thresh_key, thresh_sig))
+                        }),
+                )
+                .collect(),
+        };
+
+        if invalid_mints > 0 {
+            assert!(matches!(
+                dbc.confirm_valid(&[&thresh_key]),
+                Err(Error::UnrecognisedAuthority)
+            ));
+        } else {
+            assert!(matches!(dbc.confirm_valid(&[&thresh_key]), Ok(())));
+        }
+    }
+
+    #[quickcheck]
+    fn prop_each_input_must_have_a_corresponding_signature(
+        amount: u64,
+        inputs: Vec<u8>,
+        outputs: Vec<u8>,
+        mints: u8,
+    ) {
+        let input_hashes: BTreeSet<DbcContentHash> =
+            inputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
+
+        let mut output_hashes: BTreeSet<DbcContentHash> =
+            outputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
+
+        let content = DbcContent {
+            parents: input_hashes.clone(),
+            amount,
+        };
+        output_hashes.insert(content.hash());
+
+        let transaction = DbcTransaction::new(input_hashes.clone(), output_hashes);
+
+        let id = ed25519_keypair();
+        let thresh_key = ThresholdPublicKey::new(1, vec![id.public].into_iter().collect()).unwrap();
+        let mut thresh_sig = ThresholdSignature::new();
+        thresh_sig.add_share(id.public, id.sign(&content.hash()));
+
+        let mint_ids: Vec<_> = (0..mints).map(|_| ed25519_keypair()).collect();
+
+        let dbc = Dbc {
+            content,
+            transaction,
+            transaction_sigs: input_hashes
+                .iter()
+                .zip(mint_ids)
+                .map(|(in_hash, mint_id)| {
+                    let thresh_key =
+                        ThresholdPublicKey::new(1, vec![mint_id.public].into_iter().collect())
+                            .unwrap();
+                    let mut thresh_sig = ThresholdSignature::new();
+                    thresh_sig.add_share(mint_id.public, mint_id.sign(in_hash));
+
+                    (*in_hash, (thresh_key, thresh_sig))
+                })
+                .collect(),
+        };
+
+        let validation_res = dbc.confirm_valid(&[&thresh_key]);
+
+        if (mints as usize) < inputs.len() {
+            assert!(matches!(
+                validation_res,
+                Err(Error::MissingSignatureForInput)
+            ));
+        } else {
+            assert!(matches!(validation_res, Ok(())));
+        }
     }
 }

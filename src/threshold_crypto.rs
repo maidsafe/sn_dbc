@@ -1,5 +1,8 @@
+use std::collections::BTreeSet;
+
 use ed25519::{Keypair, PublicKey, Signature, Signer, Verifier};
 use thiserror::Error;
+use tiny_keccak::{Hasher, Sha3};
 
 use crate::Hash;
 use crate::{VecMap, VecSet};
@@ -62,6 +65,21 @@ impl ThresholdPublicKey {
         } else {
             Err(Error::ImposterKey(*pub_share))
         }
+    }
+
+    pub fn hash(&self) -> Hash {
+        let mut sha3 = Sha3::v256();
+
+        let participant_bytes: BTreeSet<_> =
+            self.participants.iter().map(|p| p.as_bytes()).collect();
+
+        for participant in participant_bytes {
+            sha3.update(participant)
+        }
+
+        let mut hash = [0; 32];
+        sha3.finalize(&mut hash);
+        hash
     }
 }
 

@@ -32,8 +32,13 @@ impl SpendBook {
     }
 }
 
-struct Mint {
-    chain: Vec<ThresholdPublicKey>,
+pub struct ChainNode {
+    mint_key: ThresholdPublicKey,
+    old_mint_sig: ThresholdSignature,
+}
+
+struct MintNode {
+    chain: Vec<ChainNode>,
     key_cache: VecSet<ThresholdPublicKey>,
     keypair: Keypair,
     spendbook: SpendBook,
@@ -50,9 +55,9 @@ enum MintEvent {
     },
 }
 
-impl Mint {
-    fn new(chain: Vec<ThresholdPublicKey>, spendbook: SpendBook) -> Self {
-        let key_cache = chain.iter().cloned().collect();
+impl MintNode {
+    fn new(chain: Vec<ChainNode>, spendbook: SpendBook) -> Self {
+        let key_cache = chain.iter().map(|node| node.mint_key.clone()).collect();
         Self {
             keypair: threshold_crypto::ed25519_keypair(),
             chain,
@@ -91,9 +96,15 @@ impl Mint {
                 .collect(),
         };
 
+        let mut thresh_key_sig = ThresholdSignature::new();
+        thresh_key_sig.add_share(keypair.public, keypair.sign(&thresh_key.hash()));
+
         let mint = Self {
             keypair,
-            chain: vec![thresh_key.clone()],
+            chain: vec![ChainNode {
+                mint_key: thresh_key.clone(),
+                old_mint_sig: thresh_key_sig,
+            }],
             key_cache: vec![thresh_key].into_iter().collect(),
             spendbook,
         };
@@ -103,7 +114,7 @@ impl Mint {
 
     fn current_mint(&self) -> &ThresholdPublicKey {
         // TODO: remove this unwrap by storing current mint seperately form chain
-        self.chain.iter().rev().next().unwrap()
+        &self.chain.iter().rev().next().unwrap().mint_key
     }
 
     fn public_key(&self) -> PublicKey {
@@ -128,7 +139,7 @@ mod tests {
 
     #[quickcheck]
     fn prop_genesis() {
-        let (mint, genesis_dbc) = Mint::genesis(1000).unwrap();
+        let (mint, genesis_dbc) = MintNode::genesis(1000).unwrap();
         assert_eq!(genesis_dbc.content.amount, 1000);
 
         assert!(mint
