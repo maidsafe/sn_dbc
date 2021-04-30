@@ -22,6 +22,7 @@ impl<K: Eq, V: Eq> PartialEq for VecMap<K, V> {
         true
     }
 }
+
 impl<K: Eq, V: Eq> Eq for VecMap<K, V> {}
 
 impl<K: Eq, V> VecMap<K, V> {

@@ -26,6 +26,10 @@ pub enum Error {
     UnrecognisedAuthority,
     #[error("Output DBCs must <= input dbc")]
     DoubleSpend,
+    #[error("Dbc Content is not a member of transaction outputs")]
+    DbcContentNotPresentInTransactionOutput,
+    #[error("Threshold Crypto Error {0}")]
+    ThresholdCrypto(#[from] crate::threshold_crypto::Error),
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),

@@ -20,14 +20,14 @@ pub enum Error {
     Ed25519(#[from] ed25519::ed25519::Error),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ThresholdPublicKey {
     participants: VecSet<PublicKey>,
     threshold: u64,
 }
 
 impl ThresholdPublicKey {
-    fn new(threshold: u64, participants: VecSet<PublicKey>) -> Result<Self, Error> {
+    pub fn new(threshold: u64, participants: VecSet<PublicKey>) -> Result<Self, Error> {
         if threshold > participants.len() as u64 {
             Err(Error::ThresholdCanNotExceedParticipants)
         } else {
@@ -38,7 +38,7 @@ impl ThresholdPublicKey {
         }
     }
 
-    fn verify(&self, msg_hash: &Hash, signature: &ThresholdSignature) -> Result<(), Error> {
+    pub fn verify(&self, msg_hash: &Hash, signature: &ThresholdSignature) -> Result<(), Error> {
         if signature.num_shares() < self.threshold {
             return Err(Error::NotEnoughShares {
                 got: signature.num_shares(),
@@ -51,7 +51,7 @@ impl ThresholdPublicKey {
         Ok(())
     }
 
-    fn verify_share(
+    pub fn verify_share(
         &self,
         msg_hash: &Hash,
         pub_share: &PublicKey,
@@ -65,26 +65,27 @@ impl ThresholdPublicKey {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ThresholdSignature {
     shares: VecMap<PublicKey, Signature>,
 }
 
 impl ThresholdSignature {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             shares: Default::default(),
         }
     }
 
-    fn shares(&self) -> impl Iterator<Item = &(PublicKey, Signature)> {
+    pub fn shares(&self) -> impl Iterator<Item = &(PublicKey, Signature)> {
         self.shares.iter()
     }
 
-    fn num_shares(&self) -> u64 {
+    pub fn num_shares(&self) -> u64 {
         self.shares.len() as u64
     }
 
-    fn add_share(&mut self, signer: PublicKey, sig: Signature) {
+    pub fn add_share(&mut self, signer: PublicKey, sig: Signature) {
         self.shares.insert(signer, sig);
     }
 }

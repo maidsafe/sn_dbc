@@ -27,6 +27,7 @@ pub use crate::{
     dbc_content::DbcContent,
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
+    threshold_crypto::{ThresholdPublicKey, ThresholdSignature},
     vecmap::VecMap,
     vecset::VecSet,
 };
@@ -51,23 +52,5 @@ mod tests {
     \xca\x71\xfb\xa1\xd9\x72\xfd\x94\xa3\x1c\x3b\xfb\xf2\x4e\x39\x38\
 ";
         assert_eq!(sha3_256(data), *expected);
-    }
-
-    #[test]
-    fn create_dbc() {
-        let parent = [0; 32];
-        let owner = [0; 32];
-        let amount = 1000;
-        let content = DbcContent::new(parent, owner, amount);
-        let transaction = DbcTransaction {
-            inputs: vec![[0; 32]].into_iter().collect(),
-            outputs: vec![[0; 32]].into_iter().collect(),
-        };
-        // let dbc = Dbc {
-        //     content,
-        //     transaction,
-        //     mint_key: [0; 32],
-        //     mint_sig: [0; 32],
-        // };
     }
 }
