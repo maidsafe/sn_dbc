@@ -50,6 +50,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use ed25519::{Keypair, PublicKey, Signature, Signer, Verifier};
+    use quickcheck::TestResult;
     use quickcheck_macros::quickcheck;
 
     use crate::{key_manager::ed25519_keypair, sha3_256, Mint, MintRequest};
@@ -231,25 +232,30 @@ mod tests {
     // }
 
     #[quickcheck]
-    fn prop_each_input_must_have_a_corresponding_mint_sig(amount: u64, n_inputs: u8, n_sigs: u8) {
-        let (genesis, genesis_dbc) = Mint::genesis(amount);
+    fn prop_each_input_is_signed(amount: u64, n_inputs: u8, n_sigs: u8) -> TestResult {
+        if n_inputs > 7 {
+            return TestResult::discard();
+        }
 
+        let (genesis, genesis_dbc) = Mint::genesis(amount);
         let genesis_inputs: BTreeSet<_> = vec![genesis_dbc.name()].into_iter().collect();
 
         let mint_request = prepare_even_split(&genesis_dbc, n_inputs);
         let (split_transaction, signature) = genesis.reissue(mint_request.clone()).unwrap();
+        let split_transaction_sigs: BTreeMap<_, _> =
+            vec![(genesis_dbc.name(), (genesis.public_key(), signature))]
+                .into_iter()
+                .collect();
 
         assert_eq!(split_transaction, mint_request.to_transaction());
 
         let input_dbcs: HashSet<_> = mint_request
             .outputs
             .into_iter()
-            .map(|output_content| Dbc {
-                content: output_content,
+            .map(|content| Dbc {
+                content,
                 transaction: split_transaction.clone(),
-                transaction_sigs: vec![(genesis_dbc.name(), (genesis.public_key(), signature))]
-                    .into_iter()
-                    .collect(),
+                transaction_sigs: split_transaction_sigs.clone(),
             })
             .collect();
 
@@ -263,17 +269,19 @@ mod tests {
             outputs: vec![content.clone()].into_iter().collect(),
         };
 
-        let (minted_transaction, mint_sig) = genesis.reissue(mint_request.clone()).unwrap();
-        assert_eq!(mint_request.to_transaction(), minted_transaction);
+        let (transaction, mint_sig) = genesis.reissue(mint_request.clone()).unwrap();
+        assert_eq!(mint_request.to_transaction(), transaction);
+
+        let transaction_sigs = input_hashes
+            .into_iter()
+            .take(n_sigs as usize) // we will only sign `n_sigs` inputs
+            .map(|in_hash| (in_hash, (genesis.public_key(), mint_sig)))
+            .collect();
 
         let dbc = Dbc {
             content,
-            transaction: minted_transaction,
-            transaction_sigs: input_hashes
-                .into_iter()
-                .take(n_sigs as usize)
-                .map(|in_hash| (in_hash, (genesis.public_key(), mint_sig)))
-                .collect(),
+            transaction,
+            transaction_sigs,
         };
 
         assert_eq!(dbc.amount(), amount);
@@ -288,5 +296,7 @@ mod tests {
         } else {
             assert!(matches!(validation_res, Ok(())));
         }
+
+        TestResult::passed()
     }
 }

@@ -86,8 +86,8 @@ mod tests {
 
     #[quickcheck]
     fn prop_eq(elements: Vec<u8>) {
-        let mut forward_set: VecSet<_> = elements.iter().cloned().collect();
-        let mut reverse_set: VecSet<_> = elements.into_iter().rev().collect();
+        let forward_set: VecSet<_> = elements.iter().cloned().collect();
+        let reverse_set: VecSet<_> = elements.into_iter().rev().collect();
 
         assert_eq!(forward_set, reverse_set);
     }

@@ -89,8 +89,8 @@ mod tests {
 
     #[quickcheck]
     fn prop_eq(elements: Vec<u8>) {
-        let mut forward_map: VecMap<_, _> = elements.iter().cloned().map(|k| (k, 0)).collect();
-        let mut reverse_map: VecMap<_, _> = elements.into_iter().rev().map(|k| (k, 0)).collect();
+        let forward_map: VecMap<_, _> = elements.iter().cloned().map(|k| (k, 0)).collect();
+        let reverse_map: VecMap<_, _> = elements.into_iter().rev().map(|k| (k, 0)).collect();
 
         assert_eq!(forward_map, reverse_map);
     }
