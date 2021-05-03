@@ -10,23 +10,28 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
 
-use crate::{sha3_256, DbcContentHash, Error, Result, VecSet};
+use crate::DbcContentHash;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
     pub parents: BTreeSet<DbcContentHash>, // Hash of parent DbcContent. Also used as a nonce
     // TODO: pub owner: PubKey
     pub amount: u64,
+    pub output_number: u8,
 }
 
 impl DbcContent {
     // Create a new DbcContent for signing. TODO: blind the owner from the mint
-    pub fn new(parents: BTreeSet<DbcContentHash>, amount: u64) -> Self {
+    pub fn new(parents: BTreeSet<DbcContentHash>, amount: u64, output_number: u8) -> Self {
         // let mut owner = owner;
         // for _ in 0..amount % 1000 {
         //     owner = sha3_256(&owner); // owner not visible to mint, until out_dbc is minted.
         // }
-        DbcContent { parents, amount }
+        DbcContent {
+            parents,
+            amount,
+            output_number,
+        }
     }
 
     pub fn hash(&self) -> DbcContentHash {
@@ -40,6 +45,7 @@ impl DbcContent {
         }
 
         sha3.update(&self.amount.to_be_bytes());
+        sha3.update(&self.output_number.to_be_bytes());
 
         let mut hash = [0; 32];
         sha3.finalize(&mut hash);

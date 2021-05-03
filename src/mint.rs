@@ -13,10 +13,11 @@
 // input is vaid
 // Outputs <= input value
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::{
-    Dbc, DbcContent, DbcContentHash, DbcTransaction, KeyManager, PublicKey, Result, Signature,
+    Dbc, DbcContent, DbcContentHash, DbcTransaction, KeyCache, KeyManager, PublicKey, Result,
+    Signature,
 };
 
 #[derive(Default)]
@@ -30,21 +31,34 @@ impl SpendBook {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct MintRequest {
+    pub inputs: HashSet<Dbc>,
+    pub outputs: HashSet<DbcContent>,
+}
+
+impl MintRequest {
+    pub fn to_transaction(&self) -> DbcTransaction {
+        DbcTransaction {
+            inputs: self.inputs.iter().map(|i| i.name()).collect(),
+            outputs: self.outputs.iter().map(|i| i.hash()).collect(),
+        }
+    }
+}
+
 pub struct Mint {
     key_mgr: KeyManager,
     spendbook: SpendBook,
 }
 
 impl Mint {
-    fn genesis(amount: u64) -> Result<(Self, Dbc)> {
+    pub fn genesis(amount: u64) -> (Self, Dbc) {
         let key_mgr = KeyManager::new_genesis();
 
         let genesis_input = [0u8; 32];
 
-        let content = DbcContent {
-            parents: vec![genesis_input].into_iter().collect(),
-            amount,
-        };
+        let parents = vec![genesis_input].into_iter().collect();
+        let content = DbcContent::new(parents, amount, 0);
 
         let transaction = DbcTransaction {
             inputs: vec![genesis_input].into_iter().collect(),
@@ -64,20 +78,21 @@ impl Mint {
                 .collect(),
         };
 
-        Ok((Self { key_mgr, spendbook }, dbc))
+        (Self { key_mgr, spendbook }, dbc)
     }
 
-    fn public_key(&self) -> PublicKey {
+    pub fn key_cache(&self) -> &KeyCache {
+        self.key_mgr.key_cache()
+    }
+
+    pub fn public_key(&self) -> PublicKey {
         self.key_mgr.public_key()
     }
 
-    fn reissue(
-        inputs: Vec<Dbc>,
-        outputs: Vec<DbcContent>,
-        transaction: DbcTransaction,
-        input_ownership_proofs: BTreeMap<DbcContentHash, Signature>,
-    ) -> Result<()> {
-        todo!();
+    pub fn reissue(&self, mint_request: MintRequest) -> Result<(DbcTransaction, Signature)> {
+        let transaction = mint_request.to_transaction();
+        let sig = self.key_mgr.sign(&transaction.hash());
+        Ok((transaction, sig))
     }
 }
 
@@ -89,21 +104,18 @@ mod tests {
 
     #[quickcheck]
     fn prop_genesis() {
-        let (mint, genesis_dbc) = Mint::genesis(1000).unwrap();
+        let (mint, genesis_dbc) = Mint::genesis(1000);
         assert_eq!(genesis_dbc.content.amount, 1000);
-
-        assert!(mint
-            .verify(
-                &genesis_dbc.transaction.hash(),
-                &genesis_dbc.transaction_sigs[&[0u8; 32]].1,
-            )
-            .is_ok());
-
-        assert!(genesis_dbc.confirm_valid(&[mint.current_mint()]).is_ok())
+        assert!(genesis_dbc.confirm_valid(&mint.key_cache()).is_ok());
     }
 
     #[quickcheck]
     fn prop_dbc_transaction_happy_path() {
+        todo!()
+    }
+
+    #[quickcheck]
+    fn prop_dbc_ensure_outputs_are_numbered_uniquely() {
         todo!()
     }
 

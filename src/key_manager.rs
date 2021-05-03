@@ -8,7 +8,7 @@ use crate::{Error, Hash, Result};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublicKey(EdPublicKey);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Signature(EdSignature);
 
 impl std::hash::Hash for PublicKey {
@@ -49,7 +49,28 @@ pub fn ed25519_keypair() -> Keypair {
     Keypair::generate(&mut rand::thread_rng())
 }
 
-pub type KeyCache = HashSet<PublicKey>;
+#[derive(Default)]
+pub struct KeyCache(HashSet<PublicKey>);
+
+impl KeyCache {
+    pub fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
+        if self.0.contains(key) {
+            Ok(())
+        } else {
+            Err(Error::UnrecognisedAuthority)
+        }
+    }
+
+    pub fn add_known_key(&mut self, key: PublicKey) {
+        self.0.insert(key);
+    }
+}
+
+impl From<Vec<PublicKey>> for KeyCache {
+    fn from(keys: Vec<PublicKey>) -> Self {
+        Self(keys.into_iter().collect())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ChainNode {
@@ -69,15 +90,23 @@ impl KeyManager {
         Self {
             keypair,
             genesis,
-            chain: Vec::new(),
-            cache: KeyCache::new(),
+            chain: Vec::default(),
+            cache: KeyCache::default(),
         }
+    }
+
+    pub fn generate(genesis: PublicKey) -> Self {
+        Self::new(ed25519_keypair(), genesis)
     }
 
     pub fn new_genesis() -> Self {
         let keypair = ed25519_keypair();
         let genesis = PublicKey(keypair.public);
         Self::new(keypair, genesis)
+    }
+
+    pub fn key_cache(&self) -> &KeyCache {
+        &self.cache
     }
 
     pub fn public_key(&self) -> PublicKey {
@@ -89,7 +118,7 @@ impl KeyManager {
     }
 
     pub fn verify(&self, msg_hash: &Hash, key: &PublicKey, signature: &Signature) -> Result<()> {
-        self.verify_known_key(key)?;
+        self.cache.verify_known_key(key)?;
         key.ed().verify(msg_hash, &signature.ed())?;
         Ok(())
     }
@@ -98,15 +127,7 @@ impl KeyManager {
         &self.chain
     }
 
-    pub fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
-        if self.cache.contains(key) {
-            Ok(())
-        } else {
-            Err(Error::UnrecognisedAuthority)
-        }
-    }
-
-    pub fn verify_and_cache_chain(&mut self, chain: &[ChainNode]) -> Result<()> {
+    pub fn process_chain(&mut self, chain: &[ChainNode]) -> Result<()> {
         let adjacent_pairs = std::iter::once(&self.genesis)
             .chain(chain.iter().map(|n| &n.mint_key))
             .zip(chain.iter());
@@ -116,7 +137,7 @@ impl KeyManager {
                 &successor_mint.mint_key.hash(),
                 &successor_mint.prev_mint_sig.ed(),
             )?;
-            self.cache.insert(successor_mint.mint_key);
+            self.cache.add_known_key(successor_mint.mint_key);
         }
 
         Ok(())
@@ -128,11 +149,10 @@ mod tests {
     use super::*;
 
     use quickcheck_macros::quickcheck;
-    use std::collections::BTreeSet;
 
     #[test]
     fn test_empty_chain_processing() {
-        let genesis_key_mgr = KeyManager::new_genesis();
+        let mut genesis_key_mgr = KeyManager::new_genesis();
         assert!(genesis_key_mgr.process_chain(&[]).is_ok());
     }
 

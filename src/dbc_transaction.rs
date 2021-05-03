@@ -15,7 +15,7 @@ use crate::{DbcContentHash, Hash};
 /// The spent identifier of the outputs created from this input
 /// Note these are hashes and not identifiers as the Dbc is not addressable on the network.
 /// i.e. a Dbc can be stored anywhere, even offline.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DbcTransaction {
     pub inputs: BTreeSet<DbcContentHash>,
     pub outputs: BTreeSet<DbcContentHash>,

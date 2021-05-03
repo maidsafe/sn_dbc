@@ -26,6 +26,7 @@ pub use crate::{
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
     key_manager::{ChainNode, KeyCache, KeyManager, PublicKey, Signature},
+    mint::{Mint, MintRequest},
     vecmap::VecMap,
     vecset::VecSet,
 };
