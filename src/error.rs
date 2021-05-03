@@ -32,8 +32,8 @@ pub enum Error {
     DbcContentNotPresentInTransactionOutput,
     #[error("Dbc Content parents is not the same transaction inputs")]
     DbcContentParentsDifferentFromTransactionInputs,
-    #[error("Threshold Crypto Error {0}")]
-    ThresholdCrypto(#[from] crate::threshold_crypto::Error),
+    #[error("Failed to verify signature")]
+    Ed25519(#[from] ed25519::ed25519::Error),
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),

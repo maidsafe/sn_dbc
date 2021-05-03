@@ -13,12 +13,10 @@
 // input is vaid
 // Outputs <= input value
 
-use ed25519::{Keypair, PublicKey, Signature, Signer, Verifier};
 use std::collections::BTreeMap;
 
 use crate::{
-    threshold_crypto, Dbc, DbcContent, DbcContentHash, DbcTransaction, Result, ThresholdPublicKey,
-    ThresholdSignature, VecSet,
+    Dbc, DbcContent, DbcContentHash, DbcTransaction, KeyManager, PublicKey, Result, Signature,
 };
 
 #[derive(Default)]
@@ -32,43 +30,14 @@ impl SpendBook {
     }
 }
 
-pub struct ChainNode {
-    mint_key: ThresholdPublicKey,
-    old_mint_sig: ThresholdSignature,
-}
-
-struct MintNode {
-    chain: Vec<ChainNode>,
-    key_cache: VecSet<ThresholdPublicKey>,
-    keypair: Keypair,
+pub struct Mint {
+    key_mgr: KeyManager,
     spendbook: SpendBook,
 }
 
-enum MintEvent {
-    Genesis {},
-    Churn {},
-    Reissue {
-        inputs: Vec<Dbc>,
-        outputs: Vec<DbcContent>,
-        transaction: DbcTransaction,
-        input_ownership_proofs: BTreeMap<DbcContentHash, Signature>,
-    },
-}
-
-impl MintNode {
-    fn new(chain: Vec<ChainNode>, spendbook: SpendBook) -> Self {
-        let key_cache = chain.iter().map(|node| node.mint_key.clone()).collect();
-        Self {
-            keypair: threshold_crypto::ed25519_keypair(),
-            chain,
-            key_cache,
-            spendbook,
-        }
-    }
-
+impl Mint {
     fn genesis(amount: u64) -> Result<(Self, Dbc)> {
-        let keypair = threshold_crypto::ed25519_keypair();
-        let thresh_key = ThresholdPublicKey::new(1, vec![keypair.public].into_iter().collect())?;
+        let key_mgr = KeyManager::new_genesis();
 
         let genesis_input = [0u8; 32];
 
@@ -85,40 +54,21 @@ impl MintNode {
         let mut spendbook = SpendBook::default();
         spendbook.log(genesis_input, transaction.clone());
 
-        let mut thresh_sig = ThresholdSignature::new();
-        thresh_sig.add_share(keypair.public, keypair.sign(&transaction.hash()));
+        let transaction_sig = key_mgr.sign(&transaction.hash());
 
         let dbc = Dbc {
             content,
             transaction,
-            transaction_sigs: vec![(genesis_input, (thresh_key.clone(), thresh_sig))]
+            transaction_sigs: vec![(genesis_input, (key_mgr.public_key(), transaction_sig))]
                 .into_iter()
                 .collect(),
         };
 
-        let mut thresh_key_sig = ThresholdSignature::new();
-        thresh_key_sig.add_share(keypair.public, keypair.sign(&thresh_key.hash()));
-
-        let mint = Self {
-            keypair,
-            chain: vec![ChainNode {
-                mint_key: thresh_key.clone(),
-                old_mint_sig: thresh_key_sig,
-            }],
-            key_cache: vec![thresh_key].into_iter().collect(),
-            spendbook,
-        };
-
-        Ok((mint, dbc))
-    }
-
-    fn current_mint(&self) -> &ThresholdPublicKey {
-        // TODO: remove this unwrap by storing current mint seperately form chain
-        &self.chain.iter().rev().next().unwrap().mint_key
+        Ok((Self { key_mgr, spendbook }, dbc))
     }
 
     fn public_key(&self) -> PublicKey {
-        self.keypair.public
+        self.key_mgr.public_key()
     }
 
     fn reissue(
@@ -139,11 +89,10 @@ mod tests {
 
     #[quickcheck]
     fn prop_genesis() {
-        let (mint, genesis_dbc) = MintNode::genesis(1000).unwrap();
+        let (mint, genesis_dbc) = Mint::genesis(1000).unwrap();
         assert_eq!(genesis_dbc.content.amount, 1000);
 
         assert!(mint
-            .current_mint()
             .verify(
                 &genesis_dbc.transaction.hash(),
                 &genesis_dbc.transaction_sigs[&[0u8; 32]].1,

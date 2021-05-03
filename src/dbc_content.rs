@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
 
-use crate::{sha3_256, DbcContentHash, Error, PubKey, Result, VecSet};
+use crate::{sha3_256, DbcContentHash, Error, Result, VecSet};
 
 #[derive(Serialize, Deserialize)]
 pub struct DbcContent {

@@ -8,20 +8,19 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    DbcContent, DbcContentHash, DbcTransaction, Error, Result, ThresholdPublicKey,
-    ThresholdSignature,
+    DbcContent, DbcContentHash, DbcTransaction, Error, KeyCache, PublicKey, Result, Signature,
 };
 
 pub struct Dbc {
     pub content: DbcContent,
     pub transaction: DbcTransaction,
-    pub transaction_sigs: BTreeMap<DbcContentHash, (ThresholdPublicKey, ThresholdSignature)>,
+    pub transaction_sigs: BTreeMap<DbcContentHash, (PublicKey, Signature)>,
 }
 
 impl Dbc {
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
-    pub fn confirm_valid(&self, known_keys: &[&ThresholdPublicKey]) -> Result<(), Error> {
+    pub fn confirm_valid(&self, key_cache: &KeyCache) -> Result<(), Error> {
         todo!();
         // if !self.transaction.outputs.contains(&self.content.hash()) {
         //     return Err(Error::DbcContentNotPresentInTransactionOutput);
@@ -211,7 +210,7 @@ mod tests {
         amount: u64,
         inputs: Vec<u8>,
         outputs: Vec<u8>,
-        mints: u8,
+        n_mints: u8,
     ) {
         let input_hashes: BTreeSet<DbcContentHash> =
             inputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
@@ -232,7 +231,7 @@ mod tests {
         let mut thresh_sig = ThresholdSignature::new();
         thresh_sig.add_share(id.public, id.sign(&content.hash()));
 
-        let mint_ids: Vec<_> = (0..mints).map(|_| ed25519_keypair()).collect();
+        let mint_ids: Vec<_> = (0..n_mints).map(|_| ed25519_keypair()).collect();
 
         let dbc = Dbc {
             content,
@@ -254,7 +253,7 @@ mod tests {
 
         let validation_res = dbc.confirm_valid(&[&thresh_key]);
 
-        if (mints as usize) < inputs.len() {
+        if (n_mints as usize) < inputs.len() {
             assert!(matches!(
                 validation_res,
                 Err(Error::MissingSignatureForInput)

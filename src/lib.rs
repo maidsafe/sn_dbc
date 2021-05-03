@@ -9,16 +9,14 @@
 use tiny_keccak::{Hasher, Sha3};
 /// These typdefs are to simplify algorithm for now and will be removed for production.
 pub(crate) type Hash = [u8; 32];
-pub(crate) type PubKey = [u8; 32]; // tmp
-pub(crate) type Signature = [u8; 32]; // tmp
 pub(crate) type DbcContentHash = [u8; 32];
 pub(crate) type DbcSpentHash = [u8; 32];
 mod dbc;
 mod dbc_content;
 mod dbc_transaction;
 mod error;
+mod key_manager;
 mod mint;
-mod threshold_crypto;
 mod vecmap;
 mod vecset;
 
@@ -27,7 +25,7 @@ pub use crate::{
     dbc_content::DbcContent,
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
-    threshold_crypto::{ThresholdPublicKey, ThresholdSignature},
+    key_manager::{ChainNode, KeyCache, KeyManager, PublicKey, Signature},
     vecmap::VecMap,
     vecset::VecSet,
 };
