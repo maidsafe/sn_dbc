@@ -6,10 +6,10 @@ use tiny_keccak::{Hasher, Sha3};
 use crate::{Error, Hash, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PublicKey(EdPublicKey);
+pub struct PublicKey(pub(crate) EdPublicKey);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Signature(EdSignature);
+pub struct Signature(pub(crate) EdSignature);
 
 impl std::hash::Hash for PublicKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -53,6 +53,12 @@ pub fn ed25519_keypair() -> Keypair {
 pub struct KeyCache(HashSet<PublicKey>);
 
 impl KeyCache {
+    pub fn verify(&self, msg: &Hash, key: &PublicKey, sig: &Signature) -> Result<()> {
+        self.verify_known_key(key)?;
+        key.0.verify(msg, &sig.0)?;
+        Ok(())
+    }
+
     pub fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
         if self.0.contains(key) {
             Ok(())

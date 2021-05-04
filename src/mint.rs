@@ -47,7 +47,7 @@ impl MintRequest {
 }
 
 pub struct Mint {
-    key_mgr: KeyManager,
+    pub(crate) key_mgr: KeyManager,
     spendbook: SpendBook,
 }
 

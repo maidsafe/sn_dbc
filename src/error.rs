@@ -20,6 +20,8 @@ pub enum Error {
     /// Attempted to perform an operation meant only for Adults when we are not one.
     #[error("Attempted an invalid operation {0}")]
     InvalidOperation(String),
+    #[error("This input has a signature, but it doesn't appear in the transaction")]
+    UnknownInput,
     #[error("Failed signature check.")]
     FailedSignature,
     #[error("Unrecognised authority.")]
