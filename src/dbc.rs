@@ -109,7 +109,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn prop_mint_signatures(
+    fn prop_dbc_validation(
         n_inputs: TinyInt,             // # of input DBC's
         n_valid_sigs: TinyInt,         // # of valid sigs
         n_wrong_signer_sigs: TinyInt,  // # of valid sigs from unrecognized authority
