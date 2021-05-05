@@ -123,7 +123,9 @@ mod tests {
     fn prop_genesis() {
         let (mint, genesis_dbc) = Mint::genesis(1000);
         assert_eq!(genesis_dbc.content.amount, 1000);
-        assert!(genesis_dbc.confirm_valid(&mint.key_cache()).is_ok());
+        let validation = genesis_dbc.confirm_valid(&mint.key_cache());
+        println!("Genesis DBC Validation {:?}", validation);
+        assert!(validation.is_ok());
     }
 
     #[quickcheck]

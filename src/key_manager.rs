@@ -109,11 +109,13 @@ pub struct KeyManager {
 
 impl KeyManager {
     pub fn new(keypair: Keypair, genesis: PublicKey) -> Self {
+        let mut cache = KeyCache::default();
+        cache.add_known_key(genesis);
         Self {
             keypair,
             genesis,
             chain: Vec::default(),
-            cache: KeyCache::default(),
+            cache,
         }
     }
 
