@@ -192,9 +192,16 @@ mod tests {
         let input_hashes: BTreeSet<DbcContentHash> =
             inputs.iter().map(|in_dbc| in_dbc.name()).collect();
 
-        let content_parents = input_hashes
-            .iter()
-            .copied()
+        let content = DbcContent::new(input_hashes.clone(), amount, 0);
+        let outputs = vec![content.clone()].into_iter().collect();
+
+        let mint_request = MintRequest { inputs, outputs };
+
+        let (transaction, mint_sig) = genesis.reissue(mint_request.clone()).unwrap();
+        assert_eq!(mint_request.to_transaction(), transaction);
+
+        let fuzzed_parents = input_hashes
+            .into_iter()
             .skip(n_drop_parents.into()) // drop some parents
             .chain(
                 // add some random parents
@@ -204,17 +211,11 @@ mod tests {
             )
             .collect();
 
-        let content = DbcContent::new(
-            content_parents,
+        let fuzzed_content = DbcContent::new(
+            fuzzed_parents,
             amount + extra_output_amount.into::<u64>(),
             0,
         );
-        let outputs = vec![content.clone()].into_iter().collect();
-
-        let mint_request = MintRequest { inputs, outputs };
-
-        let (transaction, mint_sig) = genesis.reissue(mint_request.clone()).unwrap();
-        assert_eq!(mint_request.to_transaction(), transaction);
 
         let mut transaction_sigs: BTreeMap<Hash, (PublicKey, Signature)> = Default::default();
 
@@ -255,7 +256,7 @@ mod tests {
         }
 
         let dbc = Dbc {
-            content,
+            content: fuzzed_content,
             transaction,
             transaction_sigs,
         };
@@ -267,6 +268,7 @@ mod tests {
         match validation_res {
             Ok(()) => {
                 assert_eq!(dbc.amount(), amount);
+                assert!(dbc.transaction.outputs.contains(&dbc.content.hash()));
                 assert_eq!(n_extra_input_sigs.into::<u8>(), 0);
                 if n_inputs.into::<u8>() > 0 {
                     assert!(n_valid_sigs >= n_inputs);
@@ -303,6 +305,9 @@ mod tests {
             Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
                 assert!(n_add_random_parents > TinyInt(0) || n_drop_parents > TinyInt(0));
                 assert!(dbc.transaction.inputs != dbc.content.parents);
+                assert!(!dbc.transaction.outputs.contains(&dbc.content.hash()));
+            }
+            Err(Error::DbcContentNotPresentInTransactionOutput) => {
                 assert!(!dbc.transaction.outputs.contains(&dbc.content.hash()));
             }
             res => panic!("Unexpected verification result {:?}", res),
