@@ -30,17 +30,12 @@ impl Dbc {
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
     pub fn confirm_valid(&self, key_cache: &KeyCache) -> Result<(), Error> {
-        if let Some(_) = self
-            .transaction_sigs
-            .keys()
-            .copied()
-            .find(|input| !self.transaction.inputs.contains(input))
-        {
-            return Err(Error::UnknownInput);
-        }
-
         use ed25519::Verifier;
-        for (_input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
+        for (input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
+            if !self.transaction.inputs.contains(input) {
+                return Err(Error::UnknownInput);
+            }
+
             key_cache.verify(&self.transaction.hash(), &mint_key, &mint_sig)?;
         }
 
@@ -172,15 +167,15 @@ mod tests {
     // }
 
     #[quickcheck]
-    fn prop_input_signatures(
+    fn prop_mint_signatures(
         amount: u64,
-        n_inputs: u8,
-        n_valid_sigs: u8,        // number of valid signatures
-        n_wrong_signer_sigs: u8, // number of valid sigs from unrecognized authority
-        n_wrong_msg_sigs: u8, // number of sigs from recognized authority but signing wrong message
-        n_extra_input_sigs: u8, // signatures for inputs not part of the transaction
+        n_inputs: u8,            // # of input DBC's
+        n_valid_sigs: u8,        // # of valid sigs
+        n_wrong_signer_sigs: u8, // # of valid sigs from unrecognized authority
+        n_wrong_msg_sigs: u8,    // # of sigs from recognized authority but signing wrong message
+        n_extra_input_sigs: u8,  // # of sigs for inputs not part of the transaction
     ) -> TestResult {
-        if n_inputs > 14 {
+        if n_inputs > 7 {
             return TestResult::discard();
         }
 
@@ -221,7 +216,7 @@ mod tests {
 
         let mut repeating_inputs = mint_request.inputs.iter().cycle();
 
-        // Valid signatures
+        // Valid sigs
         for _ in 0..n_valid_sigs {
             if let Some(input) = repeating_inputs.next() {
                 transaction_sigs.insert(input.name(), (genesis.public_key(), mint_sig));
