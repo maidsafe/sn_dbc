@@ -30,6 +30,8 @@ pub enum Error {
     MissingSignatureForInput,
     #[error("Output DBCs must <= input dbc")]
     DoubleSpend,
+    #[error("The DBC transaction must have at least one input")]
+    TransactionMustHaveAnInput,
     #[error("Dbc Content is not a member of transaction outputs")]
     DbcContentNotPresentInTransactionOutput,
     #[error("Dbc Content parents is not the same transaction inputs")]

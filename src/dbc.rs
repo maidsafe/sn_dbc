@@ -37,8 +37,9 @@ impl Dbc {
 
             key_cache.verify(&self.transaction.hash(), &mint_key, &mint_sig)?;
         }
-
-        if self.transaction_sigs.len() < self.transaction.inputs.len() {
+        if self.transaction.inputs.len() == 0 {
+            Err(Error::TransactionMustHaveAnInput)
+        } else if self.transaction_sigs.len() < self.transaction.inputs.len() {
             Err(Error::MissingSignatureForInput)
         } else if self.transaction.inputs != self.content.parents {
             Err(Error::DbcContentParentsDifferentFromTransactionInputs)
@@ -81,6 +82,31 @@ mod tests {
             .collect();
 
         MintRequest { inputs, outputs }
+    }
+
+    #[test]
+    fn test_dbc_without_inputs_is_invalid() {
+        let input_content = DbcContent {
+            parents: Default::default(),
+            amount: 100,
+            output_number: 0,
+        };
+
+        let input_content_hashes: BTreeSet<_> = vec![input_content.hash()].into_iter().collect();
+
+        let dbc = Dbc {
+            content: input_content,
+            transaction: DbcTransaction {
+                inputs: Default::default(),
+                outputs: input_content_hashes.clone(),
+            },
+            transaction_sigs: Default::default(),
+        };
+
+        assert!(matches!(
+            dbc.confirm_valid(&KeyCache::default()),
+            Err(Error::TransactionMustHaveAnInput)
+        ));
     }
 
     #[quickcheck]

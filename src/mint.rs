@@ -96,6 +96,10 @@ impl Mint {
         DbcTransaction,
         BTreeMap<DbcContentHash, (PublicKey, Signature)>,
     )> {
+        for input in mint_request.inputs.iter() {
+            input.confirm_valid(self.key_cache())?;
+        }
+
         let transaction = mint_request.to_transaction();
         let sig = self.key_mgr.sign(&transaction.hash());
 
@@ -263,8 +267,6 @@ mod tests {
             .into_iter()
             .collect(),
         });
-
         assert!(fraudulant_reissue_result.is_err());
-        todo!();
     }
 }
