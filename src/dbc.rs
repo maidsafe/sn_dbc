@@ -30,7 +30,6 @@ impl Dbc {
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
     pub fn confirm_valid(&self, key_cache: &KeyCache) -> Result<(), Error> {
-        use ed25519::Verifier;
         for (input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
             if !self.transaction.inputs.contains(input) {
                 return Err(Error::UnknownInput);
@@ -48,11 +47,6 @@ impl Dbc {
         } else {
             Ok(())
         }
-    }
-    // Check the output values summed are  =< input value
-    pub fn mint(input: Dbc, outputs: Vec<Dbc>) -> Result<DbcTransaction> {
-        // self.confirm_valid()?;
-        todo!()
     }
 }
 
@@ -89,48 +83,14 @@ mod tests {
         MintRequest { inputs, outputs }
     }
 
-    // #[quickcheck]
-    // fn prop_invalid_if_content_not_in_transaction_output(
-    //     amount: u64,
-    //     inputs: Vec<u8>,
-    //     outputs: Vec<u8>,
-    // ) {
-    //     let input_hashes: BTreeSet<DbcContentHash> =
-    //         inputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
-
-    //     let output_hashes: BTreeSet<DbcContentHash> =
-    //         outputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
-
-    //     let transaction = DbcTransaction::new(input_hashes.clone(), output_hashes);
-
-    //     let content = DbcContent {
-    //         parents: input_hashes.clone(),
-    //         amount: amount,
-    //     };
-
-    //     let mint = Mint::new_random();
-
-    //     let id = ed25519_keypair();
-    //     let pubkey = id.public;
-    //     let sig = id.sign(&content.hash());
-
-    //     let dbc = Dbc {
-    //         content,
-    //         transaction,
-    //         transaction_sigs: input_hashes
-    //             .into_iter()
-    //             .map(|i| (i, (pubkey, sig)))
-    //             .collect(),
-    //     };
-
-    //     assert!(matches!(
-    //         dbc.confirm_valid(&[&thresh_key]),
-    //         Err(Error::DbcContentNotPresentInTransactionOutput)
-    //     ));
-    // }
-
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     struct TinyInt(u8);
+
+    impl TinyInt {
+        fn into<T: From<u8>>(self) -> T {
+            self.0.into()
+        }
+    }
 
     impl std::fmt::Debug for TinyInt {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -148,12 +108,6 @@ mod tests {
         }
     }
 
-    impl TinyInt {
-        fn into<T: From<u8>>(self) -> T {
-            self.0.into()
-        }
-    }
-
     #[quickcheck]
     fn prop_mint_signatures(
         n_inputs: TinyInt,             // # of input DBC's
@@ -168,7 +122,6 @@ mod tests {
         let amount = 100;
 
         let (genesis, genesis_dbc) = Mint::genesis(amount);
-        let genesis_inputs: BTreeSet<_> = vec![genesis_dbc.name()].into_iter().collect();
 
         let mint_request = prepare_even_split(&genesis_dbc, n_inputs.into());
         let (split_transaction, signature) = genesis.reissue(mint_request.clone()).unwrap();
