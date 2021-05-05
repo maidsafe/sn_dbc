@@ -61,6 +61,8 @@ mod tests {
 
     use crate::{Mint, MintRequest};
 
+    use crate::tests::TinyInt;
+
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
         (0..n_ways).into_iter().map(move |i| {
             let equal_parts = amount / (n_ways as u64);
@@ -81,31 +83,6 @@ mod tests {
             .collect();
 
         MintRequest { inputs, outputs }
-    }
-
-    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    struct TinyInt(u8);
-
-    impl TinyInt {
-        fn into<T: From<u8>>(self) -> T {
-            self.0.into()
-        }
-    }
-
-    impl std::fmt::Debug for TinyInt {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.0)
-        }
-    }
-
-    impl Arbitrary for TinyInt {
-        fn arbitrary(g: &mut Gen) -> Self {
-            Self(u8::arbitrary(g) % 5)
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new((0..(self.0)).into_iter().rev().map(Self))
-        }
     }
 
     #[quickcheck]
@@ -236,10 +213,10 @@ mod tests {
                 assert!(n_valid_sigs < n_inputs);
             }
             Err(Error::Ed25519(_)) => {
-                assert!(n_wrong_msg_sigs > TinyInt(0));
+                assert!(n_wrong_msg_sigs.into::<u8>() > 0);
             }
             Err(Error::UnknownInput) => {
-                assert!(n_extra_input_sigs > TinyInt(0));
+                assert!(n_extra_input_sigs.into::<u8>() > 0);
                 assert!(
                     dbc.transaction_sigs
                         .keys()
@@ -249,14 +226,14 @@ mod tests {
                 );
             }
             Err(Error::UnrecognisedAuthority) => {
-                assert!(n_wrong_signer_sigs > TinyInt(0));
+                assert!(n_wrong_signer_sigs.into::<u8>() > 0);
                 assert!(dbc
                     .transaction_sigs
                     .values()
                     .any(|(k, _)| key_cache.verify_known_key(k).is_err()));
             }
             Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
-                assert!(n_add_random_parents > TinyInt(0) || n_drop_parents > TinyInt(0));
+                assert!(n_add_random_parents.into::<u8>() > 0 || n_drop_parents.into::<u8>() > 0);
                 assert!(dbc.transaction.inputs != dbc.content.parents);
                 assert!(!dbc.transaction.outputs.contains(&dbc.content.hash()));
             }

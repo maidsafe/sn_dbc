@@ -43,6 +43,33 @@ fn sha3_256(input: &[u8]) -> Hash {
 mod tests {
     use super::*;
 
+    use quickcheck::{Arbitrary, Gen, TestResult};
+
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct TinyInt(u8);
+
+    impl TinyInt {
+        pub fn into<T: From<u8>>(self) -> T {
+            self.0.into()
+        }
+    }
+
+    impl std::fmt::Debug for TinyInt {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    impl Arbitrary for TinyInt {
+        fn arbitrary(g: &mut Gen) -> Self {
+            Self(u8::arbitrary(g) % 5)
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            Box::new((0..(self.0)).into_iter().rev().map(Self))
+        }
+    }
+
     #[test]
     fn hash() {
         let data = b"hello world";
