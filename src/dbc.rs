@@ -226,17 +226,16 @@ mod tests {
         println!("Validation Result: {:#?}", validation_res);
         match validation_res {
             Ok(()) => {
-                assert_eq!(dbc.amount(), amount);
                 assert!(dbc.transaction.outputs.contains(&dbc.content.hash()));
-                if n_inputs.coerce::<u8>() > 0 {
-                    assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
-                    assert!(n_valid_sigs >= n_inputs);
-                    assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
-                    assert_eq!(n_wrong_msg_sigs.coerce::<u8>(), 0);
-                    assert_eq!(extra_output_amount.coerce::<u8>(), 0);
-                    assert_eq!(n_add_random_parents.coerce::<u8>(), 0);
-                    assert_eq!(n_drop_parents.coerce::<u8>(), 0);
-                }
+                assert!(n_inputs.coerce::<u8>() > 0);
+                assert!(n_valid_sigs >= n_inputs);
+                assert_eq!(dbc.amount(), amount);
+                assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
+                assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
+                assert_eq!(n_wrong_msg_sigs.coerce::<u8>(), 0);
+                assert_eq!(extra_output_amount.coerce::<u8>(), 0);
+                assert_eq!(n_add_random_parents.coerce::<u8>(), 0);
+                assert_eq!(n_drop_parents.coerce::<u8>(), 0);
             }
             Err(Error::MissingSignatureForInput) => {
                 assert!(n_valid_sigs < n_inputs);
@@ -270,6 +269,9 @@ mod tests {
             }
             Err(Error::DbcContentNotPresentInTransactionOutput) => {
                 assert!(!dbc.transaction.outputs.contains(&dbc.content.hash()));
+            }
+            Err(Error::TransactionMustHaveAnInput) => {
+                assert_eq!(n_inputs.coerce::<u8>(), 0);
             }
             res => panic!("Unexpected verification result {:?}", res),
         }

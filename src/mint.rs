@@ -133,12 +133,6 @@ mod tests {
     }
 
     #[quickcheck]
-    fn prop_mint_includes_its_signature_under_each_input_its_responsible_for() {
-        // currently we have a single mint so the genesis mint is respnosible for all inputs
-        todo!();
-    }
-
-    #[quickcheck]
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) {
         let output_amount = output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
 
@@ -158,6 +152,7 @@ mod tests {
 
         let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
 
+        // Verify transaction returned to us by the Mint matches our request
         assert_eq!(mint_request.to_transaction(), transaction);
         assert_eq!(
             transaction.inputs,
@@ -167,6 +162,13 @@ mod tests {
             transaction.outputs,
             mint_request.outputs.iter().map(|o| o.hash()).collect()
         );
+
+        // Verify signatures corespond to each input
+        let (pubkey, sig) = transaction_sigs.values().cloned().next().unwrap();
+        for input in mint_request.inputs.iter() {
+            assert_eq!(transaction_sigs.get(&input.name()), Some(&(pubkey, sig)));
+        }
+        assert_eq!(transaction_sigs.len(), transaction.inputs.len());
 
         let output_dbcs: Vec<_> = mint_request
             .outputs
