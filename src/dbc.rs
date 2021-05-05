@@ -182,8 +182,8 @@ mod tests {
         }
 
         // Valid mint signatures for inputs not present in the transaction
-        for _ in 0..n_extra_input_sigs.coerce() {
-            if let Some((_, key_sig)) = transaction_sigs.iter().next() {
+        if let Some((_, key_sig)) = transaction_sigs.iter().next() {
+            for _ in 0..n_extra_input_sigs.coerce() {
                 fuzzed_transaction_sigs.insert(rand::random(), key_sig.to_owned());
             }
         }
@@ -202,8 +202,8 @@ mod tests {
             Ok(()) => {
                 assert_eq!(dbc.amount(), amount);
                 assert!(dbc.transaction.outputs.contains(&dbc.content.hash()));
-                assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
                 if n_inputs.coerce::<u8>() > 0 {
+                    assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
                     assert!(n_valid_sigs >= n_inputs);
                     assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
                     assert_eq!(n_wrong_msg_sigs.coerce::<u8>(), 0);

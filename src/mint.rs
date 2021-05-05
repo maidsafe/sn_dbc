@@ -98,12 +98,15 @@ impl Mint {
     )> {
         let transaction = mint_request.to_transaction();
         let sig = self.key_mgr.sign(&transaction.hash());
-        Ok((
-            transaction,
-            vec![([0u8; 32], (self.public_key(), sig))]
-                .into_iter()
-                .collect(),
-        ))
+
+        let transaction_sigs = transaction
+            .inputs
+            .iter()
+            .copied()
+            .zip(std::iter::repeat((self.public_key(), sig)))
+            .collect();
+
+        Ok((transaction, transaction_sigs))
     }
 }
 
@@ -129,6 +132,59 @@ mod tests {
         todo!();
     }
 
+    #[quickcheck]
+    fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) {
+        let output_amount = output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
+
+        let (genesis, genesis_dbc) = Mint::genesis(output_amount);
+
+        let inputs: HashSet<_> = vec![genesis_dbc.clone()].into_iter().collect();
+        let input_hashes: BTreeSet<_> = inputs.iter().map(|in_dbc| in_dbc.name()).collect();
+
+        let outputs = output_amounts
+            .vec()
+            .iter()
+            .enumerate()
+            .map(|(i, amount)| DbcContent::new(input_hashes.clone(), amount.coerce(), i as u8))
+            .collect();
+
+        let mint_request = MintRequest { inputs, outputs };
+
+        let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
+
+        assert_eq!(mint_request.to_transaction(), transaction);
+        assert_eq!(
+            transaction.inputs,
+            mint_request.inputs.iter().map(|i| i.name()).collect()
+        );
+        assert_eq!(
+            transaction.outputs,
+            mint_request.outputs.iter().map(|o| o.hash()).collect()
+        );
+
+        let output_dbcs: Vec<_> = mint_request
+            .outputs
+            .into_iter()
+            .map(|content| Dbc {
+                content,
+                transaction: transaction.clone(),
+                transaction_sigs: transaction_sigs.clone(),
+            })
+            .collect();
+
+        let key_cache = KeyCache::from(vec![genesis.public_key()]);
+        for dbc in output_dbcs.iter() {
+            let expected_amount: u64 =
+                output_amounts.vec()[dbc.content.output_number as usize].coerce();
+            assert_eq!(dbc.amount(), expected_amount);
+            assert!(dbc.confirm_valid(&key_cache).is_ok());
+        }
+
+        assert_eq!(
+            output_dbcs.iter().map(|dbc| dbc.amount()).sum::<u64>(),
+            output_amount
+        );
+    }
 
     #[quickcheck]
     fn prop_dbc_cant_be_spent_twice() {
