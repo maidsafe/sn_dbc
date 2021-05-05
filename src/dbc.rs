@@ -39,8 +39,12 @@ impl Dbc {
             key_cache.verify(&self.transaction.hash(), &mint_key, &mint_sig)?;
         }
 
-        if self.transaction_sigs.len() < self.content.parents.len() {
+        if self.transaction_sigs.len() < self.transaction.inputs.len() {
             Err(Error::MissingSignatureForInput)
+        } else if self.transaction.inputs != self.content.parents {
+            Err(Error::DbcContentParentsDifferentFromTransactionInputs)
+        } else if !self.transaction.outputs.contains(&self.content.hash()) {
+            Err(Error::DbcContentNotPresentInTransactionOutput)
         } else {
             Ok(())
         }
@@ -58,7 +62,7 @@ mod tests {
 
     use std::collections::BTreeSet;
 
-    use quickcheck::TestResult;
+    use quickcheck::{Arbitrary, Gen, TestResult};
     use quickcheck_macros::quickcheck;
 
     use crate::{Mint, MintRequest};
@@ -125,64 +129,72 @@ mod tests {
     //     ));
     // }
 
-    // #[quickcheck]
-    // fn prop_output_parents_should_be_transaction_inputs(
-    //     amount: u64,
-    //     inputs: Vec<u8>,
-    //     content_parents: Vec<u8>,
-    //     outputs: Vec<u8>,
-    // ) {
-    //     let input_hashes: BTreeSet<DbcContentHash> =
-    //         inputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    struct TinyInt(u8);
 
-    //     let parents: BTreeSet<DbcContentHash> =
-    //         inputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
+    impl std::fmt::Debug for TinyInt {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
 
-    //     let mut output_hashes: BTreeSet<DbcContentHash> =
-    //         outputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
+    impl Arbitrary for TinyInt {
+        fn arbitrary(g: &mut Gen) -> Self {
+            Self(u8::arbitrary(g) % 5)
+        }
 
-    //     let content = DbcContent { parents, amount };
-    //     output_hashes.insert(content.hash());
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            Box::new((0..(self.0)).into_iter().rev().map(Self))
+        }
+    }
 
-    //     let transaction = DbcTransaction::new(input_hashes.clone(), output_hashes);
+    impl TinyInt {
+        fn into<T: From<u8>>(self) -> T {
+            self.0.into()
+        }
+    }
 
-    //     let id = ed25519_keypair();
-    //     let thresh_key = ThresholdPublicKey::new(1, vec![id.public].into_iter().collect()).unwrap();
-    //     let mut thresh_sig = ThresholdSignature::new();
-    //     thresh_sig.add_share(id.public, id.sign(&content.hash()));
+    impl Into<u8> for TinyInt {
+        fn into(self) -> u8 {
+            self.0
+        }
+    }
 
-    //     let dbc = Dbc {
-    //         content,
-    //         transaction,
-    //         transaction_sigs: input_hashes
-    //             .into_iter()
-    //             .map(|i| (i, (thresh_key.clone(), thresh_sig.clone())))
-    //             .collect(),
-    //     };
+    impl Into<i32> for TinyInt {
+        fn into(self) -> i32 {
+            self.0 as i32
+        }
+    }
 
-    //     assert!(matches!(
-    //         dbc.confirm_valid(&[&thresh_key]),
-    //         Err(Error::DbcContentParentsDifferentFromTransactionInputs)
-    //     ));
-    // }
+    impl Into<u64> for TinyInt {
+        fn into(self) -> u64 {
+            self.0 as u64
+        }
+    }
+
+    impl Into<usize> for TinyInt {
+        fn into(self) -> usize {
+            self.0 as usize
+        }
+    }
 
     #[quickcheck]
     fn prop_mint_signatures(
-        amount: u64,
-        n_inputs: u8,            // # of input DBC's
-        n_valid_sigs: u8,        // # of valid sigs
-        n_wrong_signer_sigs: u8, // # of valid sigs from unrecognized authority
-        n_wrong_msg_sigs: u8,    // # of sigs from recognized authority but signing wrong message
-        n_extra_input_sigs: u8,  // # of sigs for inputs not part of the transaction
+        n_inputs: TinyInt,             // # of input DBC's
+        n_valid_sigs: TinyInt,         // # of valid sigs
+        n_wrong_signer_sigs: TinyInt,  // # of valid sigs from unrecognized authority
+        n_wrong_msg_sigs: TinyInt,     // # of sigs from recognized authority signing wrong message
+        n_extra_input_sigs: TinyInt,   // # of sigs for inputs not part of the transaction
+        extra_output_amount: TinyInt,  // Artifically increase output dbc value
+        n_add_random_parents: TinyInt, // # of random parents to add to output DBC
+        n_drop_parents: TinyInt,       // # of valid parents to drop from output DBC
     ) -> TestResult {
-        if n_inputs > 7 {
-            return TestResult::discard();
-        }
+        let amount = 100;
 
         let (genesis, genesis_dbc) = Mint::genesis(amount);
         let genesis_inputs: BTreeSet<_> = vec![genesis_dbc.name()].into_iter().collect();
 
-        let mint_request = prepare_even_split(&genesis_dbc, n_inputs);
+        let mint_request = prepare_even_split(&genesis_dbc, n_inputs.into());
         let (split_transaction, signature) = genesis.reissue(mint_request.clone()).unwrap();
         let split_transaction_sigs: BTreeMap<_, _> =
             vec![(genesis_dbc.name(), (genesis.public_key(), signature))]
@@ -204,7 +216,23 @@ mod tests {
         let input_hashes: BTreeSet<DbcContentHash> =
             inputs.iter().map(|in_dbc| in_dbc.name()).collect();
 
-        let content = DbcContent::new(input_hashes.clone(), amount, 0);
+        let content_parents = input_hashes
+            .iter()
+            .copied()
+            .skip(n_drop_parents.into()) // drop some parents
+            .chain(
+                // add some random parents
+                (0..n_add_random_parents.into())
+                    .into_iter()
+                    .map(|_| rand::random()),
+            )
+            .collect();
+
+        let content = DbcContent::new(
+            content_parents,
+            amount + extra_output_amount.into::<u64>(),
+            0,
+        );
         let outputs = vec![content.clone()].into_iter().collect();
 
         let mint_request = MintRequest { inputs, outputs };
@@ -217,13 +245,13 @@ mod tests {
         let mut repeating_inputs = mint_request.inputs.iter().cycle();
 
         // Valid sigs
-        for _ in 0..n_valid_sigs {
+        for _ in 0..n_valid_sigs.into() {
             if let Some(input) = repeating_inputs.next() {
                 transaction_sigs.insert(input.name(), (genesis.public_key(), mint_sig));
             }
         }
         // Valid mint signatures BUT signing wrong message
-        for _ in 0..n_wrong_signer_sigs {
+        for _ in 0..n_wrong_signer_sigs.into() {
             use crate::key_manager::{ed25519_keypair, PublicKey, Signature};
             use ed25519::Signer;
 
@@ -238,7 +266,7 @@ mod tests {
         }
 
         // Valid mint signatures BUT signing wrong message
-        for _ in 0..n_wrong_msg_sigs {
+        for _ in 0..n_wrong_msg_sigs.into() {
             if let Some(input) = repeating_inputs.next() {
                 let wrong_msg_sig = genesis.key_mgr.sign(&[0u8; 32]);
                 transaction_sigs.insert(input.name(), (genesis.public_key(), wrong_msg_sig));
@@ -246,7 +274,7 @@ mod tests {
         }
 
         // Valid mint signatures for inputs not present in the transaction
-        for _ in 0..n_extra_input_sigs {
+        for _ in 0..n_extra_input_sigs.into() {
             transaction_sigs.insert(rand::random(), (genesis.public_key(), mint_sig));
         }
 
@@ -256,31 +284,36 @@ mod tests {
             transaction_sigs,
         };
 
-        assert_eq!(dbc.amount(), amount);
-
         let validation_res = dbc.confirm_valid(&KeyCache::from(vec![genesis.public_key()]));
 
         println!("Validation Result: {:#?}", validation_res);
         match validation_res {
             Ok(()) => {
-                assert_eq!(n_extra_input_sigs, 0);
-                if n_inputs > 0 {
+                assert_eq!(dbc.amount(), amount);
+                assert_eq!(n_extra_input_sigs, TinyInt(0));
+                if n_inputs > TinyInt(0) {
                     assert!(n_valid_sigs >= n_inputs);
-                    assert_eq!(n_wrong_signer_sigs, 0);
-                    assert_eq!(n_wrong_msg_sigs, 0);
+                    assert_eq!(n_wrong_signer_sigs, TinyInt(0));
+                    assert_eq!(n_wrong_msg_sigs, TinyInt(0));
+                    assert_eq!(extra_output_amount, TinyInt(0));
+                    assert_eq!(n_add_random_parents, TinyInt(0));
+                    assert_eq!(n_drop_parents, TinyInt(0));
                 }
             }
             Err(Error::MissingSignatureForInput) => {
                 assert!(n_valid_sigs < n_inputs);
             }
             Err(Error::Ed25519(_)) => {
-                assert!(n_wrong_msg_sigs > 0);
+                assert!(n_wrong_msg_sigs > TinyInt(0));
             }
             Err(Error::UnknownInput) => {
-                assert!(n_extra_input_sigs > 0);
+                assert!(n_extra_input_sigs > TinyInt(0));
             }
             Err(Error::UnrecognisedAuthority) => {
-                assert!(n_wrong_signer_sigs > 0);
+                assert!(n_wrong_signer_sigs > TinyInt(0));
+            }
+            Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
+                assert!(n_add_random_parents > TinyInt(0) || n_drop_parents > TinyInt(0));
             }
             res => panic!("Unexpected verification result {:?}", res),
         }
