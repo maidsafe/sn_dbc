@@ -99,11 +99,8 @@ mod tests {
         let (genesis, genesis_dbc) = Mint::genesis(amount);
 
         let mint_request = prepare_even_split(&genesis_dbc, n_inputs.coerce());
-        let (split_transaction, signature) = genesis.reissue(mint_request.clone()).unwrap();
-        let split_transaction_sigs: BTreeMap<_, _> =
-            vec![(genesis_dbc.name(), (genesis.public_key(), signature))]
-                .into_iter()
-                .collect();
+        let (split_transaction, split_transaction_sigs) =
+            genesis.reissue(mint_request.clone()).unwrap();
 
         assert_eq!(split_transaction, mint_request.to_transaction());
 
@@ -125,7 +122,7 @@ mod tests {
 
         let mint_request = MintRequest { inputs, outputs };
 
-        let (transaction, mint_sig) = genesis.reissue(mint_request.clone()).unwrap();
+        let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
         assert_eq!(mint_request.to_transaction(), transaction);
 
         let fuzzed_parents = input_hashes
@@ -145,16 +142,22 @@ mod tests {
             0,
         );
 
-        let mut transaction_sigs: BTreeMap<Hash, (PublicKey, Signature)> = Default::default();
+        let mut fuzzed_transaction_sigs = BTreeMap::new();
 
-        let mut repeating_inputs = mint_request.inputs.iter().cycle();
+        // Add valid sigs
+        fuzzed_transaction_sigs.extend(
+            transaction_sigs
+                .iter()
+                .take(n_valid_sigs.coerce())
+                .to_owned(),
+        );
+        let mut repeating_inputs = mint_request
+            .inputs
+            .iter()
+            .cycle()
+            // skip the valid sigs so that we don't immediately overwrite them
+            .skip(n_valid_sigs.coerce());
 
-        // Valid sigs
-        for _ in 0..n_valid_sigs.coerce() {
-            if let Some(input) = repeating_inputs.next() {
-                transaction_sigs.insert(input.name(), (genesis.public_key(), mint_sig));
-            }
-        }
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_signer_sigs.coerce() {
             use crate::key_manager::{ed25519_keypair, PublicKey, Signature};
@@ -163,7 +166,7 @@ mod tests {
             if let Some(input) = repeating_inputs.next() {
                 let keypair = ed25519_keypair();
                 let transaction_sig = keypair.sign(&transaction.hash());
-                transaction_sigs.insert(
+                fuzzed_transaction_sigs.insert(
                     input.name(),
                     (PublicKey(keypair.public), Signature(transaction_sig)),
                 );
@@ -174,19 +177,21 @@ mod tests {
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
                 let wrong_msg_sig = genesis.key_mgr.sign(&[0u8; 32]);
-                transaction_sigs.insert(input.name(), (genesis.public_key(), wrong_msg_sig));
+                fuzzed_transaction_sigs.insert(input.name(), (genesis.public_key(), wrong_msg_sig));
             }
         }
 
         // Valid mint signatures for inputs not present in the transaction
         for _ in 0..n_extra_input_sigs.coerce() {
-            transaction_sigs.insert(rand::random(), (genesis.public_key(), mint_sig));
+            if let Some((_, key_sig)) = transaction_sigs.iter().next() {
+                fuzzed_transaction_sigs.insert(rand::random(), key_sig.to_owned());
+            }
         }
 
         let dbc = Dbc {
             content: fuzzed_content,
             transaction,
-            transaction_sigs,
+            transaction_sigs: fuzzed_transaction_sigs,
         };
 
         let key_cache = KeyCache::from(vec![genesis.public_key()]);

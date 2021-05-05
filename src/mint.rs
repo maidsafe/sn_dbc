@@ -89,10 +89,21 @@ impl Mint {
         self.key_mgr.public_key()
     }
 
-    pub fn reissue(&self, mint_request: MintRequest) -> Result<(DbcTransaction, Signature)> {
+    pub fn reissue(
+        &self,
+        mint_request: MintRequest,
+    ) -> Result<(
+        DbcTransaction,
+        BTreeMap<DbcContentHash, (PublicKey, Signature)>,
+    )> {
         let transaction = mint_request.to_transaction();
         let sig = self.key_mgr.sign(&transaction.hash());
-        Ok((transaction, sig))
+        Ok((
+            transaction,
+            vec![([0u8; 32], (self.public_key(), sig))]
+                .into_iter()
+                .collect(),
+        ))
     }
 }
 
@@ -110,6 +121,18 @@ mod tests {
         let (mint, genesis_dbc) = Mint::genesis(1000);
         assert_eq!(genesis_dbc.content.amount, 1000);
         assert!(genesis_dbc.confirm_valid(&mint.key_cache()).is_ok());
+    }
+
+    #[quickcheck]
+    fn prop_mint_includes_its_signature_under_each_input_its_responsible_for() {
+        // currently we have a single mint so the genesis mint is respnosible for all inputs
+        todo!();
+    }
+
+
+    #[quickcheck]
+    fn prop_dbc_cant_be_spent_twice() {
+        todo!()
     }
 
     #[quickcheck]
