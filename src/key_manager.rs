@@ -5,17 +5,33 @@ use tiny_keccak::{Hasher, Sha3};
 
 use crate::{Error, Hash, Result};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct PublicKey(pub(crate) EdPublicKey);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Signature(pub(crate) EdSignature);
+
+impl PartialEq for PublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bytes() == other.0.to_bytes()
+    }
+}
+
+impl Eq for PublicKey {}
 
 impl std::hash::Hash for PublicKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.to_bytes().hash(state)
     }
 }
+
+impl PartialEq for Signature {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bytes() == other.0.to_bytes()
+    }
+}
+
+impl Eq for Signature {}
 
 impl std::hash::Hash for Signature {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -163,7 +179,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn prop_after_processing_chain_all_keys_are_known() {
+    fn prop_processing_chain_makes_chain_keys_known() {
         todo!();
     }
 }

@@ -5,7 +5,7 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use crate::{
     DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyCache, PublicKey, Result, Signature,
@@ -54,7 +54,7 @@ impl Dbc {
 mod tests {
     use super::*;
 
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeSet, HashSet};
 
     use quickcheck::{Arbitrary, Gen, TestResult};
     use quickcheck_macros::quickcheck;
@@ -146,7 +146,7 @@ mod tests {
             inputs.iter().map(|in_dbc| in_dbc.name()).collect();
 
         let content = DbcContent::new(input_hashes.clone(), amount, 0);
-        let outputs = vec![content.clone()].into_iter().collect();
+        let outputs = vec![content].into_iter().collect();
 
         let mint_request = MintRequest { inputs, outputs };
 
