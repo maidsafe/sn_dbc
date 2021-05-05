@@ -122,7 +122,7 @@ mod tests {
     ) {
         let amount = 100;
 
-        let (genesis, genesis_dbc) = Mint::genesis(amount);
+        let (mut genesis, genesis_dbc) = Mint::genesis(amount);
 
         let mint_request = prepare_even_split(&genesis_dbc, n_inputs.coerce());
         let (split_transaction, split_transaction_sigs) =

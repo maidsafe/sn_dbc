@@ -5,7 +5,7 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
-
+use std::collections::BTreeMap;
 use std::io;
 use thiserror::Error;
 
@@ -28,8 +28,11 @@ pub enum Error {
     UnrecognisedAuthority,
     #[error("At least one transaction input is missing a signature.")]
     MissingSignatureForInput,
-    #[error("Output DBCs must <= input dbc")]
-    DoubleSpend,
+    #[error("DBC already spent in transaction: {transaction:?}")]
+    DbcAlreadySpent {
+        transaction: crate::DbcTransaction,
+        transaction_sigs: BTreeMap<crate::DbcContentHash, (crate::PublicKey, crate::Signature)>,
+    },
     #[error("The DBC transaction must have at least one input")]
     TransactionMustHaveAnInput,
     #[error("Dbc Content is not a member of transaction outputs")]

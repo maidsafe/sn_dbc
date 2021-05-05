@@ -16,8 +16,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::{
-    Dbc, DbcContent, DbcContentHash, DbcTransaction, KeyCache, KeyManager, PublicKey, Result,
-    Signature,
+    Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, KeyCache, KeyManager, PublicKey,
+    Result, Signature,
 };
 
 #[derive(Default)]
@@ -26,6 +26,10 @@ struct SpendBook {
 }
 
 impl SpendBook {
+    fn lookup(&self, dbc_hash: &DbcContentHash) -> Option<&DbcTransaction> {
+        self.transactions.get(dbc_hash)
+    }
+
     fn log(&mut self, dbc_hash: DbcContentHash, transaction: DbcTransaction) {
         self.transactions.insert(dbc_hash, transaction);
     }
@@ -90,7 +94,7 @@ impl Mint {
     }
 
     pub fn reissue(
-        &self,
+        &mut self,
         mint_request: MintRequest,
     ) -> Result<(
         DbcTransaction,
@@ -98,6 +102,24 @@ impl Mint {
     )> {
         for input in mint_request.inputs.iter() {
             input.confirm_valid(self.key_cache())?;
+            match self.spendbook.lookup(&input.name()).cloned() {
+                Some(transaction) => {
+                    // This input has already been spent, return the transaction to the user
+                    let sig = self.key_mgr.sign(&transaction.hash());
+                    let transaction_sigs = transaction
+                        .inputs
+                        .iter()
+                        .copied()
+                        .zip(std::iter::repeat((self.public_key(), sig)))
+                        .collect();
+
+                    return Err(Error::DbcAlreadySpent {
+                        transaction,
+                        transaction_sigs,
+                    });
+                }
+                None => (),
+            }
         }
 
         let transaction = mint_request.to_transaction();
@@ -109,6 +131,10 @@ impl Mint {
             .copied()
             .zip(std::iter::repeat((self.public_key(), sig)))
             .collect();
+
+        for input in mint_request.inputs.iter() {
+            self.spendbook.log(input.name(), transaction.clone());
+        }
 
         Ok((transaction, transaction_sigs))
     }
@@ -136,7 +162,7 @@ mod tests {
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) {
         let output_amount = output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
 
-        let (genesis, genesis_dbc) = Mint::genesis(output_amount);
+        let (mut genesis, genesis_dbc) = Mint::genesis(output_amount);
 
         let inputs: HashSet<_> = vec![genesis_dbc.clone()].into_iter().collect();
         let input_hashes: BTreeSet<_> = inputs.iter().map(|in_dbc| in_dbc.name()).collect();
@@ -194,9 +220,35 @@ mod tests {
         );
     }
 
-    #[quickcheck]
-    fn prop_dbc_cant_be_spent_twice() {
-        todo!()
+    #[test]
+    fn test_double_spend_protection() {
+        let (mut genesis, genesis_dbc) = Mint::genesis(1000);
+
+        let inputs: HashSet<_> = vec![genesis_dbc.clone()].into_iter().collect();
+        let input_hashes: BTreeSet<_> = vec![genesis_dbc.name()].into_iter().collect();
+
+        let mint_request = MintRequest {
+            inputs: inputs.clone(),
+            outputs: vec![DbcContent::new(input_hashes.clone(), 1000, 0)]
+                .into_iter()
+                .collect(),
+        };
+
+        let (t, s) = genesis.reissue(mint_request).unwrap();
+
+        let double_spend_mint_request = MintRequest {
+            inputs,
+            outputs: vec![DbcContent::new(input_hashes, 1000, 1)]
+                .into_iter()
+                .collect(),
+        };
+
+        let res = genesis.reissue(double_spend_mint_request);
+
+        assert!(matches!(
+            res,
+            Err(Error::DbcAlreadySpent { transaction, transaction_sigs }) if transaction == t && transaction_sigs == s
+        ));
     }
 
     #[quickcheck]
@@ -241,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_inputs_are_validated() {
-        let (genesis, _) = Mint::genesis(1000);
+        let (mut genesis, _) = Mint::genesis(1000);
 
         let input_content = DbcContent {
             parents: Default::default(),
