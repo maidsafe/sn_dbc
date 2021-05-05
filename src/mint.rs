@@ -99,8 +99,11 @@ impl Mint {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     use quickcheck_macros::quickcheck;
+
+    use crate::tests::{TinyInt, TinyVec};
 
     #[quickcheck]
     fn prop_genesis() {

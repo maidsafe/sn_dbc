@@ -10,7 +10,6 @@ use tiny_keccak::{Hasher, Sha3};
 /// These typdefs are to simplify algorithm for now and will be removed for production.
 pub(crate) type Hash = [u8; 32];
 pub(crate) type DbcContentHash = [u8; 32];
-pub(crate) type DbcSpentHash = [u8; 32];
 mod dbc;
 mod dbc_content;
 mod dbc_transaction;
@@ -43,13 +42,13 @@ fn sha3_256(input: &[u8]) -> Hash {
 mod tests {
     use super::*;
 
-    use quickcheck::{Arbitrary, Gen, TestResult};
+    use quickcheck::{Arbitrary, Gen};
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyInt(u8);
 
     impl TinyInt {
-        pub fn into<T: From<u8>>(self) -> T {
+        pub fn coerce<T: From<u8>>(self) -> T {
             self.0.into()
         }
     }
@@ -67,6 +66,32 @@ mod tests {
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
             Box::new((0..(self.0)).into_iter().rev().map(Self))
+        }
+    }
+
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct TinyVec<T>(Vec<T>);
+
+    impl<T: Clone> TinyVec<T> {
+        pub fn vec(&self) -> Vec<T> {
+            self.0.clone()
+        }
+    }
+
+    impl<T: std::fmt::Debug> std::fmt::Debug for TinyVec<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+
+    impl<T: Arbitrary> Arbitrary for TinyVec<T> {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let n = u8::arbitrary(g) % 7;
+            let mut vec = Vec::new();
+            for _ in 0..n {
+                vec.push(T::arbitrary(g));
+            }
+            Self(vec)
         }
     }
 

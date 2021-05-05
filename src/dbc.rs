@@ -56,12 +56,10 @@ mod tests {
 
     use std::collections::{BTreeSet, HashSet};
 
-    use quickcheck::{Arbitrary, Gen, TestResult};
     use quickcheck_macros::quickcheck;
 
-    use crate::{Mint, MintRequest};
-
     use crate::tests::TinyInt;
+    use crate::{Mint, MintRequest};
 
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
         (0..n_ways).into_iter().map(move |i| {
@@ -95,12 +93,12 @@ mod tests {
         extra_output_amount: TinyInt,  // Artifically increase output dbc value
         n_add_random_parents: TinyInt, // # of random parents to add to output DBC
         n_drop_parents: TinyInt,       // # of valid parents to drop from output DBC
-    ) -> TestResult {
+    ) {
         let amount = 100;
 
         let (genesis, genesis_dbc) = Mint::genesis(amount);
 
-        let mint_request = prepare_even_split(&genesis_dbc, n_inputs.into());
+        let mint_request = prepare_even_split(&genesis_dbc, n_inputs.coerce());
         let (split_transaction, signature) = genesis.reissue(mint_request.clone()).unwrap();
         let split_transaction_sigs: BTreeMap<_, _> =
             vec![(genesis_dbc.name(), (genesis.public_key(), signature))]
@@ -132,10 +130,10 @@ mod tests {
 
         let fuzzed_parents = input_hashes
             .into_iter()
-            .skip(n_drop_parents.into()) // drop some parents
+            .skip(n_drop_parents.coerce()) // drop some parents
             .chain(
                 // add some random parents
-                (0..n_add_random_parents.into())
+                (0..n_add_random_parents.coerce())
                     .into_iter()
                     .map(|_| rand::random()),
             )
@@ -143,7 +141,7 @@ mod tests {
 
         let fuzzed_content = DbcContent::new(
             fuzzed_parents,
-            amount + extra_output_amount.into::<u64>(),
+            amount + extra_output_amount.coerce::<u64>(),
             0,
         );
 
@@ -152,13 +150,13 @@ mod tests {
         let mut repeating_inputs = mint_request.inputs.iter().cycle();
 
         // Valid sigs
-        for _ in 0..n_valid_sigs.into() {
+        for _ in 0..n_valid_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
                 transaction_sigs.insert(input.name(), (genesis.public_key(), mint_sig));
             }
         }
         // Valid mint signatures BUT signing wrong message
-        for _ in 0..n_wrong_signer_sigs.into() {
+        for _ in 0..n_wrong_signer_sigs.coerce() {
             use crate::key_manager::{ed25519_keypair, PublicKey, Signature};
             use ed25519::Signer;
 
@@ -173,7 +171,7 @@ mod tests {
         }
 
         // Valid mint signatures BUT signing wrong message
-        for _ in 0..n_wrong_msg_sigs.into() {
+        for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
                 let wrong_msg_sig = genesis.key_mgr.sign(&[0u8; 32]);
                 transaction_sigs.insert(input.name(), (genesis.public_key(), wrong_msg_sig));
@@ -181,7 +179,7 @@ mod tests {
         }
 
         // Valid mint signatures for inputs not present in the transaction
-        for _ in 0..n_extra_input_sigs.into() {
+        for _ in 0..n_extra_input_sigs.coerce() {
             transaction_sigs.insert(rand::random(), (genesis.public_key(), mint_sig));
         }
 
@@ -199,24 +197,24 @@ mod tests {
             Ok(()) => {
                 assert_eq!(dbc.amount(), amount);
                 assert!(dbc.transaction.outputs.contains(&dbc.content.hash()));
-                assert_eq!(n_extra_input_sigs.into::<u8>(), 0);
-                if n_inputs.into::<u8>() > 0 {
+                assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
+                if n_inputs.coerce::<u8>() > 0 {
                     assert!(n_valid_sigs >= n_inputs);
-                    assert_eq!(n_wrong_signer_sigs.into::<u8>(), 0);
-                    assert_eq!(n_wrong_msg_sigs.into::<u8>(), 0);
-                    assert_eq!(extra_output_amount.into::<u8>(), 0);
-                    assert_eq!(n_add_random_parents.into::<u8>(), 0);
-                    assert_eq!(n_drop_parents.into::<u8>(), 0);
+                    assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
+                    assert_eq!(n_wrong_msg_sigs.coerce::<u8>(), 0);
+                    assert_eq!(extra_output_amount.coerce::<u8>(), 0);
+                    assert_eq!(n_add_random_parents.coerce::<u8>(), 0);
+                    assert_eq!(n_drop_parents.coerce::<u8>(), 0);
                 }
             }
             Err(Error::MissingSignatureForInput) => {
                 assert!(n_valid_sigs < n_inputs);
             }
             Err(Error::Ed25519(_)) => {
-                assert!(n_wrong_msg_sigs.into::<u8>() > 0);
+                assert!(n_wrong_msg_sigs.coerce::<u8>() > 0);
             }
             Err(Error::UnknownInput) => {
-                assert!(n_extra_input_sigs.into::<u8>() > 0);
+                assert!(n_extra_input_sigs.coerce::<u8>() > 0);
                 assert!(
                     dbc.transaction_sigs
                         .keys()
@@ -226,14 +224,16 @@ mod tests {
                 );
             }
             Err(Error::UnrecognisedAuthority) => {
-                assert!(n_wrong_signer_sigs.into::<u8>() > 0);
+                assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
                 assert!(dbc
                     .transaction_sigs
                     .values()
                     .any(|(k, _)| key_cache.verify_known_key(k).is_err()));
             }
             Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
-                assert!(n_add_random_parents.into::<u8>() > 0 || n_drop_parents.into::<u8>() > 0);
+                assert!(
+                    n_add_random_parents.coerce::<u8>() > 0 || n_drop_parents.coerce::<u8>() > 0
+                );
                 assert!(dbc.transaction.inputs != dbc.content.parents);
                 assert!(!dbc.transaction.outputs.contains(&dbc.content.hash()));
             }
@@ -242,7 +242,5 @@ mod tests {
             }
             res => panic!("Unexpected verification result {:?}", res),
         }
-
-        TestResult::passed()
     }
 }
