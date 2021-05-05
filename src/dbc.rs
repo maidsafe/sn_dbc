@@ -267,14 +267,14 @@ mod tests {
         match validation_res {
             Ok(()) => {
                 assert_eq!(dbc.amount(), amount);
-                assert_eq!(n_extra_input_sigs, TinyInt(0));
-                if n_inputs > TinyInt(0) {
+                assert_eq!(n_extra_input_sigs.into::<u8>(), 0);
+                if n_inputs.into::<u8>() > 0 {
                     assert!(n_valid_sigs >= n_inputs);
-                    assert_eq!(n_wrong_signer_sigs, TinyInt(0));
-                    assert_eq!(n_wrong_msg_sigs, TinyInt(0));
-                    assert_eq!(extra_output_amount, TinyInt(0));
-                    assert_eq!(n_add_random_parents, TinyInt(0));
-                    assert_eq!(n_drop_parents, TinyInt(0));
+                    assert_eq!(n_wrong_signer_sigs.into::<u8>(), 0);
+                    assert_eq!(n_wrong_msg_sigs.into::<u8>(), 0);
+                    assert_eq!(extra_output_amount.into::<u8>(), 0);
+                    assert_eq!(n_add_random_parents.into::<u8>(), 0);
+                    assert_eq!(n_drop_parents.into::<u8>(), 0);
                 }
             }
             Err(Error::MissingSignatureForInput) => {
