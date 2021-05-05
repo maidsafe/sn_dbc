@@ -154,30 +154,6 @@ mod tests {
         }
     }
 
-    impl Into<u8> for TinyInt {
-        fn into(self) -> u8 {
-            self.0
-        }
-    }
-
-    impl Into<i32> for TinyInt {
-        fn into(self) -> i32 {
-            self.0 as i32
-        }
-    }
-
-    impl Into<u64> for TinyInt {
-        fn into(self) -> u64 {
-            self.0 as u64
-        }
-    }
-
-    impl Into<usize> for TinyInt {
-        fn into(self) -> usize {
-            self.0 as usize
-        }
-    }
-
     #[quickcheck]
     fn prop_mint_signatures(
         n_inputs: TinyInt,             // # of input DBC's
