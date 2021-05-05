@@ -284,7 +284,8 @@ mod tests {
             transaction_sigs,
         };
 
-        let validation_res = dbc.confirm_valid(&KeyCache::from(vec![genesis.public_key()]));
+        let key_cache = KeyCache::from(vec![genesis.public_key()]);
+        let validation_res = dbc.confirm_valid(&key_cache);
 
         println!("Validation Result: {:#?}", validation_res);
         match validation_res {
@@ -308,12 +309,25 @@ mod tests {
             }
             Err(Error::UnknownInput) => {
                 assert!(n_extra_input_sigs > TinyInt(0));
+                assert!(
+                    dbc.transaction_sigs
+                        .keys()
+                        .copied()
+                        .collect::<BTreeSet<_>>()
+                        != dbc.transaction.inputs
+                );
             }
             Err(Error::UnrecognisedAuthority) => {
                 assert!(n_wrong_signer_sigs > TinyInt(0));
+                assert!(dbc
+                    .transaction_sigs
+                    .values()
+                    .any(|(k, _)| key_cache.verify_known_key(k).is_err()));
             }
             Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
                 assert!(n_add_random_parents > TinyInt(0) || n_drop_parents > TinyInt(0));
+                assert!(dbc.transaction.inputs != dbc.content.parents);
+                assert!(!dbc.transaction.outputs.contains(&dbc.content.hash()));
             }
             res => panic!("Unexpected verification result {:?}", res),
         }
