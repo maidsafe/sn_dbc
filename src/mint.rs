@@ -233,8 +233,38 @@ mod tests {
         todo!();
     }
 
-    #[quickcheck]
-    fn prop_invalid_input_dbcs() {
+    #[test]
+    fn test_inputs_are_validated() {
+        let (genesis, _) = Mint::genesis(1000);
+
+        let input_content = DbcContent {
+            parents: Default::default(),
+            amount: 100,
+            output_number: 0,
+        };
+        let input_content_hashes: BTreeSet<_> = vec![input_content.hash()].into_iter().collect();
+
+        let fraudulant_reissue_result = genesis.reissue(MintRequest {
+            inputs: vec![Dbc {
+                content: input_content,
+                transaction: DbcTransaction {
+                    inputs: Default::default(),
+                    outputs: input_content_hashes.clone(),
+                },
+                transaction_sigs: Default::default(),
+            }]
+            .into_iter()
+            .collect(),
+            outputs: vec![DbcContent {
+                parents: input_content_hashes,
+                amount: 100,
+                output_number: 0,
+            }]
+            .into_iter()
+            .collect(),
+        });
+
+        assert!(fraudulant_reissue_result.is_err());
         todo!();
     }
 }
