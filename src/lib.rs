@@ -9,21 +9,25 @@
 use tiny_keccak::{Hasher, Sha3};
 /// These typdefs are to simplify algorithm for now and will be removed for production.
 pub(crate) type Hash = [u8; 32];
-pub(crate) type PubKey = [u8; 32]; // tmp
-pub(crate) type Signature = [u8; 32]; // tmp
 pub(crate) type DbcContentHash = [u8; 32];
-pub(crate) type DbcSpentHash = [u8; 32];
 mod dbc;
 mod dbc_content;
-mod dbc_spent;
+mod dbc_transaction;
 mod error;
+mod key_manager;
 mod mint;
+mod vecmap;
+mod vecset;
 
 pub use crate::{
     dbc::Dbc,
     dbc_content::DbcContent,
-    dbc_spent::DbcSpent,
+    dbc_transaction::DbcTransaction,
     error::{Error, Result},
+    key_manager::{ChainNode, KeyCache, KeyManager, PublicKey, Signature},
+    mint::{Mint, MintRequest},
+    vecmap::VecMap,
+    vecset::VecSet,
 };
 
 fn sha3_256(input: &[u8]) -> Hash {
@@ -34,11 +38,66 @@ fn sha3_256(input: &[u8]) -> Hash {
     output
 }
 
-/// This is the content of a DBC, it is unique as the parent hash is included
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use quickcheck::{Arbitrary, Gen};
+
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct TinyInt(u8);
+
+    impl TinyInt {
+        pub fn coerce<T: From<u8>>(self) -> T {
+            self.0.into()
+        }
+    }
+
+    impl std::fmt::Debug for TinyInt {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    impl Arbitrary for TinyInt {
+        fn arbitrary(g: &mut Gen) -> Self {
+            Self(u8::arbitrary(g) % 5)
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            Box::new((0..(self.0)).into_iter().rev().map(Self))
+        }
+    }
+
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct TinyVec<T>(Vec<T>);
+
+    impl<T: Clone> TinyVec<T> {
+        pub fn vec(&self) -> Vec<T> {
+            self.0.clone()
+        }
+    }
+
+    impl<T: std::fmt::Debug> std::fmt::Debug for TinyVec<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+
+    impl<T: Arbitrary> Arbitrary for TinyVec<T> {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let n = u8::arbitrary(g) % 7;
+            let mut vec = Vec::new();
+            for _ in 0..n {
+                vec.push(T::arbitrary(g));
+            }
+            Self(vec)
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            Box::new(self.0.shrink().map(|vec| Self(vec)))
+        }
+    }
 
     #[test]
     fn hash() {
@@ -48,23 +107,5 @@ mod tests {
     \xca\x71\xfb\xa1\xd9\x72\xfd\x94\xa3\x1c\x3b\xfb\xf2\x4e\x39\x38\
 ";
         assert_eq!(sha3_256(data), *expected);
-    }
-
-    #[test]
-    fn create_dbc() {
-        let parent = [0; 32];
-        let owner = [0; 32];
-        let amount = 1000;
-        let content = DbcContent::new(parent, owner, amount);
-        let parent_spent = DbcSpent {
-            input: [0; 32],
-            output: vec![[0; 32]],
-        };
-        let dbc = Dbc {
-            content,
-            parent_spent,
-            mint_key: [0; 32],
-            mint_sig: [0; 32],
-        };
     }
 }

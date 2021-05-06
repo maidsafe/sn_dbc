@@ -5,33 +5,50 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
+use std::collections::BTreeSet;
 
-use crate::{sha3_256, DbcContentHash, Error, PubKey, Result};
 use serde::{Deserialize, Serialize};
+use tiny_keccak::{Hasher, Sha3};
 
-#[derive(Serialize, Deserialize)]
+use crate::DbcContentHash;
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
-    pub parent: DbcContentHash, // Hash of parent DbcContent. Also used as a nonce
-    pub owner: PubKey,          // Will be blinded
+    pub parents: BTreeSet<DbcContentHash>, // Hash of parent DbcContent. Also used as a nonce
+    // TODO: pub owner: PubKey
     pub amount: u64,
+    pub output_number: u8,
 }
 
 impl DbcContent {
-    // Create a new DbcContent for signing, blind the owner from the mint
-    pub fn new(parent: DbcContentHash, owner: PubKey, amount: u64) -> Self {
-        let mut owner = owner;
-        for _ in 0..amount % 1000 {
-            owner = sha3_256(&owner); // owner not visible to mint, until out_dbc is minted.
-        }
+    // Create a new DbcContent for signing. TODO: blind the owner from the mint
+    pub fn new(parents: BTreeSet<DbcContentHash>, amount: u64, output_number: u8) -> Self {
+        // let mut owner = owner;
+        // for _ in 0..amount % 1000 {
+        //     owner = sha3_256(&owner); // owner not visible to mint, until out_dbc is minted.
+        // }
         DbcContent {
-            parent,
-            owner,
+            parents,
             amount,
+            output_number,
         }
     }
 
-    fn hash(&self) -> Result<DbcContentHash> {
-        let data = serde_json::to_string(&self).map_err(Error::JsonSerialisation)?; // use the sha3 256 of the json string repr for x platform use
-        Ok(sha3_256(data.as_ref()))
+    pub fn hash(&self) -> DbcContentHash {
+        // let data = serde_json::to_string(&self)?; // use the sha3 256 of the json string repr for x platform use
+        // Ok(sha3_256(data.as_ref()))
+
+        let mut sha3 = Sha3::v256();
+
+        for parent in self.parents.iter() {
+            sha3.update(parent);
+        }
+
+        sha3.update(&self.amount.to_be_bytes());
+        sha3.update(&self.output_number.to_be_bytes());
+
+        let mut hash = [0; 32];
+        sha3.finalize(&mut hash);
+        hash
     }
 }

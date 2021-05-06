@@ -5,7 +5,7 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
-
+use std::collections::BTreeMap;
 use std::io;
 use thiserror::Error;
 
@@ -20,12 +20,29 @@ pub enum Error {
     /// Attempted to perform an operation meant only for Adults when we are not one.
     #[error("Attempted an invalid operation {0}")]
     InvalidOperation(String),
+    #[error("This input has a signature, but it doesn't appear in the transaction")]
+    UnknownInput,
     #[error("Failed signature check.")]
     FailedSignature,
     #[error("Unrecognised authority.")]
     UnrecognisedAuthority,
-    #[error("Output DBCs must <= input dbc")]
-    DoubleSpend,
+    #[error("At least one transaction input is missing a signature.")]
+    MissingSignatureForInput,
+    #[error("Mint request doesn't balance out sum(input) == sum(output)")]
+    DbcMintRequestDoesNotBalance,
+    #[error("DBC already spent in transaction: {transaction:?}")]
+    DbcAlreadySpent {
+        transaction: crate::DbcTransaction,
+        transaction_sigs: BTreeMap<crate::DbcContentHash, (crate::PublicKey, crate::Signature)>,
+    },
+    #[error("The DBC transaction must have at least one input")]
+    TransactionMustHaveAnInput,
+    #[error("Dbc Content is not a member of transaction outputs")]
+    DbcContentNotPresentInTransactionOutput,
+    #[error("Dbc Content parents is not the same transaction inputs")]
+    DbcContentParentsDifferentFromTransactionInputs,
+    #[error("Failed to verify signature")]
+    Ed25519(#[from] ed25519::ed25519::Error),
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
