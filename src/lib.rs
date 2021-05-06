@@ -16,8 +16,6 @@ mod dbc_transaction;
 mod error;
 mod key_manager;
 mod mint;
-mod vecmap;
-mod vecset;
 
 pub use crate::{
     dbc::Dbc,
@@ -26,8 +24,6 @@ pub use crate::{
     error::{Error, Result},
     key_manager::{ChainNode, KeyCache, KeyManager, PublicKey, Signature},
     mint::{Mint, MintRequest},
-    vecmap::VecMap,
-    vecset::VecSet,
 };
 
 fn sha3_256(input: &[u8]) -> Hash {
