@@ -374,17 +374,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn prop_respond_with_in_progress_transaction_if_input_spent() {
-        todo!();
-    }
-
-    #[quickcheck]
     fn prop_output_parents_must_match_inputs() {
-        todo!();
-    }
-
-    #[quickcheck]
-    fn prop_output_amount_does_not_exceed_input() {
         todo!();
     }
 
