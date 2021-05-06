@@ -110,6 +110,7 @@ mod tests {
     }
 
     #[quickcheck]
+    #[ignore]
     fn prop_dbc_validation(
         n_inputs: TinyInt,             // # of input DBC's
         n_valid_sigs: TinyInt,         // # of valid sigs
