@@ -1,0 +1,175 @@
+# PR workflow.
+#
+# Runs full suite of checks, with warnings treated as errors.
+# Gather code coverage stats and publish them on coveralls.io.
+
+name: PR
+
+on: pull_request
+
+env:
+  # Run all cargo commands with --verbose.
+  CARGO_TERM_VERBOSE: true
+  RUST_BACKTRACE: 1
+  # Deny all compiler warnings.
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  checks:
+    name: Clippy & fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      # Install Rust and required components
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      # Cache.
+      - name: Cargo cache registry, index and build
+        uses: actions/cache@v2.1.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-cache-${{ hashFiles('**/Cargo.lock') }}
+
+      # Check if the code is formatted correctly.
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      # Run Clippy.
+      - name: Clippy checks
+        run: cargo clippy --all-targets
+
+  check_pr_size:
+    name: Check PR size doesn't break set limit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: '0'
+      - uses: maidsafe/pr_size_checker@v2
+        with:
+          max_lines_changed: 200
+  
+  coverage:
+    name: Code coverage check
+    runs-on: ubuntu-latest
+    env: 
+      PROPTEST_CASES: 1
+    steps:
+      - uses: actions/checkout@v2
+      # Install Rust
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      # Cache.
+      - name: Cargo cache registry, index and build
+        uses: actions/cache@v2.1.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-cache-${{ hashFiles('**/Cargo.lock') }}
+
+      # Run cargo tarpaulin & push result to coveralls.io
+      - name: rust-tarpaulin code coverage check
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          args: '-v --release --out Lcov'
+      - name: Push code coverage results to coveralls.io
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel: true
+          path-to-lcov: ./lcov.info
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
+
+  cargo-udeps:
+    name: Unused dependency check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      # Install Rust and required components
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+
+      # Install and run cargo udeps to find unused cargo dependencies
+      - name: cargo-udeps duplicate dependency check
+        run: |
+          cargo install cargo-udeps --locked
+          cargo +nightly udeps --all-targets
+
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    # wget the shared deny.toml file from the QA repo
+    - shell: bash
+      run: wget https://raw.githubusercontent.com/maidsafe/QA/master/misc-scripts/deny.toml
+
+    - uses: EmbarkStudios/cargo-deny-action@v1
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+    steps:
+      - uses: actions/checkout@v2
+      # Install Rust
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      # Cache.
+      - name: Cargo cache registry, index and build
+        uses: actions/cache@v2.1.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-cache-${{ hashFiles('**/Cargo.lock') }}
+      
+      # Run tests.
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --release
+
+  # Test publish using --dry-run.
+  test-publish:
+    name: Test Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      # Install Rust
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Cargo publish dry run
+        run: cargo publish --dry-run
