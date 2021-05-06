@@ -48,6 +48,14 @@ impl MintRequest {
             outputs: self.outputs.iter().map(|i| i.hash()).collect(),
         }
     }
+
+    pub fn input_amount(&self) -> u64 {
+        self.inputs.iter().map(|input| input.amount()).sum()
+    }
+
+    pub fn output_amount(&self) -> u64 {
+        self.outputs.iter().map(|output| output.amount).sum()
+    }
 }
 
 pub struct Mint {
@@ -100,8 +108,13 @@ impl Mint {
         DbcTransaction,
         BTreeMap<DbcContentHash, (PublicKey, Signature)>,
     )> {
+        if mint_request.input_amount() != mint_request.output_amount() {
+            return Err(Error::DbcMintRequestDoesNotBalance);
+        }
+
         for input in mint_request.inputs.iter() {
             input.confirm_valid(self.key_cache())?;
+
             match self.spendbook.lookup(&input.name()).cloned() {
                 Some(transaction) => {
                     // This input has already been spent, return the transaction to the user
@@ -325,6 +338,11 @@ mod tests {
                     output_dbcs.iter().map(|dbc| dbc.amount()).sum::<u64>(),
                     output_amount
                 );
+            }
+            Err(Error::DbcMintRequestDoesNotBalance) => {
+                let output_amount: u64 =
+                    output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
+                assert_ne!(genesis_amount, output_amount);
             }
             err => panic!("Unexpected reissue err {:#?}", err),
         }

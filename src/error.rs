@@ -28,6 +28,8 @@ pub enum Error {
     UnrecognisedAuthority,
     #[error("At least one transaction input is missing a signature.")]
     MissingSignatureForInput,
+    #[error("Mint request doesn't balance out sum(input) == sum(output)")]
+    DbcMintRequestDoesNotBalance,
     #[error("DBC already spent in transaction: {transaction:?}")]
     DbcAlreadySpent {
         transaction: crate::DbcTransaction,
