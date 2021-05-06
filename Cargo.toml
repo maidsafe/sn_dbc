@@ -1,6 +1,6 @@
 [package]
 name = "safe_dbc"
-version = "1.0.2"
+version = "1.0.3"
 description = "Safe DBC"
 authors = [ "David Irvine <david.irvine@maidsafe.net>" ]
 license = "MIT OR BSD-3-Clause"
