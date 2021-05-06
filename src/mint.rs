@@ -49,12 +49,14 @@ impl MintRequest {
         }
     }
 
-    pub fn input_amount(&self) -> u64 {
-        self.inputs.iter().map(|input| input.amount()).sum()
-    }
-
-    pub fn output_amount(&self) -> u64 {
-        self.outputs.iter().map(|output| output.amount).sum()
+    pub fn verify_transaction_balances(&self) -> Result<()> {
+        let in_amount: u64 = self.inputs.iter().map(|input| input.amount()).sum();
+        let out_amount: u64 = self.outputs.iter().map(|output| output.amount).sum();
+        if in_amount != out_amount {
+            Err(Error::DbcMintRequestDoesNotBalance)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -108,26 +110,8 @@ impl Mint {
         DbcTransaction,
         BTreeMap<DbcContentHash, (PublicKey, Signature)>,
     )> {
-        if mint_request.input_amount() != mint_request.output_amount() {
-            return Err(Error::DbcMintRequestDoesNotBalance);
-        }
-
-        for input in mint_request.inputs.iter() {
-            input.confirm_valid(self.key_cache())?;
-
-            match self.spendbook.lookup(&input.name()).cloned() {
-                Some(transaction) => {
-                    // This input has already been spent, return the transaction to the user
-                    let transaction_sigs = self.sign_transaction(&transaction);
-                    return Err(Error::DbcAlreadySpent {
-                        transaction,
-                        transaction_sigs,
-                    });
-                }
-                None => (),
-            }
-        }
-
+        mint_request.verify_transaction_balances()?;
+        self.validate_transaction_input_dbcs(&mint_request.inputs)?;
         let transaction = mint_request.to_transaction();
         let transaction_sigs = self.sign_transaction(&transaction);
 
@@ -136,6 +120,27 @@ impl Mint {
         }
 
         Ok((transaction, transaction_sigs))
+    }
+
+    fn validate_transaction_input_dbcs(&self, inputs: &HashSet<Dbc>) -> Result<()> {
+        if inputs.len() == 0 {
+            return Err(Error::TransactionMustHaveAnInput);
+        }
+
+        for input in inputs.iter() {
+            input.confirm_valid(self.key_cache())?;
+
+            if let Some(transaction) = self.spendbook.lookup(&input.name()).cloned() {
+                // This input has already been spent, return the transaction to the user
+                let transaction_sigs = self.sign_transaction(&transaction);
+                return Err(Error::DbcAlreadySpent {
+                    transaction,
+                    transaction_sigs,
+                });
+            }
+        }
+
+        Ok(())
     }
 
     fn sign_transaction(
@@ -345,6 +350,9 @@ mod tests {
                 let output_amount: u64 =
                     output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
                 assert_ne!(genesis_amount, output_amount);
+            }
+            Err(Error::TransactionMustHaveAnInput) => {
+                assert_eq!(input_amounts.vec().len(), 0);
             }
             err => panic!("Unexpected reissue err {:#?}", err),
         }
