@@ -105,14 +105,7 @@ impl Mint {
             match self.spendbook.lookup(&input.name()).cloned() {
                 Some(transaction) => {
                     // This input has already been spent, return the transaction to the user
-                    let sig = self.key_mgr.sign(&transaction.hash());
-                    let transaction_sigs = transaction
-                        .inputs
-                        .iter()
-                        .copied()
-                        .zip(std::iter::repeat((self.public_key(), sig)))
-                        .collect();
-
+                    let transaction_sigs = self.sign_transaction(&transaction);
                     return Err(Error::DbcAlreadySpent {
                         transaction,
                         transaction_sigs,
@@ -123,20 +116,27 @@ impl Mint {
         }
 
         let transaction = mint_request.to_transaction();
-        let sig = self.key_mgr.sign(&transaction.hash());
-
-        let transaction_sigs = transaction
-            .inputs
-            .iter()
-            .copied()
-            .zip(std::iter::repeat((self.public_key(), sig)))
-            .collect();
+        let transaction_sigs = self.sign_transaction(&transaction);
 
         for input in mint_request.inputs.iter() {
             self.spendbook.log(input.name(), transaction.clone());
         }
 
         Ok((transaction, transaction_sigs))
+    }
+
+    fn sign_transaction(
+        &self,
+        transaction: &DbcTransaction,
+    ) -> BTreeMap<DbcContentHash, (PublicKey, Signature)> {
+        let sig = self.key_mgr.sign(&transaction.hash());
+
+        transaction
+            .inputs
+            .iter()
+            .copied()
+            .zip(std::iter::repeat((self.public_key(), sig)))
+            .collect()
     }
 }
 
@@ -252,8 +252,82 @@ mod tests {
     }
 
     #[quickcheck]
-    fn prop_dbc_transaction_happy_path() {
-        todo!()
+    fn prop_dbc_transaction_many_to_many(
+        input_amounts: TinyVec<TinyInt>,
+        output_amounts: TinyVec<TinyInt>,
+    ) {
+        let genesis_amount = input_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
+
+        let (mut genesis, genesis_dbc) = Mint::genesis(genesis_amount);
+
+        let gen_inputs: HashSet<_> = vec![genesis_dbc.clone()].into_iter().collect();
+        let gen_input_hashes: BTreeSet<_> = gen_inputs.iter().map(|in_dbc| in_dbc.name()).collect();
+        let input_content: HashSet<_> = input_amounts
+            .vec()
+            .iter()
+            .enumerate()
+            .map(|(i, amount)| DbcContent::new(gen_input_hashes.clone(), amount.coerce(), i as u8))
+            .collect();
+
+        let mint_request = MintRequest {
+            inputs: gen_inputs,
+            outputs: input_content.clone(),
+        };
+
+        let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
+
+        let input_dbcs: HashSet<_> = input_content
+            .into_iter()
+            .map(|content| Dbc {
+                content,
+                transaction: transaction.clone(),
+                transaction_sigs: transaction_sigs.clone(),
+            })
+            .collect();
+
+        let outputs: HashSet<_> = output_amounts
+            .vec()
+            .iter()
+            .enumerate()
+            .map(|(i, amount)| DbcContent::new(gen_input_hashes.clone(), amount.coerce(), i as u8))
+            .collect();
+
+        let mint_request = MintRequest {
+            inputs: input_dbcs,
+            outputs: outputs.clone(),
+        };
+
+        let many_to_many_result = genesis.reissue(mint_request.clone());
+
+        match many_to_many_result {
+            Ok((transaction, transaction_sigs)) => {
+                let output_amount: u64 =
+                    output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
+                assert_eq!(genesis_amount, output_amount);
+
+                let output_dbcs: Vec<_> = outputs
+                    .into_iter()
+                    .map(|content| Dbc {
+                        content,
+                        transaction: transaction.clone(),
+                        transaction_sigs: transaction_sigs.clone(),
+                    })
+                    .collect();
+
+                for dbc in output_dbcs.iter() {
+                    let dbc_confirm_result =
+                        dbc.confirm_valid(&KeyCache::from(vec![genesis.public_key()]));
+                    println!("DBC confirm result {:?}", dbc_confirm_result);
+                    assert!(dbc_confirm_result.is_ok());
+                }
+
+                assert_eq!(
+                    output_dbcs.iter().map(|dbc| dbc.amount()).sum::<u64>(),
+                    output_amount
+                );
+            }
+            err => panic!("Unexpected reissue err {:#?}", err),
+        }
     }
 
     #[quickcheck]
