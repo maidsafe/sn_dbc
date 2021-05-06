@@ -298,11 +298,13 @@ mod tests {
             })
             .collect();
 
+        let input_hashes: BTreeSet<_> = input_dbcs.iter().map(|in_dbc| in_dbc.name()).collect();
+
         let outputs: HashSet<_> = output_amounts
             .vec()
             .iter()
             .enumerate()
-            .map(|(i, amount)| DbcContent::new(gen_input_hashes.clone(), amount.coerce(), i as u8))
+            .map(|(i, amount)| DbcContent::new(input_hashes.clone(), amount.coerce(), i as u8))
             .collect();
 
         let mint_request = MintRequest {
