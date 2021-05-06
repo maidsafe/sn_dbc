@@ -359,26 +359,31 @@ mod tests {
     }
 
     #[quickcheck]
+    #[ignore]
     fn prop_dbc_ensure_outputs_are_numbered_uniquely() {
         todo!()
     }
 
     #[quickcheck]
+    #[ignore]
     fn prop_in_progress_transaction_can_be_continued_across_churn() {
         todo!()
     }
 
     #[quickcheck]
+    #[ignore]
     fn prop_reject_invalid_prefix() {
         todo!();
     }
 
     #[quickcheck]
+    #[ignore]
     fn prop_output_parents_must_match_inputs() {
         todo!();
     }
 
     #[quickcheck]
+    #[ignore]
     fn prop_input_ownership_proofs_are_checked() {
         todo!();
     }

@@ -2,11 +2,11 @@
 name = "safe_dbc"
 version = "1.0.3"
 description = "Safe DBC"
-authors = [ "David Irvine <david.irvine@maidsafe.net>" ]
 license = "MIT OR BSD-3-Clause"
 repository = "https://github.com/maidsafe/sn_dbc"
 documentation = "https://docs.rs/sn_dbc"
 keywords = [ "Safe", "Network", "SafeNetwork", "SafeUrl", "XorUrl" ]
+authors = [ "MaidSafe Developers <dev@maidsafe.net>" ]
 edition = "2018"
 
 [dependencies]

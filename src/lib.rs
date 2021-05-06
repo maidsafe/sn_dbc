@@ -6,6 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+#[cfg(test)]
 use tiny_keccak::{Hasher, Sha3};
 /// These typdefs are to simplify algorithm for now and will be removed for production.
 pub(crate) type Hash = [u8; 32];
@@ -26,6 +27,7 @@ pub use crate::{
     mint::{Mint, MintRequest},
 };
 
+#[cfg(test)]
 fn sha3_256(input: &[u8]) -> Hash {
     let mut sha3 = Sha3::v256();
     let mut output = [0; 32];
