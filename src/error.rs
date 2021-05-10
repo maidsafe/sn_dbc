@@ -30,6 +30,8 @@ pub enum Error {
     MissingSignatureForInput,
     #[error("Mint request doesn't balance out sum(input) == sum(output)")]
     DbcMintRequestDoesNotBalance,
+    #[error("Outputs must be numbered 0..N where N = # of outputs")]
+    OutputsAreNotNumberedCorrectly,
     #[error("DBC already spent in transaction: {transaction:?}")]
     DbcAlreadySpent {
         transaction: crate::DbcTransaction,

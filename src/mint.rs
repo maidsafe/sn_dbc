@@ -13,7 +13,7 @@
 // input is vaid
 // Outputs <= input value
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
     Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, KeyCache, KeyManager, PublicKey,
@@ -112,6 +112,7 @@ impl Mint {
     )> {
         mint_request.verify_transaction_balances()?;
         self.validate_transaction_input_dbcs(&mint_request.inputs)?;
+        self.validate_transaction_outputs(&mint_request.outputs)?;
         let transaction = mint_request.to_transaction();
         let transaction_sigs = self.sign_transaction(&transaction);
 
@@ -138,6 +139,21 @@ impl Mint {
                     transaction_sigs,
                 });
             }
+        }
+
+        Ok(())
+    }
+
+    fn validate_transaction_outputs(&self, outputs: &HashSet<DbcContent>) -> Result<()> {
+        let number_set = outputs
+            .iter()
+            .map(|dbc_content| dbc_content.output_number.into())
+            .collect::<BTreeSet<_>>();
+
+        let expected_number_set = (0..outputs.len()).into_iter().collect::<BTreeSet<_>>();
+
+        if number_set != expected_number_set {
+            return Err(Error::OutputsAreNotNumberedCorrectly);
         }
 
         Ok(())
@@ -272,7 +288,7 @@ mod tests {
     #[quickcheck]
     fn prop_dbc_transaction_many_to_many(
         input_amounts: TinyVec<TinyInt>,
-        output_amounts: TinyVec<TinyInt>,
+        output_amounts: TinyVec<(TinyInt, TinyInt)>,
     ) {
         let genesis_amount = input_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
 
@@ -308,8 +324,13 @@ mod tests {
         let outputs: HashSet<_> = output_amounts
             .vec()
             .iter()
-            .enumerate()
-            .map(|(i, amount)| DbcContent::new(input_hashes.clone(), amount.coerce(), i as u8))
+            .map(|(output_number, amount)| {
+                DbcContent::new(
+                    input_hashes.clone(),
+                    amount.coerce(),
+                    output_number.coerce(),
+                )
+            })
             .collect();
 
         let mint_request = MintRequest {
@@ -319,10 +340,13 @@ mod tests {
 
         let many_to_many_result = genesis.reissue(mint_request.clone());
 
+        let output_amounts_set: BTreeSet<_> = output_amounts.vec().into_iter().collect();
+        let output_amount: u64 = output_amounts_set
+            .iter()
+            .map(|(_, amount)| amount.coerce::<u64>())
+            .sum();
         match many_to_many_result {
             Ok((transaction, transaction_sigs)) => {
-                let output_amount: u64 =
-                    output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
                 assert_eq!(genesis_amount, output_amount);
 
                 let output_dbcs: Vec<_> = outputs
@@ -345,23 +369,33 @@ mod tests {
                     output_dbcs.iter().map(|dbc| dbc.amount()).sum::<u64>(),
                     output_amount
                 );
+
+                // The outputs should have been uniquely number from 0 to N (N = # of outputs)
+                assert_eq!(
+                    output_amounts_set
+                        .iter()
+                        .map(|(output_number, _)| output_number.coerce())
+                        .collect::<BTreeSet<_>>(),
+                    (0..output_amounts_set.len()).into_iter().collect()
+                );
             }
             Err(Error::DbcMintRequestDoesNotBalance) => {
-                let output_amount: u64 =
-                    output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
                 assert_ne!(genesis_amount, output_amount);
             }
             Err(Error::TransactionMustHaveAnInput) => {
                 assert_eq!(input_amounts.vec().len(), 0);
             }
+            Err(Error::OutputsAreNotNumberedCorrectly) => {
+                assert_ne!(
+                    output_amounts_set
+                        .iter()
+                        .map(|(output_number, _)| output_number.coerce())
+                        .collect::<BTreeSet<_>>(),
+                    (0..output_amounts_set.len()).into_iter().collect()
+                );
+            }
             err => panic!("Unexpected reissue err {:#?}", err),
         }
-    }
-
-    #[quickcheck]
-    #[ignore]
-    fn prop_dbc_ensure_outputs_are_numbered_uniquely() {
-        todo!()
     }
 
     #[quickcheck]

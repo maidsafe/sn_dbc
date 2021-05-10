@@ -59,7 +59,7 @@ mod tests {
 
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::TinyInt;
+    use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{Mint, MintRequest};
 
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
@@ -110,9 +110,8 @@ mod tests {
     }
 
     #[quickcheck]
-    #[ignore]
     fn prop_dbc_validation(
-        n_inputs: TinyInt,             // # of input DBC's
+        n_inputs: NonZeroTinyInt,      // # of input DBC's
         n_valid_sigs: TinyInt,         // # of valid sigs
         n_wrong_signer_sigs: TinyInt,  // # of valid sigs from unrecognized authority
         n_wrong_msg_sigs: TinyInt,     // # of sigs from recognized authority signing wrong message
@@ -229,7 +228,7 @@ mod tests {
             Ok(()) => {
                 assert!(dbc.transaction.outputs.contains(&dbc.content.hash()));
                 assert!(n_inputs.coerce::<u8>() > 0);
-                assert!(n_valid_sigs >= n_inputs);
+                assert!(n_valid_sigs.coerce::<u8>() >= n_inputs.coerce::<u8>());
                 assert_eq!(dbc.amount(), amount);
                 assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
                 assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
@@ -239,7 +238,7 @@ mod tests {
                 assert_eq!(n_drop_parents.coerce::<u8>(), 0);
             }
             Err(Error::MissingSignatureForInput) => {
-                assert!(n_valid_sigs < n_inputs);
+                assert!(n_valid_sigs.coerce::<u8>() < n_inputs.coerce::<u8>());
             }
             Err(Error::Ed25519(_)) => {
                 assert!(n_wrong_msg_sigs.coerce::<u8>() > 0);

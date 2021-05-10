@@ -67,6 +67,31 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct NonZeroTinyInt(u8);
+
+    impl NonZeroTinyInt {
+        pub fn coerce<T: From<u8>>(self) -> T {
+            self.0.into()
+        }
+    }
+
+    impl std::fmt::Debug for NonZeroTinyInt {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    impl Arbitrary for NonZeroTinyInt {
+        fn arbitrary(g: &mut Gen) -> Self {
+            Self(u8::arbitrary(g) % 4 + 1)
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            Box::new((0..(self.0)).into_iter().rev().map(Self))
+        }
+    }
+
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyVec<T>(Vec<T>);
 
