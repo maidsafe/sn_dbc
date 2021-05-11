@@ -40,6 +40,7 @@ fn sha3_256(input: &[u8]) -> Hash {
 mod tests {
     use super::*;
 
+    use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -67,12 +68,45 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct NonZeroTinyInt(NonZeroU8);
+
+    impl NonZeroTinyInt {
+        pub fn coerce<T: From<u8>>(self) -> T {
+            self.0.get().into()
+        }
+    }
+
+    impl std::fmt::Debug for NonZeroTinyInt {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    impl Arbitrary for NonZeroTinyInt {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let r = NonZeroU8::new(u8::arbitrary(g) % 4 + 1)
+                .unwrap_or_else(|| panic!("Failed to generate an arbitrary non-zero u8"));
+            Self(r)
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            Box::new(
+                (1..(self.0.get()))
+                    .into_iter()
+                    .rev()
+                    .filter_map(NonZeroU8::new)
+                    .map(Self),
+            )
+        }
+    }
+
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyVec<T>(Vec<T>);
 
-    impl<T: Clone> TinyVec<T> {
-        pub fn vec(&self) -> Vec<T> {
-            self.0.clone()
+    impl<T> TinyVec<T> {
+        pub fn vec(self) -> Vec<T> {
+            self.0
         }
     }
 
@@ -93,7 +127,7 @@ mod tests {
         }
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new(self.0.shrink().map(|vec| Self(vec)))
+            Box::new(self.0.shrink().map(Self))
         }
     }
 

@@ -13,12 +13,14 @@
 // input is vaid
 // Outputs <= input value
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
     Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, KeyCache, KeyManager, PublicKey,
     Result, Signature,
 };
+
+pub type InputSignatures = BTreeMap<DbcContentHash, (PublicKey, Signature)>;
 
 #[derive(Default)]
 struct SpendBook {
@@ -50,10 +52,10 @@ impl MintRequest {
     }
 
     pub fn verify_transaction_balances(&self) -> Result<()> {
-        let in_amount: u64 = self.inputs.iter().map(|input| input.amount()).sum();
-        let out_amount: u64 = self.outputs.iter().map(|output| output.amount).sum();
-        if in_amount != out_amount {
-            Err(Error::DbcMintRequestDoesNotBalance)
+        let input: u64 = self.inputs.iter().map(|input| input.amount()).sum();
+        let output: u64 = self.outputs.iter().map(|output| output.amount).sum();
+        if input != output {
+            Err(Error::DbcMintRequestDoesNotBalance { input, output })
         } else {
             Ok(())
         }
@@ -106,13 +108,13 @@ impl Mint {
     pub fn reissue(
         &mut self,
         mint_request: MintRequest,
-    ) -> Result<(
-        DbcTransaction,
-        BTreeMap<DbcContentHash, (PublicKey, Signature)>,
-    )> {
+    ) -> Result<(DbcTransaction, InputSignatures)> {
         mint_request.verify_transaction_balances()?;
-        self.validate_transaction_input_dbcs(&mint_request.inputs)?;
         let transaction = mint_request.to_transaction();
+
+        self.validate_transaction_input_dbcs(&mint_request.inputs)?;
+        self.validate_transaction_outputs(&transaction.inputs, &mint_request.outputs)?;
+
         let transaction_sigs = self.sign_transaction(&transaction);
 
         for input in mint_request.inputs.iter() {
@@ -123,7 +125,7 @@ impl Mint {
     }
 
     fn validate_transaction_input_dbcs(&self, inputs: &HashSet<Dbc>) -> Result<()> {
-        if inputs.len() == 0 {
+        if inputs.is_empty() {
             return Err(Error::TransactionMustHaveAnInput);
         }
 
@@ -138,6 +140,29 @@ impl Mint {
                     transaction_sigs,
                 });
             }
+        }
+
+        Ok(())
+    }
+
+    fn validate_transaction_outputs(
+        &self,
+        inputs: &BTreeSet<DbcContentHash>,
+        outputs: &HashSet<DbcContent>,
+    ) -> Result<()> {
+        let number_set = outputs
+            .iter()
+            .map(|dbc_content| dbc_content.output_number.into())
+            .collect::<BTreeSet<_>>();
+
+        let expected_number_set = (0..outputs.len()).into_iter().collect::<BTreeSet<_>>();
+
+        if number_set != expected_number_set {
+            return Err(Error::OutputsAreNotNumberedCorrectly);
+        }
+
+        if outputs.iter().any(|o| &o.parents != inputs) {
+            return Err(Error::DbcContentParentsDifferentFromTransactionInputs);
         }
 
         Ok(())
@@ -178,18 +203,22 @@ mod tests {
 
     #[quickcheck]
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) {
-        let output_amount = output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
+        let output_amounts: Vec<u64> = output_amounts
+            .vec()
+            .into_iter()
+            .map(TinyInt::coerce)
+            .collect();
+        let output_amount = output_amounts.iter().sum();
 
         let (mut genesis, genesis_dbc) = Mint::genesis(output_amount);
 
-        let inputs: HashSet<_> = vec![genesis_dbc.clone()].into_iter().collect();
+        let inputs: HashSet<_> = vec![genesis_dbc].into_iter().collect();
         let input_hashes: BTreeSet<_> = inputs.iter().map(|in_dbc| in_dbc.name()).collect();
 
         let outputs = output_amounts
-            .vec()
             .iter()
             .enumerate()
-            .map(|(i, amount)| DbcContent::new(input_hashes.clone(), amount.coerce(), i as u8))
+            .map(|(i, amount)| DbcContent::new(input_hashes.clone(), *amount, i as u8))
             .collect();
 
         let mint_request = MintRequest { inputs, outputs };
@@ -226,8 +255,7 @@ mod tests {
 
         let key_cache = KeyCache::from(vec![genesis.public_key()]);
         for dbc in output_dbcs.iter() {
-            let expected_amount: u64 =
-                output_amounts.vec()[dbc.content.output_number as usize].coerce();
+            let expected_amount: u64 = output_amounts[dbc.content.output_number as usize];
             assert_eq!(dbc.amount(), expected_amount);
             assert!(dbc.confirm_valid(&key_cache).is_ok());
         }
@@ -271,20 +299,42 @@ mod tests {
 
     #[quickcheck]
     fn prop_dbc_transaction_many_to_many(
+        // the amount of each input transaction
         input_amounts: TinyVec<TinyInt>,
-        output_amounts: TinyVec<TinyInt>,
+        // The output_number and amount for each transaction output
+        output_amounts: TinyVec<(TinyInt, TinyInt)>,
+        // Outputs with output_numbers that appear in this vec will
+        // have extra parents inserted into the transaction
+        extra_output_parents: TinyVec<TinyInt>,
     ) {
-        let genesis_amount = input_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
+        let input_amounts: Vec<u64> = input_amounts
+            .vec()
+            .into_iter()
+            .map(TinyInt::coerce)
+            .collect();
+
+        let output_amounts: Vec<(u8, u64)> = output_amounts
+            .vec()
+            .into_iter()
+            .map(|(number, amount)| (number.coerce(), amount.coerce()))
+            .collect();
+
+        let extra_output_parents: Vec<u8> = extra_output_parents
+            .vec()
+            .into_iter()
+            .map(TinyInt::coerce)
+            .collect();
+
+        let genesis_amount: u64 = input_amounts.iter().sum();
 
         let (mut genesis, genesis_dbc) = Mint::genesis(genesis_amount);
 
-        let gen_inputs: HashSet<_> = vec![genesis_dbc.clone()].into_iter().collect();
-        let gen_input_hashes: BTreeSet<_> = gen_inputs.iter().map(|in_dbc| in_dbc.name()).collect();
+        let gen_inputs: HashSet<_> = vec![genesis_dbc].into_iter().collect();
+        let gen_input_hashes: BTreeSet<_> = gen_inputs.iter().map(Dbc::name).collect();
         let input_content: HashSet<_> = input_amounts
-            .vec()
             .iter()
             .enumerate()
-            .map(|(i, amount)| DbcContent::new(gen_input_hashes.clone(), amount.coerce(), i as u8))
+            .map(|(i, amount)| DbcContent::new(gen_input_hashes.clone(), *amount, i as u8))
             .collect();
 
         let mint_request = MintRequest {
@@ -292,7 +342,7 @@ mod tests {
             outputs: input_content.clone(),
         };
 
-        let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
+        let (transaction, transaction_sigs) = genesis.reissue(mint_request).unwrap();
 
         let input_dbcs: HashSet<_> = input_content
             .into_iter()
@@ -303,13 +353,22 @@ mod tests {
             })
             .collect();
 
-        let input_hashes: BTreeSet<_> = input_dbcs.iter().map(|in_dbc| in_dbc.name()).collect();
+        let input_hashes: BTreeSet<_> = input_dbcs.iter().map(Dbc::name).collect();
 
         let outputs: HashSet<_> = output_amounts
-            .vec()
             .iter()
-            .enumerate()
-            .map(|(i, amount)| DbcContent::new(input_hashes.clone(), amount.coerce(), i as u8))
+            .map(|(output_number, amount)| {
+                let mut fuzzed_parents = input_hashes.clone();
+
+                for _ in extra_output_parents
+                    .iter()
+                    .filter(|idx| idx == &output_number)
+                {
+                    fuzzed_parents.insert(rand::random());
+                }
+
+                DbcContent::new(fuzzed_parents, *amount, *output_number)
+            })
             .collect();
 
         let mint_request = MintRequest {
@@ -317,13 +376,34 @@ mod tests {
             outputs: outputs.clone(),
         };
 
-        let many_to_many_result = genesis.reissue(mint_request.clone());
+        let many_to_many_result = genesis.reissue(mint_request);
+
+        let output_amount: u64 = outputs.iter().map(|output| output.amount).sum();
+        let number_of_fuzzed_output_parents = extra_output_parents
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+            .intersection(&output_amounts.iter().map(|(n, _)| *n).collect())
+            .count();
 
         match many_to_many_result {
             Ok((transaction, transaction_sigs)) => {
-                let output_amount: u64 =
-                    output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
                 assert_eq!(genesis_amount, output_amount);
+                assert_eq!(number_of_fuzzed_output_parents, 0);
+
+                // The output amounts should correspond to the output_amounts
+                assert_eq!(
+                    outputs.iter().map(|o| o.amount).collect::<BTreeSet<_>>(),
+                    output_amounts.into_iter().map(|(_, a)| a).collect()
+                );
+
+                // The outputs should have been uniquely number from 0 to N (N = # of outputs)
+                assert_eq!(
+                    outputs
+                        .iter()
+                        .map(|content| content.output_number as usize)
+                        .collect::<BTreeSet<_>>(),
+                    (0..outputs.len()).into_iter().collect()
+                );
 
                 let output_dbcs: Vec<_> = outputs
                     .into_iter()
@@ -346,22 +426,26 @@ mod tests {
                     output_amount
                 );
             }
-            Err(Error::DbcMintRequestDoesNotBalance) => {
-                let output_amount: u64 =
-                    output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
+            Err(Error::DbcMintRequestDoesNotBalance { .. }) => {
                 assert_ne!(genesis_amount, output_amount);
             }
             Err(Error::TransactionMustHaveAnInput) => {
-                assert_eq!(input_amounts.vec().len(), 0);
+                assert_eq!(input_amounts.len(), 0);
+            }
+            Err(Error::OutputsAreNotNumberedCorrectly) => {
+                assert_ne!(
+                    outputs
+                        .iter()
+                        .map(|content| content.output_number as usize)
+                        .collect::<BTreeSet<_>>(),
+                    (0..outputs.len()).into_iter().collect()
+                );
+            }
+            Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
+                assert_ne!(number_of_fuzzed_output_parents, 0)
             }
             err => panic!("Unexpected reissue err {:#?}", err),
         }
-    }
-
-    #[quickcheck]
-    #[ignore]
-    fn prop_dbc_ensure_outputs_are_numbered_uniquely() {
-        todo!()
     }
 
     #[quickcheck]
@@ -373,12 +457,6 @@ mod tests {
     #[quickcheck]
     #[ignore]
     fn prop_reject_invalid_prefix() {
-        todo!();
-    }
-
-    #[quickcheck]
-    #[ignore]
-    fn prop_output_parents_must_match_inputs() {
         todo!();
     }
 
