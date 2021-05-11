@@ -40,6 +40,7 @@ fn sha3_256(input: &[u8]) -> Hash {
 mod tests {
     use super::*;
 
+    use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -68,11 +69,11 @@ mod tests {
     }
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    pub struct NonZeroTinyInt(u8);
+    pub struct NonZeroTinyInt(NonZeroU8);
 
     impl NonZeroTinyInt {
         pub fn coerce<T: From<u8>>(self) -> T {
-            self.0.into()
+            self.0.get().into()
         }
     }
 
@@ -84,11 +85,19 @@ mod tests {
 
     impl Arbitrary for NonZeroTinyInt {
         fn arbitrary(g: &mut Gen) -> Self {
-            Self(u8::arbitrary(g) % 4 + 1)
+            let r = NonZeroU8::new(u8::arbitrary(g) % 4 + 1)
+                .unwrap_or_else(|| panic!("Failed to generate an arbitrary non-zero u8"));
+            Self(r)
         }
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new((0..(self.0)).into_iter().rev().map(Self))
+            Box::new(
+                (1..(self.0.get()))
+                    .into_iter()
+                    .rev()
+                    .filter_map(NonZeroU8::new)
+                    .map(Self),
+            )
         }
     }
 
