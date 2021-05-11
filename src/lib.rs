@@ -118,7 +118,7 @@ mod tests {
         }
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new(self.0.shrink().map(|vec| Self(vec)))
+            Box::new(self.0.shrink().map(Self))
         }
     }
 

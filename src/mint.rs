@@ -20,6 +20,8 @@ use crate::{
     Result, Signature,
 };
 
+pub type InputSignatures = BTreeMap<DbcContentHash, (PublicKey, Signature)>;
+
 #[derive(Default)]
 struct SpendBook {
     transactions: BTreeMap<DbcContentHash, DbcTransaction>,
@@ -106,10 +108,7 @@ impl Mint {
     pub fn reissue(
         &mut self,
         mint_request: MintRequest,
-    ) -> Result<(
-        DbcTransaction,
-        BTreeMap<DbcContentHash, (PublicKey, Signature)>,
-    )> {
+    ) -> Result<(DbcTransaction, InputSignatures)> {
         mint_request.verify_transaction_balances()?;
         let transaction = mint_request.to_transaction();
 
@@ -126,7 +125,7 @@ impl Mint {
     }
 
     fn validate_transaction_input_dbcs(&self, inputs: &HashSet<Dbc>) -> Result<()> {
-        if inputs.len() == 0 {
+        if inputs.is_empty() {
             return Err(Error::TransactionMustHaveAnInput);
         }
 
@@ -213,7 +212,7 @@ mod tests {
 
         let (mut genesis, genesis_dbc) = Mint::genesis(output_amount);
 
-        let inputs: HashSet<_> = vec![genesis_dbc.clone()].into_iter().collect();
+        let inputs: HashSet<_> = vec![genesis_dbc].into_iter().collect();
         let input_hashes: BTreeSet<_> = inputs.iter().map(|in_dbc| in_dbc.name()).collect();
 
         let outputs = output_amounts
@@ -330,7 +329,7 @@ mod tests {
 
         let (mut genesis, genesis_dbc) = Mint::genesis(genesis_amount);
 
-        let gen_inputs: HashSet<_> = vec![genesis_dbc.clone()].into_iter().collect();
+        let gen_inputs: HashSet<_> = vec![genesis_dbc].into_iter().collect();
         let gen_input_hashes: BTreeSet<_> = gen_inputs.iter().map(Dbc::name).collect();
         let input_content: HashSet<_> = input_amounts
             .iter()
@@ -343,7 +342,7 @@ mod tests {
             outputs: input_content.clone(),
         };
 
-        let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
+        let (transaction, transaction_sigs) = genesis.reissue(mint_request).unwrap();
 
         let input_dbcs: HashSet<_> = input_content
             .into_iter()
@@ -377,7 +376,7 @@ mod tests {
             outputs: outputs.clone(),
         };
 
-        let many_to_many_result = genesis.reissue(mint_request.clone());
+        let many_to_many_result = genesis.reissue(mint_request);
 
         let output_amount: u64 = outputs.iter().map(|output| output.amount).sum();
         let number_of_fuzzed_output_parents = extra_output_parents
