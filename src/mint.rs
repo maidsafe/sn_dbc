@@ -50,10 +50,10 @@ impl MintRequest {
     }
 
     pub fn verify_transaction_balances(&self) -> Result<()> {
-        let in_amount: u64 = self.inputs.iter().map(|input| input.amount()).sum();
-        let out_amount: u64 = self.outputs.iter().map(|output| output.amount).sum();
-        if in_amount != out_amount {
-            Err(Error::DbcMintRequestDoesNotBalance)
+        let input: u64 = self.inputs.iter().map(|input| input.amount()).sum();
+        let output: u64 = self.outputs.iter().map(|output| output.amount).sum();
+        if input != output {
+            Err(Error::DbcMintRequestDoesNotBalance { input, output })
         } else {
             Ok(())
         }
@@ -111,9 +111,11 @@ impl Mint {
         BTreeMap<DbcContentHash, (PublicKey, Signature)>,
     )> {
         mint_request.verify_transaction_balances()?;
-        self.validate_transaction_input_dbcs(&mint_request.inputs)?;
-        self.validate_transaction_outputs(&mint_request.outputs)?;
         let transaction = mint_request.to_transaction();
+
+        self.validate_transaction_input_dbcs(&mint_request.inputs)?;
+        self.validate_transaction_outputs(&transaction.inputs, &mint_request.outputs)?;
+
         let transaction_sigs = self.sign_transaction(&transaction);
 
         for input in mint_request.inputs.iter() {
@@ -144,7 +146,11 @@ impl Mint {
         Ok(())
     }
 
-    fn validate_transaction_outputs(&self, outputs: &HashSet<DbcContent>) -> Result<()> {
+    fn validate_transaction_outputs(
+        &self,
+        inputs: &BTreeSet<DbcContentHash>,
+        outputs: &HashSet<DbcContent>,
+    ) -> Result<()> {
         let number_set = outputs
             .iter()
             .map(|dbc_content| dbc_content.output_number.into())
@@ -154,6 +160,10 @@ impl Mint {
 
         if number_set != expected_number_set {
             return Err(Error::OutputsAreNotNumberedCorrectly);
+        }
+
+        if outputs.iter().any(|o| &o.parents != inputs) {
+            return Err(Error::DbcContentParentsDifferentFromTransactionInputs);
         }
 
         Ok(())
@@ -367,11 +377,10 @@ mod tests {
         let many_to_many_result = genesis.reissue(mint_request.clone());
 
         let output_amount: u64 = outputs.iter().map(|output| output.amount).sum();
-        let output_amounts_set: BTreeSet<_> = output_amounts.iter().copied().collect();
         let number_of_fuzzed_output_parents = extra_output_parents
             .into_iter()
             .collect::<BTreeSet<_>>()
-            .intersection(&output_amounts_set.iter().map(|(n, _)| *n).collect())
+            .intersection(&output_amounts.iter().map(|(n, _)| *n).collect())
             .count();
 
         match many_to_many_result {
