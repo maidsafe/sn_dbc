@@ -204,7 +204,12 @@ mod tests {
 
     #[quickcheck]
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) {
-        let output_amount = output_amounts.vec().iter().map(|i| i.coerce::<u64>()).sum();
+        let output_amounts: Vec<u64> = output_amounts
+            .vec()
+            .into_iter()
+            .map(TinyInt::coerce)
+            .collect();
+        let output_amount = output_amounts.iter().sum();
 
         let (mut genesis, genesis_dbc) = Mint::genesis(output_amount);
 
@@ -212,10 +217,9 @@ mod tests {
         let input_hashes: BTreeSet<_> = inputs.iter().map(|in_dbc| in_dbc.name()).collect();
 
         let outputs = output_amounts
-            .vec()
             .iter()
             .enumerate()
-            .map(|(i, amount)| DbcContent::new(input_hashes.clone(), amount.coerce(), i as u8))
+            .map(|(i, amount)| DbcContent::new(input_hashes.clone(), *amount, i as u8))
             .collect();
 
         let mint_request = MintRequest { inputs, outputs };
@@ -252,8 +256,7 @@ mod tests {
 
         let key_cache = KeyCache::from(vec![genesis.public_key()]);
         for dbc in output_dbcs.iter() {
-            let expected_amount: u64 =
-                output_amounts.vec()[dbc.content.output_number as usize].coerce();
+            let expected_amount: u64 = output_amounts[dbc.content.output_number as usize];
             assert_eq!(dbc.amount(), expected_amount);
             assert!(dbc.confirm_valid(&key_cache).is_ok());
         }

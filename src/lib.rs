@@ -95,9 +95,9 @@ mod tests {
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyVec<T>(Vec<T>);
 
-    impl<T: Clone> TinyVec<T> {
-        pub fn vec(&self) -> Vec<T> {
-            self.0.clone()
+    impl<T> TinyVec<T> {
+        pub fn vec(self) -> Vec<T> {
+            self.0
         }
     }
 
