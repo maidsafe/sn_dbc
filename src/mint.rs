@@ -51,9 +51,17 @@ impl MintTransaction {
         }
     }
 
-    pub fn verify_balances(&self) -> Result<()> {
+    pub fn validate(&self, key_cache: &KeyCache) -> Result<()> {
+        self.validate_balance()?;
+        self.validate_input_dbcs(key_cache)?;
+        self.validate_outputs()?;
+        Ok(())
+    }
+
+    fn validate_balance(&self) -> Result<()> {
         let input: u64 = self.inputs.iter().map(|input| input.amount()).sum();
         let output: u64 = self.outputs.iter().map(|output| output.amount).sum();
+
         if input != output {
             Err(Error::DbcMintRequestDoesNotBalance { input, output })
         } else {
@@ -74,6 +82,7 @@ impl MintTransaction {
     }
 
     fn validate_outputs(&self) -> Result<()> {
+        // Validate outputs are numbered 0..N_OUTPUTS
         let number_set = self
             .outputs
             .iter()
@@ -90,6 +99,7 @@ impl MintTransaction {
             return Err(Error::OutputsAreNotNumberedCorrectly);
         }
 
+        // Validate output parents match the blinded inputs
         let inputs = self.blinded().inputs;
         if self.outputs.iter().any(|o| &o.parents != &inputs) {
             return Err(Error::DbcContentParentsDifferentFromTransactionInputs);
@@ -153,16 +163,14 @@ impl Mint {
         &mut self,
         mint_request: MintRequest,
     ) -> Result<(DbcTransaction, InputSignatures)> {
-        mint_request.transaction.verify_balances()?;
-        mint_request
-            .transaction
-            .validate_input_dbcs(self.key_cache())?;
-        mint_request.transaction.validate_outputs()?;
+        mint_request.transaction.validate(self.key_cache())?;
+
         let transaction = mint_request.transaction.blinded();
 
+        // Validate that each input has not yet been spent.
         for input in transaction.inputs.iter() {
             if let Some(transaction) = self.spendbook.lookup(&input).cloned() {
-                // This input has already been spent, return the transaction to the user
+                // This input has already been spent, return the spend transaction to the user
                 let transaction_sigs = self.sign_transaction(&transaction);
                 return Err(Error::DbcAlreadySpent {
                     transaction,
