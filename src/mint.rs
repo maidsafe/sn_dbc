@@ -164,8 +164,16 @@ impl Mint {
         mint_request: MintRequest,
     ) -> Result<(DbcTransaction, InputSignatures)> {
         mint_request.transaction.validate(self.key_cache())?;
-
         let transaction = mint_request.transaction.blinded();
+        let transaction_hash = transaction.hash();
+        for input_dbc in mint_request.transaction.inputs.iter() {
+            let owner_key = input_dbc.content.owner.public_key();
+            match mint_request.input_ownership_proofs.get(&input_dbc.name()) {
+                Some(sig) if owner_key.verify(&sig, &transaction_hash) => (),
+                Some(_) => return Err(Error::FailedSignature),
+                None => return Err(Error::MissingInputOwnerProof),
+            }
+        }
 
         // Validate that each input has not yet been spent.
         for input in transaction.inputs.iter() {
