@@ -16,6 +16,7 @@ quickcheck = "1"
 quickcheck_macros = "1"
 rand = "0.7.1"
 bls_dkg = "0.3"
+threshold_crypto = "0.4"
 
   [dependencies.tiny-keccak]
   version = "2.0.0"

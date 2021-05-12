@@ -13,7 +13,7 @@
 // input is vaid
 // Outputs <= input value
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::{
     Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, KeyCache, KeyManager, PublicKey,
@@ -38,20 +38,20 @@ impl SpendBook {
 }
 
 #[derive(Debug, Clone)]
-pub struct MintRequest {
+pub struct MintTransaction {
     pub inputs: HashSet<Dbc>,
     pub outputs: HashSet<DbcContent>,
 }
 
-impl MintRequest {
-    pub fn to_transaction(&self) -> DbcTransaction {
+impl MintTransaction {
+    pub fn blinded(&self) -> DbcTransaction {
         DbcTransaction {
             inputs: self.inputs.iter().map(|i| i.name()).collect(),
             outputs: self.outputs.iter().map(|i| i.hash()).collect(),
         }
     }
 
-    pub fn verify_transaction_balances(&self) -> Result<()> {
+    pub fn verify_balances(&self) -> Result<()> {
         let input: u64 = self.inputs.iter().map(|input| input.amount()).sum();
         let output: u64 = self.outputs.iter().map(|output| output.amount).sum();
         if input != output {
@@ -60,6 +60,13 @@ impl MintRequest {
             Ok(())
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MintRequest {
+    pub transaction: MintTransaction,
+    // Signatures from the owners of each input, signing `self.transaction.blinded().hash()`
+    pub input_ownership_proofs: HashMap<DbcContentHash, Signature>,
 }
 
 pub struct Mint {
@@ -109,15 +116,16 @@ impl Mint {
         &mut self,
         mint_request: MintRequest,
     ) -> Result<(DbcTransaction, InputSignatures)> {
-        mint_request.verify_transaction_balances()?;
-        let transaction = mint_request.to_transaction();
+        mint_request.transaction.verify_balances()?;
+        let transaction = mint_request.transaction.blinded();
 
-        self.validate_transaction_input_dbcs(&mint_request.inputs)?;
-        self.validate_transaction_outputs(&transaction.inputs, &mint_request.outputs)?;
+        // TODO: move this validation into the MintTransaction struct
+        self.validate_transaction_input_dbcs(&mint_request.transaction.inputs)?;
+        self.validate_transaction_outputs(&transaction.inputs, &mint_request.transaction.outputs)?;
 
         let transaction_sigs = self.sign_transaction(&transaction);
 
-        for input in mint_request.inputs.iter() {
+        for input in mint_request.transaction.inputs.iter() {
             self.spendbook.log(input.name(), transaction.clone());
         }
 
@@ -223,29 +231,25 @@ mod tests {
             })
             .collect();
 
-        let mint_request = MintRequest { inputs, outputs };
+        let mint_request = MintRequest {
+            transaction: MintTransaction { inputs, outputs },
+            input_ownership_proofs: HashMap::default(),
+        };
 
         let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
 
         // Verify transaction returned to us by the Mint matches our request
-        assert_eq!(mint_request.to_transaction(), transaction);
-        assert_eq!(
-            transaction.inputs,
-            mint_request.inputs.iter().map(|i| i.name()).collect()
-        );
-        assert_eq!(
-            transaction.outputs,
-            mint_request.outputs.iter().map(|o| o.hash()).collect()
-        );
+        assert_eq!(mint_request.transaction.blinded(), transaction);
 
         // Verify signatures corespond to each input
         let (pubkey, sig) = transaction_sigs.values().cloned().next().unwrap();
-        for input in mint_request.inputs.iter() {
+        for input in mint_request.transaction.inputs.iter() {
             assert_eq!(transaction_sigs.get(&input.name()), Some(&(pubkey, sig)));
         }
         assert_eq!(transaction_sigs.len(), transaction.inputs.len());
 
         let output_dbcs: Vec<_> = mint_request
+            .transaction
             .outputs
             .into_iter()
             .map(|content| Dbc {
@@ -276,24 +280,30 @@ mod tests {
         let input_hashes: BTreeSet<_> = vec![genesis_dbc.name()].into_iter().collect();
 
         let mint_request = MintRequest {
-            inputs: inputs.clone(),
-            outputs: vec![DbcContent::new(
-                input_hashes.clone(),
-                1000,
-                0,
-                crate::bls_dkg_id(),
-            )]
-            .into_iter()
-            .collect(),
+            transaction: MintTransaction {
+                inputs: inputs.clone(),
+                outputs: vec![DbcContent::new(
+                    input_hashes.clone(),
+                    1000,
+                    0,
+                    crate::bls_dkg_id(),
+                )]
+                .into_iter()
+                .collect(),
+            },
+            input_ownership_proofs: HashMap::default(),
         };
 
         let (t, s) = genesis.reissue(mint_request).unwrap();
 
         let double_spend_mint_request = MintRequest {
-            inputs,
-            outputs: vec![DbcContent::new(input_hashes, 1000, 1, crate::bls_dkg_id())]
-                .into_iter()
-                .collect(),
+            transaction: MintTransaction {
+                inputs,
+                outputs: vec![DbcContent::new(input_hashes, 1000, 1, crate::bls_dkg_id())]
+                    .into_iter()
+                    .collect(),
+            },
+            input_ownership_proofs: HashMap::default(),
         };
 
         let res = genesis.reissue(double_spend_mint_request);
@@ -352,8 +362,11 @@ mod tests {
             .collect();
 
         let mint_request = MintRequest {
-            inputs: gen_inputs,
-            outputs: input_content.clone(),
+            transaction: MintTransaction {
+                inputs: gen_inputs,
+                outputs: input_content.clone(),
+            },
+            input_ownership_proofs: HashMap::default(),
         };
 
         let (transaction, transaction_sigs) = genesis.reissue(mint_request).unwrap();
@@ -386,8 +399,11 @@ mod tests {
             .collect();
 
         let mint_request = MintRequest {
-            inputs: input_dbcs,
-            outputs: outputs.clone(),
+            transaction: MintTransaction {
+                inputs: input_dbcs,
+                outputs: outputs.clone(),
+            },
+            input_ownership_proofs: HashMap::default(),
         };
 
         let many_to_many_result = genesis.reissue(mint_request);
@@ -493,24 +509,27 @@ mod tests {
         let input_content_hashes: BTreeSet<_> = vec![input_content.hash()].into_iter().collect();
 
         let fraudulant_reissue_result = genesis.reissue(MintRequest {
-            inputs: vec![Dbc {
-                content: input_content,
-                transaction: DbcTransaction {
-                    inputs: Default::default(),
-                    outputs: input_content_hashes.clone(),
-                },
-                transaction_sigs: Default::default(),
-            }]
-            .into_iter()
-            .collect(),
-            outputs: vec![DbcContent {
-                parents: input_content_hashes,
-                amount: 100,
-                output_number: 0,
-                owner: crate::bls_dkg_id(),
-            }]
-            .into_iter()
-            .collect(),
+            transaction: MintTransaction {
+                inputs: vec![Dbc {
+                    content: input_content,
+                    transaction: DbcTransaction {
+                        inputs: Default::default(),
+                        outputs: input_content_hashes.clone(),
+                    },
+                    transaction_sigs: Default::default(),
+                }]
+                .into_iter()
+                .collect(),
+                outputs: vec![DbcContent {
+                    parents: input_content_hashes,
+                    amount: 100,
+                    output_number: 0,
+                    owner: crate::bls_dkg_id(),
+                }]
+                .into_iter()
+                .collect(),
+            },
+            input_ownership_proofs: HashMap::default(),
         });
         assert!(fraudulant_reissue_result.is_err());
     }

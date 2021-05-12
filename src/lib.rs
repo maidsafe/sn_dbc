@@ -24,7 +24,7 @@ pub use crate::{
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
     key_manager::{ChainNode, KeyCache, KeyManager, PublicKey, Signature},
-    mint::{Mint, MintRequest},
+    mint::{Mint, MintRequest, MintTransaction},
 };
 
 pub(crate) fn bls_dkg_id() -> bls_dkg::PublicKeySet {
