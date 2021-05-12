@@ -22,6 +22,8 @@ pub enum Error {
     InvalidOperation(String),
     #[error("This input has a signature, but it doesn't appear in the transaction")]
     UnknownInput,
+    #[error("Filtered input doesn't appear in the transaction")]
+    FilteredInputNotPresent,
     #[error("Failed signature check.")]
     FailedSignature,
     #[error("Unrecognised authority.")]

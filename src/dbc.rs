@@ -159,8 +159,14 @@ mod tests {
             n_inputs.coerce(),
             &input_owner.public_key_set,
         );
+        let input_hashes = mint_request
+            .transaction
+            .inputs
+            .iter()
+            .map(|i| i.name())
+            .collect();
         let (split_transaction, split_transaction_sigs) =
-            genesis.reissue(mint_request.clone()).unwrap();
+            genesis.reissue(mint_request.clone(), input_hashes).unwrap();
 
         assert_eq!(split_transaction, mint_request.transaction.blinded());
 
@@ -204,7 +210,9 @@ mod tests {
             input_ownership_proofs,
         };
 
-        let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
+        let (transaction, transaction_sigs) = genesis
+            .reissue(mint_request.clone(), input_hashes.clone())
+            .unwrap();
         assert_eq!(mint_request.transaction.blinded(), transaction);
 
         let fuzzed_parents = BTreeSet::from_iter(

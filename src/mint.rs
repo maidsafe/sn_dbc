@@ -162,6 +162,7 @@ impl Mint {
     pub fn reissue(
         &mut self,
         mint_request: MintRequest,
+        inputs_belonging_to_mint: BTreeSet<DbcContentHash>,
     ) -> Result<(DbcTransaction, InputSignatures)> {
         mint_request.transaction.validate(self.key_cache())?;
         let transaction = mint_request.transaction.blinded();
@@ -176,8 +177,12 @@ impl Mint {
             }
         }
 
+        if !inputs_belonging_to_mint.is_subset(&transaction.inputs) {
+            return Err(Error::FilteredInputNotPresent);
+        }
+
         // Validate that each input has not yet been spent.
-        for input in transaction.inputs.iter() {
+        for input in inputs_belonging_to_mint.iter() {
             if let Some(transaction) = self.spendbook.lookup(&input).cloned() {
                 // This input has already been spent, return the spend transaction to the user
                 let transaction_sigs = self.sign_transaction(&transaction);
@@ -190,7 +195,12 @@ impl Mint {
 
         let transaction_sigs = self.sign_transaction(&transaction);
 
-        for input in mint_request.transaction.inputs.iter() {
+        for input in mint_request
+            .transaction
+            .inputs
+            .iter()
+            .filter(|&i| inputs_belonging_to_mint.contains(&i.name()))
+        {
             self.spendbook.log(input.name(), transaction.clone());
         }
 
@@ -273,7 +283,8 @@ mod tests {
             input_ownership_proofs: HashMap::from_iter(vec![(genesis_dbc.name(), sig)]),
         };
 
-        let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
+        let (transaction, transaction_sigs) =
+            genesis.reissue(mint_request.clone(), input_hashes).unwrap();
 
         // Verify transaction returned to us by the Mint matches our request
         assert_eq!(mint_request.transaction.blinded(), transaction);
@@ -338,12 +349,12 @@ mod tests {
             input_ownership_proofs: HashMap::from_iter(vec![(genesis_dbc.name(), sig)]),
         };
 
-        let (t, s) = genesis.reissue(mint_request).unwrap();
+        let (t, s) = genesis.reissue(mint_request, input_hashes.clone()).unwrap();
 
         let double_spend_transaction = MintTransaction {
             inputs,
             outputs: HashSet::from_iter(vec![DbcContent {
-                parents: input_hashes,
+                parents: input_hashes.clone(),
                 amount: 1000,
                 output_number: 0,
                 owner: crate::bls_dkg_id().public_key_set,
@@ -364,7 +375,7 @@ mod tests {
             input_ownership_proofs: HashMap::from_iter(vec![(genesis_dbc.name(), sig)]),
         };
 
-        let res = genesis.reissue(double_spend_mint_request);
+        let res = genesis.reissue(double_spend_mint_request, input_hashes);
 
         println!("res {:?}", res);
         assert!(matches!(
@@ -446,7 +457,8 @@ mod tests {
             .input_ownership_proofs
             .insert(genesis_dbc.name(), sig);
 
-        let (transaction, transaction_sigs) = genesis.reissue(mint_request).unwrap();
+        let (transaction, transaction_sigs) =
+            genesis.reissue(mint_request, gen_input_hashes).unwrap();
 
         let input_dbcs = HashSet::from_iter(input_content.into_iter().map(|content| Dbc {
             content,
@@ -531,7 +543,7 @@ mod tests {
             input_ownership_proofs,
         };
 
-        let many_to_many_result = genesis.reissue(mint_request);
+        let many_to_many_result = genesis.reissue(mint_request, input_hashes);
 
         let output_amount: u64 = outputs.iter().map(|output| output.amount).sum();
         let number_of_fuzzed_output_parents = BTreeSet::from_iter(extra_output_parents)
@@ -641,25 +653,28 @@ mod tests {
 
         let output_owner = crate::bls_dkg_id();
 
-        let fraudulant_reissue_result = genesis.reissue(MintRequest {
-            transaction: MintTransaction {
-                inputs: HashSet::from_iter(vec![Dbc {
-                    content: input_content,
-                    transaction: DbcTransaction {
-                        inputs: Default::default(),
-                        outputs: input_content_hashes.clone(),
-                    },
-                    transaction_sigs: Default::default(),
-                }]),
-                outputs: HashSet::from_iter(vec![DbcContent {
-                    parents: input_content_hashes,
-                    amount: 100,
-                    output_number: 0,
-                    owner: output_owner.public_key_set,
-                }]),
+        let fraudulant_reissue_result = genesis.reissue(
+            MintRequest {
+                transaction: MintTransaction {
+                    inputs: HashSet::from_iter(vec![Dbc {
+                        content: input_content,
+                        transaction: DbcTransaction {
+                            inputs: Default::default(),
+                            outputs: input_content_hashes.clone(),
+                        },
+                        transaction_sigs: Default::default(),
+                    }]),
+                    outputs: HashSet::from_iter(vec![DbcContent {
+                        parents: input_content_hashes.clone(),
+                        amount: 100,
+                        output_number: 0,
+                        owner: output_owner.public_key_set,
+                    }]),
+                },
+                input_ownership_proofs: HashMap::default(),
             },
-            input_ownership_proofs: HashMap::default(),
-        });
+            input_content_hashes,
+        );
         assert!(fraudulant_reissue_result.is_err());
     }
 }
