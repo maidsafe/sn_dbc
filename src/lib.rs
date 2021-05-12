@@ -27,7 +27,8 @@ pub use crate::{
     mint::{Mint, MintRequest, MintTransaction},
 };
 
-pub(crate) fn bls_dkg_id() -> bls_dkg::PublicKeySet {
+#[cfg(test)]
+pub(crate) fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
 
@@ -54,7 +55,7 @@ pub(crate) fn bls_dkg_id() -> bls_dkg::PublicKeySet {
     println!("After processing messages: {:?}", key_gen.phase());
 
     let (_, outcome) = key_gen.generate_keys().unwrap();
-    outcome.public_key_set
+    outcome
 }
 
 #[cfg(test)]

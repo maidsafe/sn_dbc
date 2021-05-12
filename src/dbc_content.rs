@@ -18,7 +18,7 @@ pub struct DbcContent {
     pub parents: BTreeSet<DbcContentHash>, // Parent DBC's, acts as a nonce
     pub amount: u64,
     pub output_number: u8,
-    pub owner: PublicKeySet,
+    pub owner: PublicKeySet, // TAI: should this be threshold_crypto::PublicKey? (PublicKeySet::public_key())
 }
 
 impl DbcContent {
