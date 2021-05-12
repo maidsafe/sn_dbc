@@ -74,7 +74,7 @@ impl Mint {
         let genesis_input = [0u8; 32];
 
         let parents = vec![genesis_input].into_iter().collect();
-        let content = DbcContent::new(parents, amount, 0);
+        let content = DbcContent::new(parents, amount, 0, crate::bls_dkg_id());
 
         let transaction = DbcTransaction {
             inputs: vec![genesis_input].into_iter().collect(),
@@ -218,7 +218,9 @@ mod tests {
         let outputs = output_amounts
             .iter()
             .enumerate()
-            .map(|(i, amount)| DbcContent::new(input_hashes.clone(), *amount, i as u8))
+            .map(|(i, amount)| {
+                DbcContent::new(input_hashes.clone(), *amount, i as u8, crate::bls_dkg_id())
+            })
             .collect();
 
         let mint_request = MintRequest { inputs, outputs };
@@ -275,16 +277,21 @@ mod tests {
 
         let mint_request = MintRequest {
             inputs: inputs.clone(),
-            outputs: vec![DbcContent::new(input_hashes.clone(), 1000, 0)]
-                .into_iter()
-                .collect(),
+            outputs: vec![DbcContent::new(
+                input_hashes.clone(),
+                1000,
+                0,
+                crate::bls_dkg_id(),
+            )]
+            .into_iter()
+            .collect(),
         };
 
         let (t, s) = genesis.reissue(mint_request).unwrap();
 
         let double_spend_mint_request = MintRequest {
             inputs,
-            outputs: vec![DbcContent::new(input_hashes, 1000, 1)]
+            outputs: vec![DbcContent::new(input_hashes, 1000, 1, crate::bls_dkg_id())]
                 .into_iter()
                 .collect(),
         };
@@ -334,7 +341,14 @@ mod tests {
         let input_content: HashSet<_> = input_amounts
             .iter()
             .enumerate()
-            .map(|(i, amount)| DbcContent::new(gen_input_hashes.clone(), *amount, i as u8))
+            .map(|(i, amount)| {
+                DbcContent::new(
+                    gen_input_hashes.clone(),
+                    *amount,
+                    i as u8,
+                    crate::bls_dkg_id(),
+                )
+            })
             .collect();
 
         let mint_request = MintRequest {
@@ -367,7 +381,7 @@ mod tests {
                     fuzzed_parents.insert(rand::random());
                 }
 
-                DbcContent::new(fuzzed_parents, *amount, *output_number)
+                DbcContent::new(fuzzed_parents, *amount, *output_number, crate::bls_dkg_id())
             })
             .collect();
 
@@ -474,6 +488,7 @@ mod tests {
             parents: Default::default(),
             amount: 100,
             output_number: 0,
+            owner: crate::bls_dkg_id(),
         };
         let input_content_hashes: BTreeSet<_> = vec![input_content.hash()].into_iter().collect();
 
@@ -492,6 +507,7 @@ mod tests {
                 parents: input_content_hashes,
                 amount: 100,
                 output_number: 0,
+                owner: crate::bls_dkg_id(),
             }]
             .into_iter()
             .collect(),
