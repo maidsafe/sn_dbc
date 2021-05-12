@@ -55,12 +55,12 @@ impl Dbc {
 mod tests {
     use super::*;
 
-    use std::collections::{BTreeSet, HashSet};
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
-    use crate::{Mint, MintRequest};
+    use crate::{Mint, MintRequest, MintTransaction};
 
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
         (0..n_ways).into_iter().map(move |i| {
@@ -83,7 +83,10 @@ mod tests {
             })
             .collect();
 
-        MintRequest { inputs, outputs }
+        MintRequest {
+            transaction: MintTransaction { inputs, outputs },
+            input_ownership_proofs: HashMap::default(),
+        }
     }
 
     #[test]
@@ -132,9 +135,10 @@ mod tests {
         let (split_transaction, split_transaction_sigs) =
             genesis.reissue(mint_request.clone()).unwrap();
 
-        assert_eq!(split_transaction, mint_request.to_transaction());
+        assert_eq!(split_transaction, mint_request.transaction.blinded());
 
         let inputs: HashSet<_> = mint_request
+            .transaction
             .outputs
             .into_iter()
             .map(|content| Dbc {
@@ -150,10 +154,13 @@ mod tests {
         let content = DbcContent::new(input_hashes.clone(), amount, 0, crate::bls_dkg_id());
         let outputs = vec![content].into_iter().collect();
 
-        let mint_request = MintRequest { inputs, outputs };
+        let mint_request = MintRequest {
+            transaction: MintTransaction { inputs, outputs },
+            input_ownership_proofs: HashMap::default(),
+        };
 
         let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
-        assert_eq!(mint_request.to_transaction(), transaction);
+        assert_eq!(mint_request.transaction.blinded(), transaction);
 
         let fuzzed_parents = input_hashes
             .into_iter()
@@ -183,6 +190,7 @@ mod tests {
                 .to_owned(),
         );
         let mut repeating_inputs = mint_request
+            .transaction
             .inputs
             .iter()
             .cycle()
