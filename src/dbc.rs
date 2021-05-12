@@ -78,8 +78,11 @@ mod tests {
 
         let outputs = divide(dbc.amount(), n_ways)
             .enumerate()
-            .map(|(i, amount)| {
-                DbcContent::new(input_hashes.clone(), amount, i as u8, crate::bls_dkg_id())
+            .map(|(i, amount)| DbcContent {
+                parents: input_hashes.clone(),
+                amount,
+                output_number: i as u8,
+                owner: crate::bls_dkg_id().public_key_set,
             })
             .collect();
 
@@ -95,7 +98,7 @@ mod tests {
             parents: Default::default(),
             amount: 100,
             output_number: 0,
-            owner: crate::bls_dkg_id(),
+            owner: crate::bls_dkg_id().public_key_set,
         };
 
         let input_content_hashes: BTreeSet<_> = vec![input_content.hash()].into_iter().collect();
@@ -128,8 +131,8 @@ mod tests {
         n_drop_parents: TinyInt,       // # of valid parents to drop from output DBC
     ) {
         let amount = 100;
-
-        let (mut genesis, genesis_dbc) = Mint::genesis(amount);
+        let genesis_owner = crate::bls_dkg_id();
+        let (mut genesis, genesis_dbc) = Mint::genesis(genesis_owner.public_key_set, amount);
 
         let mint_request = prepare_even_split(&genesis_dbc, n_inputs.coerce());
         let (split_transaction, split_transaction_sigs) =
@@ -151,7 +154,12 @@ mod tests {
         let input_hashes: BTreeSet<DbcContentHash> =
             inputs.iter().map(|in_dbc| in_dbc.name()).collect();
 
-        let content = DbcContent::new(input_hashes.clone(), amount, 0, crate::bls_dkg_id());
+        let content = DbcContent {
+            parents: input_hashes.clone(),
+            amount,
+            output_number: 0,
+            owner: crate::bls_dkg_id().public_key_set,
+        };
         let outputs = vec![content].into_iter().collect();
 
         let mint_request = MintRequest {
@@ -173,12 +181,12 @@ mod tests {
             )
             .collect();
 
-        let fuzzed_content = DbcContent::new(
-            fuzzed_parents,
-            amount + extra_output_amount.coerce::<u64>(),
-            0,
-            crate::bls_dkg_id(),
-        );
+        let fuzzed_content = DbcContent {
+            parents: fuzzed_parents,
+            amount: amount + extra_output_amount.coerce::<u64>(),
+            output_number: 0,
+            owner: crate::bls_dkg_id().public_key_set,
+        };
 
         let mut fuzzed_transaction_sigs = BTreeMap::new();
 
