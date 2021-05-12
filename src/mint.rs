@@ -60,6 +60,43 @@ impl MintTransaction {
             Ok(())
         }
     }
+
+    fn validate_input_dbcs(&self, key_cache: &KeyCache) -> Result<()> {
+        if self.inputs.is_empty() {
+            return Err(Error::TransactionMustHaveAnInput);
+        }
+
+        for input in self.inputs.iter() {
+            input.confirm_valid(key_cache)?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_outputs(&self) -> Result<()> {
+        let number_set = self
+            .outputs
+            .iter()
+            .map(|dbc_content| dbc_content.output_number.into())
+            .collect::<BTreeSet<_>>();
+
+        let expected_number_set = (0..self.outputs.len()).into_iter().collect::<BTreeSet<_>>();
+
+        if number_set != expected_number_set {
+            println!(
+                "output numbering is wrong {:?} != {:?}",
+                number_set, expected_number_set
+            );
+            return Err(Error::OutputsAreNotNumberedCorrectly);
+        }
+
+        let inputs = self.blinded().inputs;
+        if self.outputs.iter().any(|o| &o.parents != &inputs) {
+            return Err(Error::DbcContentParentsDifferentFromTransactionInputs);
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -117,30 +154,14 @@ impl Mint {
         mint_request: MintRequest,
     ) -> Result<(DbcTransaction, InputSignatures)> {
         mint_request.transaction.verify_balances()?;
+        mint_request
+            .transaction
+            .validate_input_dbcs(self.key_cache())?;
+        mint_request.transaction.validate_outputs()?;
         let transaction = mint_request.transaction.blinded();
 
-        // TODO: move this validation into the MintTransaction struct
-        self.validate_transaction_input_dbcs(&mint_request.transaction.inputs)?;
-        self.validate_transaction_outputs(&transaction.inputs, &mint_request.transaction.outputs)?;
-
-        let transaction_sigs = self.sign_transaction(&transaction);
-
-        for input in mint_request.transaction.inputs.iter() {
-            self.spendbook.log(input.name(), transaction.clone());
-        }
-
-        Ok((transaction, transaction_sigs))
-    }
-
-    fn validate_transaction_input_dbcs(&self, inputs: &HashSet<Dbc>) -> Result<()> {
-        if inputs.is_empty() {
-            return Err(Error::TransactionMustHaveAnInput);
-        }
-
-        for input in inputs.iter() {
-            input.confirm_valid(self.key_cache())?;
-
-            if let Some(transaction) = self.spendbook.lookup(&input.name()).cloned() {
+        for input in transaction.inputs.iter() {
+            if let Some(transaction) = self.spendbook.lookup(&input).cloned() {
                 // This input has already been spent, return the transaction to the user
                 let transaction_sigs = self.sign_transaction(&transaction);
                 return Err(Error::DbcAlreadySpent {
@@ -150,30 +171,13 @@ impl Mint {
             }
         }
 
-        Ok(())
-    }
+        let transaction_sigs = self.sign_transaction(&transaction);
 
-    fn validate_transaction_outputs(
-        &self,
-        inputs: &BTreeSet<DbcContentHash>,
-        outputs: &HashSet<DbcContent>,
-    ) -> Result<()> {
-        let number_set = outputs
-            .iter()
-            .map(|dbc_content| dbc_content.output_number.into())
-            .collect::<BTreeSet<_>>();
-
-        let expected_number_set = (0..outputs.len()).into_iter().collect::<BTreeSet<_>>();
-
-        if number_set != expected_number_set {
-            return Err(Error::OutputsAreNotNumberedCorrectly);
+        for input in mint_request.transaction.inputs.iter() {
+            self.spendbook.log(input.name(), transaction.clone());
         }
 
-        if outputs.iter().any(|o| &o.parents != inputs) {
-            return Err(Error::DbcContentParentsDifferentFromTransactionInputs);
-        }
-
-        Ok(())
+        Ok((transaction, transaction_sigs))
     }
 
     fn sign_transaction(
@@ -282,12 +286,12 @@ mod tests {
         let mint_request = MintRequest {
             transaction: MintTransaction {
                 inputs: inputs.clone(),
-                outputs: vec![DbcContent::new(
-                    input_hashes.clone(),
-                    1000,
-                    0,
-                    crate::bls_dkg_id(),
-                )]
+                outputs: vec![DbcContent {
+                    parents: input_hashes.clone(),
+                    amount: 1000,
+                    output_number: 0,
+                    owner: crate::bls_dkg_id(),
+                }]
                 .into_iter()
                 .collect(),
             },
@@ -299,7 +303,7 @@ mod tests {
         let double_spend_mint_request = MintRequest {
             transaction: MintTransaction {
                 inputs,
-                outputs: vec![DbcContent::new(input_hashes, 1000, 1, crate::bls_dkg_id())]
+                outputs: vec![DbcContent::new(input_hashes, 1000, 0, crate::bls_dkg_id())]
                     .into_iter()
                     .collect(),
             },
@@ -308,6 +312,7 @@ mod tests {
 
         let res = genesis.reissue(double_spend_mint_request);
 
+        println!("res {:?}", res);
         assert!(matches!(
             res,
             Err(Error::DbcAlreadySpent { transaction, transaction_sigs }) if transaction == t && transaction_sigs == s
