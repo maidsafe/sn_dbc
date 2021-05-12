@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 use std::collections::BTreeSet;
 
+use bls_dkg::PublicKeySet;
 use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
 
@@ -14,15 +15,20 @@ use crate::DbcContentHash;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
-    pub parents: BTreeSet<DbcContentHash>, // Hash of parent DbcContent. Also used as a nonce
-    // TODO: pub owner: PubKey
+    pub parents: BTreeSet<DbcContentHash>, // Parent DBC's, acts as a nonce
     pub amount: u64,
     pub output_number: u8,
+    pub owner: PublicKeySet,
 }
 
 impl DbcContent {
     // Create a new DbcContent for signing. TODO: blind the owner from the mint
-    pub fn new(parents: BTreeSet<DbcContentHash>, amount: u64, output_number: u8) -> Self {
+    pub fn new(
+        parents: BTreeSet<DbcContentHash>,
+        amount: u64,
+        output_number: u8,
+        owner: PublicKeySet,
+    ) -> Self {
         // let mut owner = owner;
         // for _ in 0..amount % 1000 {
         //     owner = sha3_256(&owner); // owner not visible to mint, until out_dbc is minted.
@@ -31,6 +37,7 @@ impl DbcContent {
             parents,
             amount,
             output_number,
+            owner,
         }
     }
 

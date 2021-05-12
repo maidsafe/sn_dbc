@@ -27,6 +27,36 @@ pub use crate::{
     mint::{Mint, MintRequest},
 };
 
+pub(crate) fn bls_dkg_id() -> bls_dkg::PublicKeySet {
+    use std::collections::BTreeSet;
+    use std::iter::FromIterator;
+
+    let owner_name = rand::random();
+    let threshold = 0;
+    let (mut key_gen, proposal) = match bls_dkg::KeyGen::initialize(
+        owner_name,
+        threshold,
+        BTreeSet::from_iter(vec![owner_name]),
+    ) {
+        Ok(key_gen_init) => key_gen_init,
+        Err(e) => panic!("Failed to init key gen {:?}", e),
+    };
+
+    let mut msgs = vec![proposal];
+    while let Some(msg) = msgs.pop() {
+        println!("Processing {:?}", msg);
+        match key_gen.handle_message(&mut rand::thread_rng(), msg) {
+            Ok(response_msgs) => msgs.extend(response_msgs),
+            Err(e) => panic!("Error while generating BLS key: {:?}", e),
+        }
+    }
+
+    println!("After processing messages: {:?}", key_gen.phase());
+
+    let (_, outcome) = key_gen.generate_keys().unwrap();
+    outcome.public_key_set
+}
+
 #[cfg(test)]
 fn sha3_256(input: &[u8]) -> Hash {
     let mut sha3 = Sha3::v256();
