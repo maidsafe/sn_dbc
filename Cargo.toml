@@ -15,7 +15,7 @@ thiserror = "1.0.24"
 quickcheck = "1"
 quickcheck_macros = "1"
 rand = "0.7.1"
-bls_dkg = "0.3"
+bls_dkg = "~0.3.8"
 threshold_crypto = "0.4"
 
   [dependencies.tiny-keccak]
