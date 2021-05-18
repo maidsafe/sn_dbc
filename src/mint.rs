@@ -101,7 +101,7 @@ impl MintTransaction {
 
         // Validate output parents match the blinded inputs
         let inputs = self.blinded().inputs;
-        if self.outputs.iter().any(|o| &o.parents != &inputs) {
+        if self.outputs.iter().any(|o| o.parents != inputs) {
             return Err(Error::DbcContentParentsDifferentFromTransactionInputs);
         }
 
@@ -166,6 +166,7 @@ impl Mint {
         mint_request.transaction.validate(self.key_cache())?;
         let transaction = mint_request.transaction.blinded();
         let transaction_hash = transaction.hash();
+
         for input_dbc in mint_request.transaction.inputs.iter() {
             let owner_key = input_dbc.content.owner.public_key();
             match mint_request.input_ownership_proofs.get(&input_dbc.name()) {
@@ -215,6 +216,7 @@ impl Mint {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+    use std::iter::FromIterator;
 
     use quickcheck_macros::quickcheck;
 
@@ -233,19 +235,17 @@ mod tests {
 
     #[quickcheck]
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) {
-        let output_amounts: Vec<u64> = output_amounts
-            .vec()
-            .into_iter()
-            .map(TinyInt::coerce)
-            .collect();
+        let output_amounts = Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<u64>));
         let output_amount = output_amounts.iter().sum();
 
         let genesis_owner = crate::bls_dkg_id();
-        let (mut genesis, genesis_dbc) = Mint::genesis(genesis_owner.public_key_set, output_amount);
+        let (mut genesis, genesis_dbc) =
+            Mint::genesis(genesis_owner.public_key_set.clone(), output_amount);
 
-        let inputs: HashSet<_> = vec![genesis_dbc].into_iter().collect();
-        let input_hashes: BTreeSet<_> = inputs.iter().map(|in_dbc| in_dbc.name()).collect();
+        let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
+        let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
+        let output_owner = crate::bls_dkg_id();
         let outputs = output_amounts
             .iter()
             .enumerate()
@@ -253,13 +253,24 @@ mod tests {
                 parents: input_hashes.clone(),
                 amount: *amount,
                 output_number: i as u8,
-                owner: crate::bls_dkg_id().public_key_set,
+                owner: output_owner.public_key_set.clone(),
             })
             .collect();
 
+        let transaction = MintTransaction { inputs, outputs };
+
+        let sig_share = genesis_owner
+            .secret_key_share
+            .sign(&transaction.blinded().hash());
+
+        let sig = genesis_owner
+            .public_key_set
+            .combine_signatures(vec![(0, &sig_share)])
+            .unwrap();
+
         let mint_request = MintRequest {
-            transaction: MintTransaction { inputs, outputs },
-            input_ownership_proofs: HashMap::default(),
+            transaction,
+            input_ownership_proofs: HashMap::from_iter(vec![(genesis_dbc.name(), sig)]),
         };
 
         let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
@@ -274,16 +285,13 @@ mod tests {
         }
         assert_eq!(transaction_sigs.len(), transaction.inputs.len());
 
-        let output_dbcs: Vec<_> = mint_request
-            .transaction
-            .outputs
-            .into_iter()
-            .map(|content| Dbc {
+        let output_dbcs = Vec::from_iter(mint_request.transaction.outputs.into_iter().map(
+            |content| Dbc {
                 content,
                 transaction: transaction.clone(),
                 transaction_sigs: transaction_sigs.clone(),
-            })
-            .collect();
+            },
+        ));
 
         let key_cache = KeyCache::from(vec![genesis.public_key()]);
         for dbc in output_dbcs.iter() {
@@ -301,41 +309,59 @@ mod tests {
     #[test]
     fn test_double_spend_protection() {
         let genesis_owner = crate::bls_dkg_id();
-        let (mut genesis, genesis_dbc) = Mint::genesis(genesis_owner.public_key_set, 1000);
+        let (mut genesis, genesis_dbc) = Mint::genesis(genesis_owner.public_key_set.clone(), 1000);
 
-        let inputs: HashSet<_> = vec![genesis_dbc.clone()].into_iter().collect();
-        let input_hashes: BTreeSet<_> = vec![genesis_dbc.name()].into_iter().collect();
+        let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
+        let input_hashes = BTreeSet::from_iter(vec![genesis_dbc.name()]);
+
+        let transaction = MintTransaction {
+            inputs: inputs.clone(),
+            outputs: HashSet::from_iter(vec![DbcContent {
+                parents: input_hashes.clone(),
+                amount: 1000,
+                output_number: 0,
+                owner: crate::bls_dkg_id().public_key_set,
+            }]),
+        };
+
+        let sig_share = genesis_owner
+            .secret_key_share
+            .sign(&transaction.blinded().hash());
+
+        let sig = genesis_owner
+            .public_key_set
+            .combine_signatures(vec![(0, &sig_share)])
+            .unwrap();
 
         let mint_request = MintRequest {
-            transaction: MintTransaction {
-                inputs: inputs.clone(),
-                outputs: vec![DbcContent {
-                    parents: input_hashes.clone(),
-                    amount: 1000,
-                    output_number: 0,
-                    owner: crate::bls_dkg_id().public_key_set,
-                }]
-                .into_iter()
-                .collect(),
-            },
-            input_ownership_proofs: HashMap::default(),
+            transaction,
+            input_ownership_proofs: HashMap::from_iter(vec![(genesis_dbc.name(), sig)]),
         };
 
         let (t, s) = genesis.reissue(mint_request).unwrap();
 
+        let double_spend_transaction = MintTransaction {
+            inputs,
+            outputs: HashSet::from_iter(vec![DbcContent {
+                parents: input_hashes,
+                amount: 1000,
+                output_number: 0,
+                owner: crate::bls_dkg_id().public_key_set,
+            }]),
+        };
+
+        let sig_share = genesis_owner
+            .secret_key_share
+            .sign(&double_spend_transaction.blinded().hash());
+
+        let sig = genesis_owner
+            .public_key_set
+            .combine_signatures(vec![(0, &sig_share)])
+            .unwrap();
+
         let double_spend_mint_request = MintRequest {
-            transaction: MintTransaction {
-                inputs,
-                outputs: vec![DbcContent {
-                    parents: input_hashes,
-                    amount: 1000,
-                    output_number: 0,
-                    owner: crate::bls_dkg_id().public_key_set,
-                }]
-                .into_iter()
-                .collect(),
-            },
-            input_ownership_proofs: HashMap::default(),
+            transaction: double_spend_transaction,
+            input_ownership_proofs: HashMap::from_iter(vec![(genesis_dbc.name(), sig)]),
         };
 
         let res = genesis.reissue(double_spend_mint_request);
@@ -361,49 +387,37 @@ mod tests {
         // Include an invalid ownership proof for the following inputs
         invalid_input_owner_proofs: TinyVec<TinyInt>,
     ) {
-        let input_amounts: Vec<u64> = input_amounts
-            .vec()
-            .into_iter()
-            .map(TinyInt::coerce)
-            .collect();
+        let input_amounts = Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<u64>));
 
-        let output_amounts: Vec<(u8, u64)> = output_amounts
-            .vec()
-            .into_iter()
-            .map(|(number, amount)| (number.coerce(), amount.coerce()))
-            .collect();
+        let output_amounts = Vec::from_iter(
+            output_amounts
+                .into_iter()
+                .map(|(number, amount)| (number.coerce::<u8>(), amount.coerce::<u64>())),
+        );
 
-        let extra_output_parents: Vec<u8> = extra_output_parents
-            .vec()
-            .into_iter()
-            .map(TinyInt::coerce)
-            .collect();
+        let extra_output_parents =
+            Vec::from_iter(extra_output_parents.into_iter().map(TinyInt::coerce::<u8>));
 
-        let inputs_to_create_owner_proofs: BTreeSet<u8> = input_owner_proofs
-            .vec()
-            .into_iter()
-            .map(|i| i.coerce())
-            .collect();
+        let inputs_to_create_owner_proofs =
+            BTreeSet::from_iter(input_owner_proofs.into_iter().map(TinyInt::coerce::<u8>));
 
-        let inputs_to_create_invalid_owner_proofs: BTreeSet<u8> = invalid_input_owner_proofs
-            .vec()
-            .into_iter()
-            .map(|i| i.coerce())
-            .collect();
+        let inputs_to_create_invalid_owner_proofs = BTreeSet::from_iter(
+            invalid_input_owner_proofs
+                .into_iter()
+                .map(TinyInt::coerce::<u8>),
+        );
 
         let genesis_owner = crate::bls_dkg_id();
         let genesis_amount: u64 = input_amounts.iter().sum();
         let (mut genesis, genesis_dbc) =
-            Mint::genesis(genesis_owner.public_key_set, genesis_amount);
+            Mint::genesis(genesis_owner.public_key_set.clone(), genesis_amount);
 
         let mut owners: BTreeMap<u8, threshold_crypto::SecretKeyShare> = Default::default();
 
-        let gen_inputs: HashSet<_> = vec![genesis_dbc].into_iter().collect();
-        let gen_input_hashes: BTreeSet<_> = gen_inputs.iter().map(Dbc::name).collect();
-        let input_content: HashSet<_> = input_amounts
-            .iter()
-            .enumerate()
-            .map(|(i, amount)| {
+        let gen_inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
+        let gen_input_hashes = BTreeSet::from_iter(gen_inputs.iter().map(Dbc::name));
+        let input_content =
+            HashSet::from_iter(input_amounts.iter().enumerate().map(|(i, amount)| {
                 let owner = crate::bls_dkg_id();
                 owners.insert(i as u8, owner.secret_key_share);
                 DbcContent::new(
@@ -412,51 +426,54 @@ mod tests {
                     i as u8,
                     owner.public_key_set,
                 )
-            })
-            .collect();
+            }));
 
-        let mint_request = MintRequest {
+        let mut mint_request = MintRequest {
             transaction: MintTransaction {
                 inputs: gen_inputs,
                 outputs: input_content.clone(),
             },
             input_ownership_proofs: HashMap::default(),
         };
+        let sig_share = genesis_owner
+            .secret_key_share
+            .sign(&mint_request.transaction.blinded().hash());
+        let sig = genesis_owner
+            .public_key_set
+            .combine_signatures(vec![(0, &sig_share)])
+            .unwrap();
+        mint_request
+            .input_ownership_proofs
+            .insert(genesis_dbc.name(), sig);
 
         let (transaction, transaction_sigs) = genesis.reissue(mint_request).unwrap();
 
-        let input_dbcs: HashSet<_> = input_content
-            .into_iter()
-            .map(|content| Dbc {
-                content,
-                transaction: transaction.clone(),
-                transaction_sigs: transaction_sigs.clone(),
-            })
-            .collect();
+        let input_dbcs = HashSet::from_iter(input_content.into_iter().map(|content| Dbc {
+            content,
+            transaction: transaction.clone(),
+            transaction_sigs: transaction_sigs.clone(),
+        }));
 
-        let input_hashes: BTreeSet<_> = input_dbcs.iter().map(Dbc::name).collect();
+        let input_hashes = BTreeSet::from_iter(input_dbcs.iter().map(Dbc::name));
 
-        let outputs: HashSet<_> = output_amounts
-            .iter()
-            .map(|(output_number, amount)| {
-                let mut fuzzed_parents = input_hashes.clone();
+        let outputs = HashSet::from_iter(output_amounts.iter().map(|(output_number, amount)| {
+            let mut fuzzed_parents = input_hashes.clone();
 
-                for _ in extra_output_parents
-                    .iter()
-                    .filter(|idx| idx == &output_number)
-                {
-                    fuzzed_parents.insert(rand::random());
-                }
+            for _ in extra_output_parents
+                .iter()
+                .filter(|idx| idx == &output_number)
+            {
+                fuzzed_parents.insert(rand::random());
+            }
 
-                let output_owner = crate::bls_dkg_id();
-                DbcContent::new(
-                    fuzzed_parents,
-                    *amount,
-                    *output_number,
-                    output_owner.public_key_set,
-                )
-            })
-            .collect();
+            let output_owner = crate::bls_dkg_id();
+            DbcContent::new(
+                fuzzed_parents,
+                *amount,
+                *output_number,
+                output_owner.public_key_set,
+            )
+        }));
 
         let transaction = MintTransaction {
             inputs: input_dbcs,
@@ -511,51 +528,49 @@ mod tests {
 
         let mint_request = MintRequest {
             transaction,
-            input_ownership_proofs: HashMap::default(),
+            input_ownership_proofs,
         };
 
         let many_to_many_result = genesis.reissue(mint_request);
 
         let output_amount: u64 = outputs.iter().map(|output| output.amount).sum();
-        let number_of_fuzzed_output_parents = extra_output_parents
-            .into_iter()
-            .collect::<BTreeSet<_>>()
-            .intersection(&output_amounts.iter().map(|(n, _)| *n).collect())
+        let number_of_fuzzed_output_parents = BTreeSet::from_iter(extra_output_parents)
+            .intersection(&BTreeSet::from_iter(output_amounts.iter().map(|(n, _)| *n)))
             .count();
 
         match many_to_many_result {
             Ok((transaction, transaction_sigs)) => {
                 assert_eq!(genesis_amount, output_amount);
                 assert_eq!(number_of_fuzzed_output_parents, 0);
-                assert_eq!(inputs_to_create_invalid_owner_proofs, Default::default());
-                assert_eq!(
-                    inputs_to_create_owner_proofs,
-                    owners.keys().copied().collect()
+                assert!(
+                    input_amounts.is_empty()
+                        || inputs_to_create_invalid_owner_proofs
+                            .intersection(&BTreeSet::from_iter(owners.keys().copied()))
+                            .next()
+                            .is_none()
                 );
+                assert!(BTreeSet::from_iter(owners.keys().copied())
+                    .is_subset(&inputs_to_create_owner_proofs));
 
                 // The output amounts should correspond to the output_amounts
                 assert_eq!(
-                    outputs.iter().map(|o| o.amount).collect::<BTreeSet<_>>(),
-                    output_amounts.into_iter().map(|(_, a)| a).collect()
+                    BTreeSet::from_iter(outputs.iter().map(|o| o.amount)),
+                    BTreeSet::from_iter(output_amounts.into_iter().map(|(_, a)| a))
                 );
 
                 // The outputs should have been uniquely number from 0 to N (N = # of outputs)
                 assert_eq!(
-                    outputs
-                        .iter()
-                        .map(|content| content.output_number as usize)
-                        .collect::<BTreeSet<_>>(),
-                    (0..outputs.len()).into_iter().collect()
+                    BTreeSet::from_iter(
+                        outputs.iter().map(|content| content.output_number as usize)
+                    ),
+                    BTreeSet::from_iter(0..outputs.len())
                 );
 
-                let output_dbcs: Vec<_> = outputs
-                    .into_iter()
-                    .map(|content| Dbc {
-                        content,
-                        transaction: transaction.clone(),
-                        transaction_sigs: transaction_sigs.clone(),
-                    })
-                    .collect();
+                let output_dbcs = Vec::from_iter(outputs.into_iter().map(|content| Dbc {
+                    content,
+                    transaction: transaction.clone(),
+                    transaction_sigs: transaction_sigs.clone(),
+                }));
 
                 for dbc in output_dbcs.iter() {
                     let dbc_confirm_result =
@@ -577,15 +592,21 @@ mod tests {
             }
             Err(Error::OutputsAreNotNumberedCorrectly) => {
                 assert_ne!(
-                    outputs
-                        .iter()
-                        .map(|content| content.output_number as usize)
-                        .collect::<BTreeSet<_>>(),
-                    (0..outputs.len()).into_iter().collect()
+                    BTreeSet::from_iter(
+                        outputs.iter().map(|content| content.output_number as usize)
+                    ),
+                    BTreeSet::from_iter(0..outputs.len())
                 );
             }
             Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
                 assert_ne!(number_of_fuzzed_output_parents, 0)
+            }
+            Err(Error::MissingInputOwnerProof) => {
+                assert!(!BTreeSet::from_iter(owners.keys().copied())
+                    .is_subset(&inputs_to_create_owner_proofs));
+            }
+            Err(Error::FailedSignature) => {
+                assert_ne!(inputs_to_create_invalid_owner_proofs.len(), 0);
             }
             err => panic!("Unexpected reissue err {:#?}", err),
         }
@@ -603,12 +624,6 @@ mod tests {
         todo!();
     }
 
-    #[quickcheck]
-    #[ignore]
-    fn prop_input_ownership_proofs_are_checked() {
-        todo!();
-    }
-
     #[test]
     fn test_inputs_are_validated() {
         let genesis_owner = crate::bls_dkg_id();
@@ -622,30 +637,26 @@ mod tests {
             output_number: 0,
             owner: input_owner.public_key_set,
         };
-        let input_content_hashes: BTreeSet<_> = vec![input_content.hash()].into_iter().collect();
+        let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
 
         let output_owner = crate::bls_dkg_id();
 
         let fraudulant_reissue_result = genesis.reissue(MintRequest {
             transaction: MintTransaction {
-                inputs: vec![Dbc {
+                inputs: HashSet::from_iter(vec![Dbc {
                     content: input_content,
                     transaction: DbcTransaction {
                         inputs: Default::default(),
                         outputs: input_content_hashes.clone(),
                     },
                     transaction_sigs: Default::default(),
-                }]
-                .into_iter()
-                .collect(),
-                outputs: vec![DbcContent {
+                }]),
+                outputs: HashSet::from_iter(vec![DbcContent {
                     parents: input_content_hashes,
                     amount: 100,
                     output_number: 0,
                     owner: output_owner.public_key_set,
-                }]
-                .into_iter()
-                .collect(),
+                }]),
             },
             input_ownership_proofs: HashMap::default(),
         });
