@@ -5,6 +5,7 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
+#![allow(clippy::from_iter_instead_of_collect)]
 
 #[cfg(test)]
 use tiny_keccak::{Hasher, Sha3};
@@ -45,14 +46,12 @@ pub(crate) fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
 
     let mut msgs = vec![proposal];
     while let Some(msg) = msgs.pop() {
-        println!("Processing {:?}", msg);
         match key_gen.handle_message(&mut rand::thread_rng(), msg) {
             Ok(response_msgs) => msgs.extend(response_msgs),
             Err(e) => panic!("Error while generating BLS key: {:?}", e),
         }
     }
 
-    println!("After processing messages: {:?}", key_gen.phase());
 
     let (_, outcome) = key_gen.generate_keys().unwrap();
     outcome
@@ -136,9 +135,9 @@ mod tests {
     pub struct TinyVec<T>(Vec<T>);
 
     impl<T> TinyVec<T> {
-        pub fn vec(self) -> Vec<T> {
-            self.0
-        }
+	pub fn into_iter(self) -> impl Iterator<Item=T> {
+	    self.0.into_iter()
+	}
     }
 
     impl<T: std::fmt::Debug> std::fmt::Debug for TinyVec<T> {

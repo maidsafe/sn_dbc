@@ -56,6 +56,7 @@ mod tests {
     use super::*;
 
     use std::collections::{BTreeSet, HashMap, HashSet};
+    use std::iter::FromIterator;
 
     use quickcheck_macros::quickcheck;
 
@@ -72,23 +73,39 @@ mod tests {
         })
     }
 
-    fn prepare_even_split(dbc: &Dbc, n_ways: u8) -> MintRequest {
-        let inputs: HashSet<_> = vec![dbc.clone()].into_iter().collect();
-        let input_hashes: BTreeSet<_> = inputs.iter().map(|in_dbc| in_dbc.name()).collect();
+    fn prepare_even_split(
+        dbc_owner: &bls_dkg::outcome::Outcome,
+        dbc: &Dbc,
+        n_ways: u8,
+        output_owner: &threshold_crypto::PublicKeySet,
+    ) -> MintRequest {
+        let inputs = HashSet::from_iter(vec![dbc.clone()]);
+        let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
-        let outputs = divide(dbc.amount(), n_ways)
-            .enumerate()
-            .map(|(i, amount)| DbcContent {
-                parents: input_hashes.clone(),
-                amount,
-                output_number: i as u8,
-                owner: crate::bls_dkg_id().public_key_set,
-            })
-            .collect();
+        let outputs =
+            HashSet::from_iter(divide(dbc.amount(), n_ways).enumerate().map(|(i, amount)| {
+                DbcContent {
+                    parents: input_hashes.clone(),
+                    amount,
+                    output_number: i as u8,
+                    owner: output_owner.clone(),
+                }
+            }));
+
+        let transaction = MintTransaction { inputs, outputs };
+
+        let sig_share = dbc_owner
+            .secret_key_share
+            .sign(&transaction.blinded().hash());
+
+        let sig = dbc_owner
+            .public_key_set
+            .combine_signatures(vec![(0, &sig_share)])
+            .unwrap();
 
         MintRequest {
-            transaction: MintTransaction { inputs, outputs },
-            input_ownership_proofs: HashMap::default(),
+            transaction,
+            input_ownership_proofs: HashMap::from_iter(vec![(dbc.name(), sig)]),
         }
     }
 
@@ -101,7 +118,7 @@ mod tests {
             owner: crate::bls_dkg_id().public_key_set,
         };
 
-        let input_content_hashes: BTreeSet<_> = vec![input_content.hash()].into_iter().collect();
+        let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
 
         let dbc = Dbc {
             content: input_content,
@@ -132,27 +149,30 @@ mod tests {
     ) {
         let amount = 100;
         let genesis_owner = crate::bls_dkg_id();
-        let (mut genesis, genesis_dbc) = Mint::genesis(genesis_owner.public_key_set, amount);
+        let (mut genesis, genesis_dbc) =
+            Mint::genesis(genesis_owner.public_key_set.clone(), amount);
 
-        let mint_request = prepare_even_split(&genesis_dbc, n_inputs.coerce());
+        let input_owner = crate::bls_dkg_id();
+        let mint_request = prepare_even_split(
+            &genesis_owner,
+            &genesis_dbc,
+            n_inputs.coerce(),
+            &input_owner.public_key_set,
+        );
         let (split_transaction, split_transaction_sigs) =
             genesis.reissue(mint_request.clone()).unwrap();
 
         assert_eq!(split_transaction, mint_request.transaction.blinded());
 
-        let inputs: HashSet<_> = mint_request
-            .transaction
-            .outputs
-            .into_iter()
-            .map(|content| Dbc {
+        let inputs = HashSet::from_iter(mint_request.transaction.outputs.into_iter().map(
+            |content| Dbc {
                 content,
                 transaction: split_transaction.clone(),
                 transaction_sigs: split_transaction_sigs.clone(),
-            })
-            .collect();
+            },
+        ));
 
-        let input_hashes: BTreeSet<DbcContentHash> =
-            inputs.iter().map(|in_dbc| in_dbc.name()).collect();
+        let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
         let content = DbcContent {
             parents: input_hashes.clone(),
@@ -160,26 +180,44 @@ mod tests {
             output_number: 0,
             owner: crate::bls_dkg_id().public_key_set,
         };
-        let outputs = vec![content].into_iter().collect();
+        let outputs = HashSet::from_iter(vec![content]);
+
+        let transaction = MintTransaction { inputs, outputs };
+        let sig_share = input_owner
+            .secret_key_share
+            .sign(&transaction.blinded().hash());
+
+        let sig = input_owner
+            .public_key_set
+            .combine_signatures(vec![(0, &sig_share)])
+            .unwrap();
+
+        let input_ownership_proofs = HashMap::from_iter(
+            transaction
+                .inputs
+                .iter()
+                .map(|input| (input.name(), sig.clone())),
+        );
 
         let mint_request = MintRequest {
-            transaction: MintTransaction { inputs, outputs },
-            input_ownership_proofs: HashMap::default(),
+            transaction,
+            input_ownership_proofs,
         };
 
         let (transaction, transaction_sigs) = genesis.reissue(mint_request.clone()).unwrap();
         assert_eq!(mint_request.transaction.blinded(), transaction);
 
-        let fuzzed_parents = input_hashes
-            .into_iter()
-            .skip(n_drop_parents.coerce()) // drop some parents
-            .chain(
-                // add some random parents
-                (0..n_add_random_parents.coerce())
-                    .into_iter()
-                    .map(|_| rand::random()),
-            )
-            .collect();
+        let fuzzed_parents = BTreeSet::from_iter(
+            input_hashes
+                .into_iter()
+                .skip(n_drop_parents.coerce()) // drop some parents
+                .chain(
+                    // add some random parents
+                    (0..n_add_random_parents.coerce())
+                        .into_iter()
+                        .map(|_| rand::random()),
+                ),
+        );
 
         let fuzzed_content = DbcContent {
             parents: fuzzed_parents,
@@ -266,12 +304,9 @@ mod tests {
             }
             Err(Error::UnknownInput) => {
                 assert!(n_extra_input_sigs.coerce::<u8>() > 0);
-                assert!(
-                    dbc.transaction_sigs
-                        .keys()
-                        .copied()
-                        .collect::<BTreeSet<_>>()
-                        != dbc.transaction.inputs
+                assert_ne!(
+                    BTreeSet::from_iter(dbc.transaction_sigs.keys().copied()),
+                    dbc.transaction.inputs
                 );
             }
             Err(Error::UnrecognisedAuthority) => {
