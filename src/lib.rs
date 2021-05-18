@@ -52,7 +52,6 @@ pub(crate) fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
         }
     }
 
-
     let (_, outcome) = key_gen.generate_keys().unwrap();
     outcome
 }
@@ -135,9 +134,9 @@ mod tests {
     pub struct TinyVec<T>(Vec<T>);
 
     impl<T> TinyVec<T> {
-	pub fn into_iter(self) -> impl Iterator<Item=T> {
-	    self.0.into_iter()
-	}
+        pub fn into_iter(self) -> impl Iterator<Item = T> {
+            self.0.into_iter()
+        }
     }
 
     impl<T: std::fmt::Debug> std::fmt::Debug for TinyVec<T> {
