@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 use std::collections::BTreeSet;
 
-use bls_dkg::PublicKeySet;
+use threshold_crypto::PublicKeySet;
 use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
 
