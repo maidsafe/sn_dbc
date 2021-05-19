@@ -269,7 +269,7 @@ mod tests {
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
-                let wrong_msg_sig = genesis.key_mgr.sign(&[0u8; 32]);
+                let wrong_msg_sig = genesis.key_mgr.sign(&Hash([0u8; 32]));
                 fuzzed_transaction_sigs.insert(input.name(), (genesis.public_key(), wrong_msg_sig));
             }
         }

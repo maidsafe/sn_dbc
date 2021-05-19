@@ -38,7 +38,7 @@ impl DbcTransaction {
 
         let mut hash = [0; 32];
         sha3.finalize(&mut hash);
-        hash
+        Hash(hash)
     }
 }
 
@@ -54,10 +54,14 @@ mod tests {
     #[quickcheck]
     fn prop_hash_is_independent_of_order(inputs: Vec<u64>, outputs: Vec<u64>) {
         // This test is here to protect us in the case that someone swaps out the BTreeSet for inputs/outputs for something else
-        let input_hashes: Vec<DbcContentHash> =
-            inputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
-        let output_hashes: Vec<DbcContentHash> =
-            outputs.iter().map(|i| sha3_256(&i.to_be_bytes())).collect();
+        let input_hashes: Vec<DbcContentHash> = inputs
+            .iter()
+            .map(|i| Hash(sha3_256(&i.to_be_bytes())))
+            .collect();
+        let output_hashes: Vec<DbcContentHash> = outputs
+            .iter()
+            .map(|i| Hash(sha3_256(&i.to_be_bytes())))
+            .collect();
 
         let forward_hash = DbcTransaction::new(
             input_hashes.iter().cloned().collect(),

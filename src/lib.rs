@@ -7,11 +7,14 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 #![allow(clippy::from_iter_instead_of_collect)]
 
+use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 #[cfg(test)]
 use tiny_keccak::{Hasher, Sha3};
 /// These typdefs are to simplify algorithm for now and will be removed for production.
-pub(crate) type Hash = [u8; 32];
-pub(crate) type DbcContentHash = [u8; 32];
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Hash([u8; 32]);
+pub(crate) type DbcContentHash = Hash;
 mod dbc;
 mod dbc_content;
 mod dbc_transaction;
@@ -27,6 +30,41 @@ pub use crate::{
     key_manager::{ChainNode, KeyCache, KeyManager, PublicKey, Signature},
     mint::{Mint, MintRequest, MintTransaction},
 };
+
+impl From<[u8; 32]> for Hash {
+    fn from(val: [u8; 32]) -> Hash {
+        Hash(val)
+    }
+}
+
+impl Deref for Hash {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<[u8]> for Hash {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+use rand::distributions::{Distribution, Standard};
+
+#[cfg(test)]
+use rand::Rng;
+
+#[cfg(test)]
+/// used when fuzzing DBC's in testing.
+impl Distribution<Hash> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Hash {
+        Hash(rng.gen())
+    }
+}
 
 #[cfg(test)]
 pub(crate) fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
@@ -57,7 +95,7 @@ pub(crate) fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
 }
 
 #[cfg(test)]
-fn sha3_256(input: &[u8]) -> Hash {
+fn sha3_256(input: &[u8]) -> [u8; 32] {
     let mut sha3 = Sha3::v256();
     let mut output = [0; 32];
     sha3.update(input);
