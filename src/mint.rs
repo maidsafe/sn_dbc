@@ -16,13 +16,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::{
-    Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, KeyCache, KeyManager, PublicKey,
+    Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyCache, KeyManager, PublicKey,
     Result, Signature,
 };
 
 pub type InputSignatures = BTreeMap<DbcContentHash, (PublicKey, Signature)>;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct SpendBook {
     transactions: BTreeMap<DbcContentHash, DbcTransaction>,
 }
@@ -116,6 +116,7 @@ pub struct MintRequest {
     pub input_ownership_proofs: HashMap<DbcContentHash, threshold_crypto::Signature>,
 }
 
+#[derive(Debug)]
 pub struct Mint {
     pub(crate) key_mgr: KeyManager,
     spendbook: SpendBook,
@@ -125,7 +126,7 @@ impl Mint {
     pub fn genesis(genesis_key: threshold_crypto::PublicKeySet, amount: u64) -> (Self, Dbc) {
         let key_mgr = KeyManager::new_genesis();
 
-        let genesis_input = [0u8; 32];
+        let genesis_input = Hash([0u8; 32]);
 
         let parents = vec![genesis_input].into_iter().collect();
         let content = DbcContent::new(parents, amount, 0, genesis_key);

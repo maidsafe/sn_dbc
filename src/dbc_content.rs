@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use threshold_crypto::PublicKeySet;
 use tiny_keccak::{Hasher, Sha3};
 
-use crate::DbcContentHash;
+use crate::{DbcContentHash, Hash};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
@@ -56,6 +56,6 @@ impl DbcContent {
 
         let mut hash = [0; 32];
         sha3.finalize(&mut hash);
-        hash
+        Hash(hash)
     }
 }

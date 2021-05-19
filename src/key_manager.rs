@@ -47,7 +47,11 @@ impl PublicKey {
 
         let mut hash = [0; 32];
         sha3.finalize(&mut hash);
-        hash
+        Hash(hash)
+    }
+
+    pub fn to_bytes(&self) -> [u8; 32] {
+        self.0.to_bytes()
     }
 
     pub fn ed(&self) -> EdPublicKey {
@@ -65,7 +69,7 @@ pub fn ed25519_keypair() -> Keypair {
     Keypair::generate(&mut rand::thread_rng())
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct KeyCache(HashSet<PublicKey>);
 
 impl KeyCache {
@@ -100,6 +104,7 @@ pub struct ChainNode {
     prev_mint_sig: Signature,
 }
 
+#[derive(Debug)]
 pub struct KeyManager {
     keypair: Keypair,
     genesis: PublicKey,
