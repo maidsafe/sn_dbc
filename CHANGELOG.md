@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.2.0](https://github.com/maidsafe/sn_dbc/compare/v1.1.0...v1.2.0) (2021-05-25)
+
+
+### Features
+
+* **mint:** take input hashes belonging to mint, in reissue method ([37b826b](https://github.com/maidsafe/sn_dbc/commit/37b826bf3a15d1a3215eb333544330edd7c7b83b))
+
 ## [1.1.0](https://github.com/maidsafe/sn_dbc/compare/v1.0.8...v1.1.0) (2021-05-19)
 
 
