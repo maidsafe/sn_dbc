@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.4.0](https://github.com/maidsafe/sn_dbc/compare/v1.3.1...v1.4.0) (2021-05-28)
+
+
+### Features
+
+* **owners:** blind owners in dbccontent ([f63454b](https://github.com/maidsafe/sn_dbc/commit/f63454bed3f3addfeecb9399422c17cd909c1e7f))
+
 ### [1.3.1](https://github.com/maidsafe/sn_dbc/compare/v1.3.0...v1.3.1) (2021-05-28)
 
 ## [1.3.0](https://github.com/maidsafe/sn_dbc/compare/v1.2.0...v1.3.0) (2021-05-27)
