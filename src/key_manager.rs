@@ -4,11 +4,12 @@ use ed25519::{Keypair, PublicKey as EdPublicKey, Signature as EdSignature, Signe
 use tiny_keccak::{Hasher, Sha3};
 
 use crate::{Error, Hash, Result};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PublicKey(pub(crate) EdPublicKey);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Signature(pub(crate) EdSignature);
 
 impl PartialEq for PublicKey {

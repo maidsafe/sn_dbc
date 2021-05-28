@@ -10,8 +10,9 @@ use std::collections::BTreeMap;
 use crate::{
     DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyCache, PublicKey, Result, Signature,
 };
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Dbc {
     pub content: DbcContent,
     pub transaction: DbcTransaction,

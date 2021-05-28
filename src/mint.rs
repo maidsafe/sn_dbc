@@ -13,6 +13,7 @@
 // input is vaid
 // Outputs <= input value
 
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::{
@@ -23,8 +24,8 @@ use crate::{
 pub type InputSignatures = BTreeMap<DbcContentHash, (PublicKey, Signature)>;
 
 #[derive(Debug, Default)]
-struct SpendBook {
-    transactions: BTreeMap<DbcContentHash, DbcTransaction>,
+pub struct SpendBook {
+    pub transactions: BTreeMap<DbcContentHash, DbcTransaction>,
 }
 
 impl SpendBook {
@@ -37,7 +38,7 @@ impl SpendBook {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MintTransaction {
     pub inputs: HashSet<Dbc>,
     pub outputs: HashSet<DbcContent>,
@@ -109,7 +110,7 @@ impl MintTransaction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MintRequest {
     pub transaction: MintTransaction,
     // Signatures from the owners of each input, signing `self.transaction.blinded().hash()`
@@ -119,7 +120,7 @@ pub struct MintRequest {
 #[derive(Debug)]
 pub struct Mint {
     pub(crate) key_mgr: KeyManager,
-    spendbook: SpendBook,
+    pub spendbook: SpendBook,
 }
 
 impl Mint {
