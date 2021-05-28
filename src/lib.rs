@@ -24,7 +24,7 @@ mod mint;
 
 pub use crate::{
     dbc::Dbc,
-    dbc_content::DbcContent,
+    dbc_content::{BlindedOwner, DbcContent},
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
     key_manager::{ChainNode, KeyCache, KeyManager, PublicKey, Signature},

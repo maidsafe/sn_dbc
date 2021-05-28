@@ -85,12 +85,12 @@ mod tests {
 
         let outputs =
             HashSet::from_iter(divide(dbc.amount(), n_ways).enumerate().map(|(i, amount)| {
-                DbcContent {
-                    parents: input_hashes.clone(),
+                DbcContent::new(
+                    input_hashes.clone(),
                     amount,
-                    output_number: i as u8,
-                    owner: output_owner.clone(),
-                }
+                    i as u8,
+                    output_owner.public_key(),
+                )
             }));
 
         let transaction = MintTransaction { inputs, outputs };
@@ -106,18 +106,21 @@ mod tests {
 
         MintRequest {
             transaction,
-            input_ownership_proofs: HashMap::from_iter(vec![(dbc.name(), sig)]),
+            input_ownership_proofs: HashMap::from_iter(vec![(
+                dbc.name(),
+                (dbc_owner.public_key_set.public_key(), sig),
+            )]),
         }
     }
 
     #[test]
     fn test_dbc_without_inputs_is_invalid() {
-        let input_content = DbcContent {
-            parents: Default::default(),
-            amount: 100,
-            output_number: 0,
-            owner: crate::bls_dkg_id().public_key_set,
-        };
+        let input_content = DbcContent::new(
+            Default::default(),
+            100,
+            0,
+            crate::bls_dkg_id().public_key_set.public_key(),
+        );
 
         let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
 
@@ -181,12 +184,12 @@ mod tests {
 
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
-        let content = DbcContent {
-            parents: input_hashes.clone(),
+        let content = DbcContent::new(
+            input_hashes.clone(),
             amount,
-            output_number: 0,
-            owner: crate::bls_dkg_id().public_key_set,
-        };
+            0,
+            crate::bls_dkg_id().public_key_set.public_key(),
+        );
         let outputs = HashSet::from_iter(vec![content]);
 
         let transaction = MintTransaction { inputs, outputs };
@@ -194,17 +197,17 @@ mod tests {
             .secret_key_share
             .sign(&transaction.blinded().hash());
 
-        let sig = input_owner
-            .public_key_set
+        let input_owner_key_set = input_owner.public_key_set;
+        let sig = input_owner_key_set
             .combine_signatures(vec![(0, &sig_share)])
             .unwrap();
 
-        let input_ownership_proofs = HashMap::from_iter(
-            transaction
-                .inputs
-                .iter()
-                .map(|input| (input.name(), sig.clone())),
-        );
+        let input_ownership_proofs = HashMap::from_iter(transaction.inputs.iter().map(|input| {
+            (
+                input.name(),
+                (input_owner_key_set.public_key(), sig.clone()),
+            )
+        }));
 
         let mint_request = MintRequest {
             transaction,
@@ -228,12 +231,12 @@ mod tests {
                 ),
         );
 
-        let fuzzed_content = DbcContent {
-            parents: fuzzed_parents,
-            amount: amount + extra_output_amount.coerce::<u64>(),
-            output_number: 0,
-            owner: crate::bls_dkg_id().public_key_set,
-        };
+        let fuzzed_content = DbcContent::new(
+            fuzzed_parents,
+            amount + extra_output_amount.coerce::<u64>(),
+            0,
+            crate::bls_dkg_id().public_key_set.public_key(),
+        );
 
         let mut fuzzed_transaction_sigs = BTreeMap::new();
 
