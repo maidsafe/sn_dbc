@@ -88,7 +88,7 @@ mod tests {
                 DbcContent::new(
                     input_hashes.clone(),
                     amount,
-                    i as u8,
+                    i as u32,
                     output_owner.public_key(),
                 )
             }));

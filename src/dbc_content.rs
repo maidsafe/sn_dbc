@@ -21,7 +21,7 @@ impl BlindedOwner {
         owner: &PublicKey,
         parents: &BTreeSet<DbcContentHash>,
         amount: u64,
-        output_number: u8,
+        output_number: u32,
     ) -> Self {
         let mut sha3 = Sha3::v256();
 
@@ -43,7 +43,7 @@ impl BlindedOwner {
 pub struct DbcContent {
     pub parents: BTreeSet<DbcContentHash>, // Parent DBC's, acts as a nonce
     pub amount: u64,
-    pub output_number: u8,
+    pub output_number: u32,
     pub owner: BlindedOwner,
 }
 
@@ -52,7 +52,7 @@ impl DbcContent {
     pub fn new(
         parents: BTreeSet<DbcContentHash>,
         amount: u64,
-        output_number: u8,
+        output_number: u32,
         owner_key: PublicKey,
     ) -> Self {
         let owner = BlindedOwner::new(&owner_key, &parents, amount, output_number);
