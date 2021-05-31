@@ -41,8 +41,12 @@ pub enum Error {
     #[error("DBC already spent in transaction: {transaction:?}")]
     DbcAlreadySpent {
         transaction: crate::DbcTransaction,
-        transaction_sigs: BTreeMap<crate::DbcContentHash, (crate::PublicKey, crate::Signature)>,
+        transaction_sigs: BTreeMap<crate::DbcContentHash, (crate::PublicKey, crate::NodeSignature)>,
     },
+    #[error("Genesis Input has already been spent in a different transaction")]
+    GenesisInputAlreadySpent,
+    #[error("This node is not a genesis node")]
+    NotGenesisNode,
     #[error("The DBC transaction must have at least one input")]
     TransactionMustHaveAnInput,
     #[error("Dbc Content is not a member of transaction outputs")]

@@ -62,7 +62,7 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
-    use crate::{Mint, MintRequest, MintTransaction};
+    use crate::{KeyManager, Mint, MintRequest, MintTransaction};
 
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
         (0..n_ways).into_iter().map(move |i| {
@@ -153,8 +153,30 @@ mod tests {
     ) {
         let amount = 100;
         let genesis_owner = crate::bls_dkg_id();
-        let (mut genesis, genesis_dbc) =
-            Mint::genesis(genesis_owner.public_key_set.clone(), amount);
+        let genesis_key = genesis_owner.public_key_set.public_key();
+
+        let mut genesis_node = Mint::new(KeyManager::new(
+            genesis_key,
+            (0, genesis_owner.secret_key_share.clone()),
+            genesis_key,
+        ));
+
+        let (gen_dbc_content, gen_dbc_trans, (_gen_key, gen_node_sig)) =
+            genesis_node.issue_genesis_dbc(amount).unwrap();
+
+        let genesis_sig = genesis_owner
+            .public_key_set
+            .combine_signatures(vec![gen_node_sig.threshold_crypto()])
+            .unwrap();
+
+        let genesis_dbc = Dbc {
+            content: gen_dbc_content,
+            transaction: gen_dbc_trans,
+            transaction_sigs: BTreeMap::from_iter(vec![(
+                crate::mint::GENESIS_DBC_INPUT,
+                (genesis_key, genesis_sig),
+            )]),
+        };
 
         let input_owner = crate::bls_dkg_id();
         let mint_request = prepare_even_split(
@@ -169,18 +191,34 @@ mod tests {
             .iter()
             .map(|i| i.name())
             .collect();
-        let (split_transaction, split_transaction_sigs) =
-            genesis.reissue(mint_request.clone(), input_hashes).unwrap();
+        let (split_transaction, split_transaction_sigs) = genesis_node
+            .reissue(mint_request.clone(), input_hashes)
+            .unwrap();
 
         assert_eq!(split_transaction, mint_request.transaction.blinded());
 
-        let inputs = HashSet::from_iter(mint_request.transaction.outputs.into_iter().map(
-            |content| Dbc {
-                content,
-                transaction: split_transaction.clone(),
-                transaction_sigs: split_transaction_sigs.clone(),
-            },
-        ));
+        let mint_sig = genesis_owner
+            .public_key_set
+            .combine_signatures(vec![split_transaction_sigs
+                .values()
+                .next()
+                .unwrap()
+                .1
+                .threshold_crypto()])
+            .unwrap();
+
+        let inputs =
+            HashSet::from_iter(mint_request.transaction.outputs.into_iter().map(|content| {
+                Dbc {
+                    content,
+                    transaction: split_transaction.clone(),
+                    transaction_sigs: BTreeMap::from_iter(
+                        split_transaction_sigs
+                            .iter()
+                            .map(|(input, _)| (*input, (genesis_key, mint_sig.clone()))),
+                    ),
+                }
+            }));
 
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
@@ -214,10 +252,20 @@ mod tests {
             input_ownership_proofs,
         };
 
-        let (transaction, transaction_sigs) = genesis
+        let (transaction, transaction_sigs) = genesis_node
             .reissue(mint_request.clone(), input_hashes.clone())
             .unwrap();
         assert_eq!(mint_request.transaction.blinded(), transaction);
+
+        let mint_sig = genesis_owner
+            .public_key_set
+            .combine_signatures(vec![transaction_sigs
+                .values()
+                .next()
+                .unwrap()
+                .1
+                .threshold_crypto()])
+            .unwrap();
 
         let fuzzed_parents = BTreeSet::from_iter(
             input_hashes
@@ -238,14 +286,14 @@ mod tests {
             crate::bls_dkg_id().public_key_set.public_key(),
         );
 
-        let mut fuzzed_transaction_sigs = BTreeMap::new();
+        let mut fuzzed_transaction_sigs: BTreeMap<Hash, (PublicKey, Signature)> = BTreeMap::new();
 
         // Add valid sigs
         fuzzed_transaction_sigs.extend(
             transaction_sigs
                 .iter()
                 .take(n_valid_sigs.coerce())
-                .to_owned(),
+                .map(|(in_hash, _)| (*in_hash, (genesis_key, mint_sig.clone()))),
         );
         let mut repeating_inputs = mint_request
             .transaction
@@ -257,32 +305,39 @@ mod tests {
 
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_signer_sigs.coerce() {
-            use crate::key_manager::{ed25519_keypair, PublicKey, Signature};
-            use ed25519::Signer;
-
             if let Some(input) = repeating_inputs.next() {
-                let keypair = ed25519_keypair();
-                let transaction_sig = keypair.sign(&transaction.hash());
-                fuzzed_transaction_sigs.insert(
-                    input.name(),
-                    (PublicKey(keypair.public), Signature(transaction_sig)),
+                let id = crate::bls_dkg_id();
+                let key_mgr = KeyManager::new(
+                    id.public_key_set.public_key(),
+                    (0, id.secret_key_share),
+                    genesis_key,
                 );
+                let trans_sig_share = key_mgr.sign(&transaction.hash());
+                let trans_sig = id
+                    .public_key_set
+                    .combine_signatures(vec![trans_sig_share.threshold_crypto()])
+                    .unwrap();
+                fuzzed_transaction_sigs
+                    .insert(input.name(), (id.public_key_set.public_key(), trans_sig));
             }
         }
 
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
-                let wrong_msg_sig = genesis.key_mgr.sign(&Hash([0u8; 32]));
-                fuzzed_transaction_sigs.insert(input.name(), (genesis.public_key(), wrong_msg_sig));
+                let wrong_msg_sig = genesis_node.key_mgr.sign(&Hash([0u8; 32]));
+                let wrong_msg_mint_sig = genesis_owner
+                    .public_key_set
+                    .combine_signatures(vec![wrong_msg_sig.threshold_crypto()])
+                    .unwrap();
+
+                fuzzed_transaction_sigs.insert(input.name(), (genesis_key, wrong_msg_mint_sig));
             }
         }
 
         // Valid mint signatures for inputs not present in the transaction
-        if let Some((_, key_sig)) = transaction_sigs.iter().next() {
-            for _ in 0..n_extra_input_sigs.coerce() {
-                fuzzed_transaction_sigs.insert(rand::random(), key_sig.to_owned());
-            }
+        for _ in 0..n_extra_input_sigs.coerce() {
+            fuzzed_transaction_sigs.insert(rand::random(), (genesis_key, mint_sig.clone()));
         }
 
         let dbc = Dbc {
@@ -291,7 +346,7 @@ mod tests {
             transaction_sigs: fuzzed_transaction_sigs,
         };
 
-        let key_cache = KeyCache::from(vec![genesis.public_key()]);
+        let key_cache = KeyCache::from(vec![genesis_key]);
         let validation_res = dbc.confirm_valid(&key_cache);
 
         println!("Validation Result: {:#?}", validation_res);
@@ -340,6 +395,9 @@ mod tests {
             }
             Err(Error::TransactionMustHaveAnInput) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
+            }
+            Err(Error::FailedSignature) => {
+                assert_ne!(n_wrong_msg_sigs.coerce::<u8>(), 0);
             }
             res => panic!("Unexpected verification result {:?}", res),
         }
