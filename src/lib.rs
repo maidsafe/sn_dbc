@@ -5,7 +5,6 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
-#![feature(test)] // required for #[bench] macro
 #![allow(clippy::from_iter_instead_of_collect)]
 
 use serde::{Deserialize, Serialize};
@@ -59,16 +58,16 @@ use rand::distributions::{Distribution, Standard};
 #[cfg(test)]
 use rand::Rng;
 
-#[cfg(test)]
 /// used when fuzzing DBC's in testing.
+#[cfg(test)]
 impl Distribution<Hash> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Hash {
         Hash(rng.gen())
     }
 }
 
-#[cfg(test)]
-pub(crate) fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
+#[cfg(feature = "dkg")]
+pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
 
@@ -106,15 +105,9 @@ fn sha3_256(input: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
-    extern crate test;
-
     use super::*;
-    use std::collections::{BTreeSet, HashMap, HashSet};
-    use std::iter::FromIterator;
-
     use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
-    use test::Bencher;
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyInt(u8);
@@ -212,143 +205,5 @@ mod tests {
     \xca\x71\xfb\xa1\xd9\x72\xfd\x94\xa3\x1c\x3b\xfb\xf2\x4e\x39\x38\
 ";
         assert_eq!(sha3_256(data), *expected);
-    }
-
-    fn genesis(amount: u64) -> (Mint, bls_dkg::outcome::Outcome, Dbc) {
-        let genesis_owner = bls_dkg_id();
-        let (genesis, genesis_dbc) = Mint::genesis(genesis_owner.public_key_set.clone(), amount);
-
-        (genesis, genesis_owner, genesis_dbc)
-    }
-
-    #[bench]
-    fn bench_reissue_1_to_100(b: &mut Bencher) {
-        let n_outputs: u32 = 100;
-        let (mut genesis, genesis_owner, genesis_dbc) = genesis(n_outputs as u64);
-
-        let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
-        let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
-
-        let output_owner = bls_dkg_id();
-        let owner_pub_key = output_owner.public_key_set.public_key();
-        let outputs = (0..n_outputs)
-            .into_iter()
-            .map(|i| DbcContent::new(input_hashes.clone(), 1, i, owner_pub_key))
-            .collect();
-
-        let transaction = MintTransaction { inputs, outputs };
-
-        let sig_share = genesis_owner
-            .secret_key_share
-            .sign(&transaction.blinded().hash());
-
-        let sig = genesis_owner
-            .public_key_set
-            .combine_signatures(vec![(0, &sig_share)])
-            .unwrap();
-
-        let mint_request = MintRequest {
-            transaction,
-            input_ownership_proofs: HashMap::from_iter(vec![(
-                genesis_dbc.name(),
-                (genesis_owner.public_key_set.public_key(), sig),
-            )]),
-        };
-
-        let spendbook = genesis.snapshot_spendbook();
-        b.iter(|| {
-            genesis.reset_spendbook(spendbook.clone());
-            genesis
-                .reissue(mint_request.clone(), input_hashes.clone())
-                .unwrap();
-        });
-    }
-
-    #[bench]
-    fn bench_reissue_100_to_1(b: &mut Bencher) {
-        let n_outputs: u32 = 100;
-        let (mut genesis, genesis_owner, genesis_dbc) = genesis(n_outputs as u64);
-
-        let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
-        let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
-
-        let owners: Vec<_> = (0..n_outputs).into_iter().map(|_| bls_dkg_id()).collect();
-        let outputs = Vec::from_iter((0..n_outputs).into_iter().map(|i| {
-            DbcContent::new(
-                input_hashes.clone(),
-                1,
-                i,
-                owners[i as usize].public_key_set.public_key(),
-            )
-        }));
-
-        let transaction = MintTransaction {
-            inputs,
-            outputs: HashSet::from_iter(outputs.clone()),
-        };
-
-        let sig_share = genesis_owner
-            .secret_key_share
-            .sign(&transaction.blinded().hash());
-
-        let sig = genesis_owner
-            .public_key_set
-            .combine_signatures(vec![(0, &sig_share)])
-            .unwrap();
-
-        let mint_request = MintRequest {
-            transaction,
-            input_ownership_proofs: HashMap::from_iter(vec![(
-                genesis_dbc.name(),
-                (genesis_owner.public_key_set.public_key(), sig),
-            )]),
-        };
-
-        let (transaction, transaction_sigs) = genesis
-            .reissue(mint_request.clone(), input_hashes.clone())
-            .unwrap();
-
-        let dbcs = Vec::from_iter(outputs.into_iter().map(|content| Dbc {
-            content,
-            transaction: transaction.clone(),
-            transaction_sigs: transaction_sigs.clone(),
-        }));
-
-        let merged_output = DbcContent::new(
-            BTreeSet::from_iter(dbcs.iter().map(Dbc::name)),
-            n_outputs as u64,
-            0,
-            bls_dkg_id().public_key_set.public_key(),
-        );
-
-        let merge_transaction = MintTransaction {
-            inputs: HashSet::from_iter(dbcs.clone()),
-            outputs: HashSet::from_iter([merged_output]),
-        };
-
-        let input_ownership_proofs = HashMap::from_iter(dbcs.iter().enumerate().map(|(i, dbc)| {
-            let sig_share = owners[i]
-                .secret_key_share
-                .sign(merge_transaction.blinded().hash());
-            let sig = owners[i]
-                .public_key_set
-                .combine_signatures(vec![(0, &sig_share)])
-                .unwrap();
-            (dbc.name(), (owners[i].public_key_set.public_key(), sig))
-        }));
-
-        let merge_mint_request = MintRequest {
-            transaction: merge_transaction,
-            input_ownership_proofs,
-        };
-        let inputs = merge_mint_request.transaction.blinded().inputs;
-
-        let spendbook = genesis.snapshot_spendbook();
-        b.iter(|| {
-            genesis.reset_spendbook(spendbook.clone());
-            genesis
-                .reissue(merge_mint_request.clone(), inputs.clone())
-                .unwrap();
-        });
     }
 }

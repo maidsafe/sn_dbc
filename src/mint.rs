@@ -228,12 +228,12 @@ impl Mint {
     }
 
     // Used in testing / benchmarking
-    pub(crate) fn snapshot_spendbook(&self) -> SpendBook {
+    pub fn snapshot_spendbook(&self) -> SpendBook {
         self.spendbook.clone()
     }
 
     // Used in testing / benchmarking
-    pub(crate) fn reset_spendbook(&mut self, spendbook: SpendBook) {
+    pub fn reset_spendbook(&mut self, spendbook: SpendBook) {
         self.spendbook = spendbook
     }
 }
