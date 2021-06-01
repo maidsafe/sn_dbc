@@ -156,16 +156,15 @@ mod tests {
         let genesis_key = genesis_owner.public_key_set.public_key();
 
         let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_key,
+            genesis_owner.public_key_set.clone(),
             (0, genesis_owner.secret_key_share.clone()),
             genesis_key,
         ));
 
-        let (gen_dbc_content, gen_dbc_trans, (_gen_key, gen_node_sig)) =
+        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(amount).unwrap();
 
-        let genesis_sig = genesis_owner
-            .public_key_set
+        let genesis_sig = gen_key_set
             .combine_signatures(vec![gen_node_sig.threshold_crypto()])
             .unwrap();
 
@@ -197,14 +196,9 @@ mod tests {
 
         assert_eq!(split_transaction, mint_request.transaction.blinded());
 
-        let mint_sig = genesis_owner
-            .public_key_set
-            .combine_signatures(vec![split_transaction_sigs
-                .values()
-                .next()
-                .unwrap()
-                .1
-                .threshold_crypto()])
+        let (mint_key_set, mint_sig_share) = split_transaction_sigs.values().next().unwrap();
+        let mint_sig = mint_key_set
+            .combine_signatures(vec![mint_sig_share.threshold_crypto()])
             .unwrap();
 
         let inputs =
@@ -257,14 +251,9 @@ mod tests {
             .unwrap();
         assert_eq!(mint_request.transaction.blinded(), transaction);
 
-        let mint_sig = genesis_owner
-            .public_key_set
-            .combine_signatures(vec![transaction_sigs
-                .values()
-                .next()
-                .unwrap()
-                .1
-                .threshold_crypto()])
+        let (mint_key_set, mint_sig_share) = transaction_sigs.values().next().unwrap();
+        let mint_sig = mint_key_set
+            .combine_signatures(vec![mint_sig_share.threshold_crypto()])
             .unwrap();
 
         let fuzzed_parents = BTreeSet::from_iter(
@@ -308,7 +297,7 @@ mod tests {
             if let Some(input) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id();
                 let key_mgr = KeyManager::new(
-                    id.public_key_set.public_key(),
+                    id.public_key_set.clone(),
                     (0, id.secret_key_share),
                     genesis_key,
                 );
@@ -326,8 +315,9 @@ mod tests {
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
                 let wrong_msg_sig = genesis_node.key_mgr.sign(&Hash([0u8; 32]));
-                let wrong_msg_mint_sig = genesis_owner
-                    .public_key_set
+                let wrong_msg_mint_sig = genesis_node
+                    .key_mgr
+                    .public_key_set()
                     .combine_signatures(vec![wrong_msg_sig.threshold_crypto()])
                     .unwrap();
 

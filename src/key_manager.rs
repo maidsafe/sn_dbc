@@ -4,12 +4,13 @@ use threshold_crypto::{SecretKeyShare, SignatureShare};
 
 use crate::{Error, Hash, Result};
 
-pub use threshold_crypto::{PublicKey, Signature};
+pub use threshold_crypto::{PublicKey, PublicKeySet, Signature};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeSignature(usize, SignatureShare);
+pub struct NodeSignature(u64, SignatureShare);
 
 impl NodeSignature {
-    pub fn threshold_crypto(&self) -> (usize, &SignatureShare) {
+    pub fn threshold_crypto(&self) -> (u64, &SignatureShare) {
         (self.0, &self.1)
     }
 }
@@ -48,31 +49,31 @@ impl From<Vec<PublicKey>> for KeyCache {
 
 #[derive(Debug)]
 pub struct KeyManager {
-    public_key: PublicKey,
-    node_secret_key_share: (usize, SecretKeyShare),
-    genesis: PublicKey,
+    public_key_set: PublicKeySet,
+    secret_key_share: (u64, SecretKeyShare),
+    genesis_key: PublicKey,
     cache: KeyCache,
 }
 
 impl KeyManager {
     pub fn new(
-        public_key: PublicKey,
-        node_secret_key_share: (usize, SecretKeyShare),
-        genesis: PublicKey,
+        public_key_set: PublicKeySet,
+        secret_key_share: (u64, SecretKeyShare),
+        genesis_key: PublicKey,
     ) -> Self {
         let mut cache = KeyCache::default();
-        cache.add_known_key(genesis);
-        cache.add_known_key(public_key);
+        cache.add_known_key(genesis_key);
+        cache.add_known_key(public_key_set.public_key());
         Self {
-            public_key,
-            node_secret_key_share,
-            genesis,
+            public_key_set,
+            secret_key_share,
+            genesis_key,
             cache,
         }
     }
 
     pub fn verify_we_are_a_genesis_node(&self) -> Result<()> {
-        if self.public_key == self.genesis {
+        if self.public_key_set.public_key() == self.genesis_key {
             Ok(())
         } else {
             Err(Error::NotGenesisNode)
@@ -83,14 +84,14 @@ impl KeyManager {
         &self.cache
     }
 
-    pub fn public_key(&self) -> PublicKey {
-        self.public_key
+    pub fn public_key_set(&self) -> PublicKeySet {
+        self.public_key_set.clone()
     }
 
     pub fn sign(&self, msg_hash: &Hash) -> NodeSignature {
         NodeSignature(
-            self.node_secret_key_share.0,
-            self.node_secret_key_share.1.sign(msg_hash),
+            self.secret_key_share.0,
+            self.secret_key_share.1.sign(msg_hash),
         )
     }
 
