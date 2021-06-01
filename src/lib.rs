@@ -27,7 +27,7 @@ pub use crate::{
     dbc_content::{BlindedOwner, DbcContent},
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
-    key_manager::{KeyCache, KeyManager, NodeSignature, PublicKey, Signature},
+    key_manager::{KeyCache, KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature},
     mint::{Mint, MintRequest, MintTransaction},
 };
 
