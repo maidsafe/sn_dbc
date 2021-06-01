@@ -51,7 +51,7 @@ impl PublicKey {
         Hash(hash)
     }
 
-    pub fn to_bytes(&self) -> [u8; 32] {
+    pub fn to_bytes(self) -> [u8; 32] {
         self.0.to_bytes()
     }
 
