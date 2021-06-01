@@ -28,11 +28,6 @@ threshold_crypto = "0.4"
   version = "2.0.0"
   features = [ "sha3" ]
 
-  [dependencies.ed25519]
-  version = "1"
-  package = "ed25519-dalek"
-  features = [ "serde" ]
-
   [dependencies.serde]
   version = "1.0.111"
   features = [ "derive", "rc" ]

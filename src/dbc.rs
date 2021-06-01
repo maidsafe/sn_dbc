@@ -356,9 +356,6 @@ mod tests {
             Err(Error::MissingSignatureForInput) => {
                 assert!(n_valid_sigs.coerce::<u8>() < n_inputs.coerce::<u8>());
             }
-            Err(Error::Ed25519(_)) => {
-                assert!(n_wrong_msg_sigs.coerce::<u8>() > 0);
-            }
             Err(Error::UnknownInput) => {
                 assert!(n_extra_input_sigs.coerce::<u8>() > 0);
                 assert_ne!(
