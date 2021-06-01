@@ -38,10 +38,6 @@ threshold_crypto = "0.4"
 sn_dbc = {path = ".", features = ["dkg"] } #  HACK: enable the dkg features in tests
 criterion = "0.3"
 
-
-[profile.test]
-require-features = ["dkg"]
-
 [[bench]]
 name = "reissue"
 harness = false

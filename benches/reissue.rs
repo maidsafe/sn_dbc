@@ -1,3 +1,5 @@
+#![allow(clippy::from_iter_instead_of_collect)]
+
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
@@ -98,9 +100,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         )]),
     };
 
-    let (transaction, transaction_sigs) = genesis
-        .reissue(mint_request.clone(), input_hashes.clone())
-        .unwrap();
+    let (transaction, transaction_sigs) = genesis.reissue(mint_request, input_hashes).unwrap();
 
     let dbcs = Vec::from_iter(outputs.into_iter().map(|content| Dbc {
         content,
@@ -117,7 +117,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     let merge_transaction = MintTransaction {
         inputs: HashSet::from_iter(dbcs.clone()),
-        outputs: HashSet::from_iter([merged_output]),
+        outputs: HashSet::from_iter(vec![merged_output]),
     };
 
     let input_ownership_proofs = HashMap::from_iter(dbcs.iter().enumerate().map(|(i, dbc)| {
