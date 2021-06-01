@@ -1,17 +1,42 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
-use sn_dbc::{bls_dkg_id, Dbc, DbcContent, Mint, MintRequest, MintTransaction};
+use sn_dbc::{bls_dkg_id, Dbc, DbcContent, KeyManager, Mint, MintRequest, MintTransaction};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn genesis(amount: u64) -> (Mint, bls_dkg::outcome::Outcome, Dbc) {
     let genesis_owner = bls_dkg_id();
-    let (genesis, genesis_dbc) = Mint::genesis(genesis_owner.public_key_set.clone(), amount);
 
-    (genesis, genesis_owner, genesis_dbc)
+    let mut genesis_node = Mint::new(KeyManager::new(
+        genesis_owner.public_key_set.clone(),
+        (0, genesis_owner.secret_key_share.clone()),
+        genesis_owner.public_key_set.public_key(),
+    ));
+
+    let (content, transaction, (mint_key_set, mint_sig_share)) =
+        genesis_node.issue_genesis_dbc(amount).unwrap();
+
+    let mint_sig = mint_key_set
+        .combine_signatures(vec![mint_sig_share.threshold_crypto()])
+        .unwrap();
+
+    let transaction_sigs = BTreeMap::from_iter(
+        transaction
+            .inputs
+            .iter()
+            .map(|in_hash| (*in_hash, (mint_key_set.public_key(), mint_sig.clone()))),
+    );
+
+    let genesis_dbc = Dbc {
+        content,
+        transaction,
+        transaction_sigs,
+    };
+
+    (genesis_node, genesis_owner, genesis_dbc)
 }
 
 fn bench_reissue_1_to_100(c: &mut Criterion) {
@@ -102,10 +127,20 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     let (transaction, transaction_sigs) = genesis.reissue(mint_request, input_hashes).unwrap();
 
+    let (mint_key_set, mint_sig_share) = transaction_sigs.values().cloned().next().unwrap();
+
+    let mint_sig = genesis_owner
+        .public_key_set
+        .combine_signatures(vec![mint_sig_share.threshold_crypto()])
+        .unwrap();
+
     let dbcs = Vec::from_iter(outputs.into_iter().map(|content| Dbc {
         content,
         transaction: transaction.clone(),
-        transaction_sigs: transaction_sigs.clone(),
+        transaction_sigs: BTreeMap::from_iter(vec![(
+            genesis_dbc.name(),
+            (mint_key_set.public_key(), mint_sig.clone()),
+        )]),
     }));
 
     let merged_output = DbcContent::new(
