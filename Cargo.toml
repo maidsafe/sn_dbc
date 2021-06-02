@@ -1,6 +1,6 @@
 [package]
 name = "sn_dbc"
-version = "1.4.0"
+version = "1.5.0"
 description = "Safe Network DBC"
 license = "MIT OR BSD-3-Clause"
 repository = "https://github.com/maidsafe/sn_dbc"
@@ -10,7 +10,7 @@ authors = [ "MaidSafe Developers <dev@maidsafe.net>" ]
 edition = "2018"
 
 [features]
-dkg = ["bls_dkg"]
+dkg = [ "bls_dkg" ]
 
 [dependencies]
 serde_json = "1.0.64"
@@ -18,8 +18,11 @@ thiserror = "1.0.24"
 quickcheck = "1"
 quickcheck_macros = "1"
 rand = "0.7.1"
-bls_dkg = { version = "~0.3.8", optional = true }
 threshold_crypto = "0.4"
+
+  [dependencies.bls_dkg]
+  version = "~0.3.8"
+  optional = true
 
   [dependencies.tiny-keccak]
   version = "2.0.0"
@@ -35,10 +38,13 @@ threshold_crypto = "0.4"
   features = [ "derive", "rc" ]
 
 [dev-dependencies]
-sn_dbc = {path = ".", features = ["dkg"] } #  HACK: enable the dkg features in tests
 criterion = "0.3"
+
+  [dev-dependencies.sn_dbc]
+  path = "."
+  features = [ "dkg" ]
 
 [[bench]]
 name = "reissue"
 harness = false
-required-features = ["dkg"]
+required-features = [ "dkg" ]
