@@ -33,7 +33,7 @@ pub enum Error {
     #[error("At least one input is missing an ownership proof")]
     MissingInputOwnerProof,
     #[error("Mint request doesn't balance out sum(input) == sum(output)")]
-    DbcMintRequestDoesNotBalance { input: u64, output: u64 },
+    DbcReissueRequestDoesNotBalance { input: u64, output: u64 },
     #[error("Outputs must be numbered 0..N where N = # of outputs")]
     OutputsAreNotNumberedCorrectly,
     #[error("Failed to unblind an input DBC")]

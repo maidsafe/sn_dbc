@@ -62,7 +62,7 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
-    use crate::{KeyManager, Mint, MintRequest, MintTransaction};
+    use crate::{KeyManager, Mint, ReissueRequest, ReissueTransaction};
 
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
         (0..n_ways).into_iter().map(move |i| {
@@ -79,7 +79,7 @@ mod tests {
         dbc: &Dbc,
         n_ways: u8,
         output_owner: &threshold_crypto::PublicKeySet,
-    ) -> MintRequest {
+    ) -> ReissueRequest {
         let inputs = HashSet::from_iter(vec![dbc.clone()]);
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
@@ -93,7 +93,7 @@ mod tests {
                 )
             }));
 
-        let transaction = MintTransaction { inputs, outputs };
+        let transaction = ReissueTransaction { inputs, outputs };
 
         let sig_share = dbc_owner
             .secret_key_share
@@ -104,7 +104,7 @@ mod tests {
             .combine_signatures(vec![(0, &sig_share)])
             .unwrap();
 
-        MintRequest {
+        ReissueRequest {
             transaction,
             input_ownership_proofs: HashMap::from_iter(vec![(
                 dbc.name(),
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn test_dbc_without_inputs_is_invalid() {
         let input_content = DbcContent::new(
-            Default::default(),
+            BTreeSet::new(),
             100,
             0,
             crate::bls_dkg_id().public_key_set.public_key(),
@@ -127,7 +127,7 @@ mod tests {
         let dbc = Dbc {
             content: input_content,
             transaction: DbcTransaction {
-                inputs: Default::default(),
+                inputs: BTreeSet::new(),
                 outputs: input_content_hashes,
             },
             transaction_sigs: Default::default(),
@@ -178,31 +178,31 @@ mod tests {
         };
 
         let input_owner = crate::bls_dkg_id();
-        let mint_request = prepare_even_split(
+        let reissue_request = prepare_even_split(
             &genesis_owner,
             &genesis_dbc,
             n_inputs.coerce(),
             &input_owner.public_key_set,
         );
-        let input_hashes = mint_request
+        let input_hashes = reissue_request
             .transaction
             .inputs
             .iter()
             .map(|i| i.name())
             .collect();
         let (split_transaction, split_transaction_sigs) = genesis_node
-            .reissue(mint_request.clone(), input_hashes)
+            .reissue(reissue_request.clone(), input_hashes)
             .unwrap();
 
-        assert_eq!(split_transaction, mint_request.transaction.blinded());
+        assert_eq!(split_transaction, reissue_request.transaction.blinded());
 
         let (mint_key_set, mint_sig_share) = split_transaction_sigs.values().next().unwrap();
         let mint_sig = mint_key_set
             .combine_signatures(vec![mint_sig_share.threshold_crypto()])
             .unwrap();
 
-        let inputs =
-            HashSet::from_iter(mint_request.transaction.outputs.into_iter().map(|content| {
+        let inputs = HashSet::from_iter(reissue_request.transaction.outputs.into_iter().map(
+            |content| {
                 Dbc {
                     content,
                     transaction: split_transaction.clone(),
@@ -212,7 +212,8 @@ mod tests {
                             .map(|(input, _)| (*input, (genesis_key, mint_sig.clone()))),
                     ),
                 }
-            }));
+            },
+        ));
 
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
@@ -224,7 +225,7 @@ mod tests {
         );
         let outputs = HashSet::from_iter(vec![content]);
 
-        let transaction = MintTransaction { inputs, outputs };
+        let transaction = ReissueTransaction { inputs, outputs };
         let sig_share = input_owner
             .secret_key_share
             .sign(&transaction.blinded().hash());
@@ -241,15 +242,15 @@ mod tests {
             )
         }));
 
-        let mint_request = MintRequest {
+        let reissue_request = ReissueRequest {
             transaction,
             input_ownership_proofs,
         };
 
         let (transaction, transaction_sigs) = genesis_node
-            .reissue(mint_request.clone(), input_hashes.clone())
+            .reissue(reissue_request.clone(), input_hashes.clone())
             .unwrap();
-        assert_eq!(mint_request.transaction.blinded(), transaction);
+        assert_eq!(reissue_request.transaction.blinded(), transaction);
 
         let (mint_key_set, mint_sig_share) = transaction_sigs.values().next().unwrap();
         let mint_sig = mint_key_set
@@ -284,7 +285,7 @@ mod tests {
                 .take(n_valid_sigs.coerce())
                 .map(|(in_hash, _)| (*in_hash, (genesis_key, mint_sig.clone()))),
         );
-        let mut repeating_inputs = mint_request
+        let mut repeating_inputs = reissue_request
             .transaction
             .inputs
             .iter()

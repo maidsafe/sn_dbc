@@ -28,7 +28,7 @@ pub use crate::{
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
     key_manager::{KeyCache, KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature},
-    mint::{Mint, MintRequest, MintTransaction},
+    mint::{Mint, ReissueRequest, ReissueTransaction},
 };
 
 impl From<[u8; 32]> for Hash {
