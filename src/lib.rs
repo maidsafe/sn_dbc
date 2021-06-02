@@ -58,16 +58,16 @@ use rand::distributions::{Distribution, Standard};
 #[cfg(test)]
 use rand::Rng;
 
-#[cfg(test)]
 /// used when fuzzing DBC's in testing.
+#[cfg(test)]
 impl Distribution<Hash> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Hash {
         Hash(rng.gen())
     }
 }
 
-#[cfg(test)]
-pub(crate) fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
+#[cfg(feature = "dkg")]
+pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
 
@@ -106,7 +106,6 @@ fn sha3_256(input: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
 

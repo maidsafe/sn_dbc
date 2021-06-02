@@ -15,6 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::iter::FromIterator;
 
 use crate::{
     Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyCache, KeyManager, PublicKey,
@@ -23,7 +24,7 @@ use crate::{
 
 pub type InputSignatures = BTreeMap<DbcContentHash, (PublicKey, Signature)>;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SpendBook {
     pub transactions: BTreeMap<DbcContentHash, DbcTransaction>,
 }
@@ -47,8 +48,8 @@ pub struct MintTransaction {
 impl MintTransaction {
     pub fn blinded(&self) -> DbcTransaction {
         DbcTransaction {
-            inputs: self.inputs.iter().map(|i| i.name()).collect(),
-            outputs: self.outputs.iter().map(|i| i.hash()).collect(),
+            inputs: BTreeSet::from_iter(self.inputs.iter().map(|i| i.name())),
+            outputs: BTreeSet::from_iter(self.outputs.iter().map(|i| i.hash())),
         }
     }
 
@@ -84,13 +85,13 @@ impl MintTransaction {
 
     fn validate_outputs(&self) -> Result<()> {
         // Validate outputs are numbered 0..N_OUTPUTS
-        let number_set = self
-            .outputs
-            .iter()
-            .map(|dbc_content| dbc_content.output_number.into())
-            .collect::<BTreeSet<_>>();
+        let number_set = BTreeSet::from_iter(
+            self.outputs
+                .iter()
+                .map(|dbc_content| dbc_content.output_number),
+        );
 
-        let expected_number_set = (0..self.outputs.len()).into_iter().collect::<BTreeSet<_>>();
+        let expected_number_set = BTreeSet::from_iter(0..self.outputs.len() as u32);
 
         if number_set != expected_number_set {
             println!(
@@ -130,12 +131,12 @@ impl Mint {
 
         let genesis_input = Hash([0u8; 32]);
 
-        let parents = vec![genesis_input].into_iter().collect();
+        let parents = BTreeSet::from_iter(vec![genesis_input]);
         let content = DbcContent::new(parents, amount, 0, genesis_key.public_key());
 
         let transaction = DbcTransaction {
-            inputs: vec![genesis_input].into_iter().collect(),
-            outputs: vec![content.hash()].into_iter().collect(),
+            inputs: BTreeSet::from_iter(vec![genesis_input]),
+            outputs: BTreeSet::from_iter(vec![content.hash()]),
         };
 
         let mut spendbook = SpendBook::default();
@@ -146,9 +147,10 @@ impl Mint {
         let dbc = Dbc {
             content,
             transaction,
-            transaction_sigs: vec![(genesis_input, (key_mgr.public_key(), transaction_sig))]
-                .into_iter()
-                .collect(),
+            transaction_sigs: BTreeMap::from_iter(vec![(
+                genesis_input,
+                (key_mgr.public_key(), transaction_sig),
+            )]),
         };
 
         (Self { key_mgr, spendbook }, dbc)
@@ -224,14 +226,21 @@ impl Mint {
             .zip(std::iter::repeat((self.public_key(), sig)))
             .collect()
     }
+
+    // Used in testing / benchmarking
+    pub fn snapshot_spendbook(&self) -> SpendBook {
+        self.spendbook.clone()
+    }
+
+    // Used in testing / benchmarking
+    pub fn reset_spendbook(&mut self, spendbook: SpendBook) {
+        self.spendbook = spendbook
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
-    use std::iter::FromIterator;
-
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{TinyInt, TinyVec};
@@ -260,18 +269,14 @@ mod tests {
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
         let output_owner = crate::bls_dkg_id();
-        let outputs = output_amounts
-            .iter()
-            .enumerate()
-            .map(|(i, amount)| {
-                DbcContent::new(
-                    input_hashes.clone(),
-                    *amount,
-                    i as u8,
-                    output_owner.public_key_set.public_key(),
-                )
-            })
-            .collect();
+        let outputs = HashSet::from_iter(output_amounts.iter().enumerate().map(|(i, amount)| {
+            DbcContent::new(
+                input_hashes.clone(),
+                *amount,
+                i as u32,
+                output_owner.public_key_set.public_key(),
+            )
+        }));
 
         let transaction = MintTransaction { inputs, outputs };
 
@@ -418,19 +423,19 @@ mod tests {
         let output_amounts = Vec::from_iter(
             output_amounts
                 .into_iter()
-                .map(|(number, amount)| (number.coerce::<u8>(), amount.coerce::<u64>())),
+                .map(|(number, amount)| (number.coerce::<u32>(), amount.coerce::<u64>())),
         );
 
         let extra_output_parents =
-            Vec::from_iter(extra_output_parents.into_iter().map(TinyInt::coerce::<u8>));
+            Vec::from_iter(extra_output_parents.into_iter().map(TinyInt::coerce::<u32>));
 
         let inputs_to_create_owner_proofs =
-            BTreeSet::from_iter(input_owner_proofs.into_iter().map(TinyInt::coerce::<u8>));
+            BTreeSet::from_iter(input_owner_proofs.into_iter().map(TinyInt::coerce::<u32>));
 
         let inputs_to_create_invalid_owner_proofs = BTreeSet::from_iter(
             invalid_input_owner_proofs
                 .into_iter()
-                .map(TinyInt::coerce::<u8>),
+                .map(TinyInt::coerce::<u32>),
         );
 
         let genesis_owner = crate::bls_dkg_id();
@@ -438,7 +443,7 @@ mod tests {
         let (mut genesis, genesis_dbc) =
             Mint::genesis(genesis_owner.public_key_set.clone(), genesis_amount);
 
-        let mut owners: BTreeMap<u8, bls_dkg::outcome::Outcome> = Default::default();
+        let mut owners: BTreeMap<u32, bls_dkg::outcome::Outcome> = Default::default();
 
         let gen_inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
         let gen_input_hashes = BTreeSet::from_iter(gen_inputs.iter().map(Dbc::name));
@@ -446,8 +451,13 @@ mod tests {
             HashSet::from_iter(input_amounts.iter().enumerate().map(|(i, amount)| {
                 let owner = crate::bls_dkg_id();
                 let owner_public_key = owner.public_key_set.public_key();
-                owners.insert(i as u8, owner);
-                DbcContent::new(gen_input_hashes.clone(), *amount, i as u8, owner_public_key)
+                owners.insert(i as u32, owner);
+                DbcContent::new(
+                    gen_input_hashes.clone(),
+                    *amount,
+                    i as u32,
+                    owner_public_key,
+                )
             }));
 
         let mut mint_request = MintRequest {
@@ -668,16 +678,6 @@ mod tests {
         );
         let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
 
-        let output_owner = crate::bls_dkg_id();
-        let amount = 100;
-        let output_number = 0;
-        let owner = crate::BlindedOwner::new(
-            &output_owner.public_key_set.public_key(),
-            &input_content_hashes,
-            amount,
-            output_number,
-        );
-
         let fraudulant_reissue_result = genesis.reissue(
             MintRequest {
                 transaction: MintTransaction {
@@ -689,12 +689,12 @@ mod tests {
                         },
                         transaction_sigs: Default::default(),
                     }]),
-                    outputs: HashSet::from_iter(vec![DbcContent {
-                        parents: input_content_hashes.clone(),
-                        amount,
-                        output_number,
-                        owner,
-                    }]),
+                    outputs: HashSet::from_iter(vec![DbcContent::new(
+                        input_content_hashes.clone(),
+                        100,
+                        0,
+                        crate::bls_dkg_id().public_key_set.public_key(),
+                    )]),
                 },
                 input_ownership_proofs: HashMap::default(),
             },
