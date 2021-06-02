@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
-use sn_dbc::{bls_dkg_id, Dbc, DbcContent, KeyManager, Mint, MintRequest, MintTransaction};
+use sn_dbc::{bls_dkg_id, Dbc, DbcContent, KeyManager, Mint, ReissueRequest, ReissueTransaction};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
@@ -53,7 +53,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .map(|i| DbcContent::new(input_hashes.clone(), 1, i, owner_pub_key))
         .collect();
 
-    let transaction = MintTransaction { inputs, outputs };
+    let transaction = ReissueTransaction { inputs, outputs };
 
     let sig_share = genesis_owner
         .secret_key_share
@@ -64,7 +64,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .combine_signatures(vec![(0, &sig_share)])
         .unwrap();
 
-    let mint_request = MintRequest {
+    let reissue = ReissueRequest {
         transaction,
         input_ownership_proofs: HashMap::from_iter(vec![(
             genesis_dbc.name(),
@@ -77,10 +77,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         b.iter(|| {
             genesis.reset_spendbook(spendbook.clone());
             genesis
-                .reissue(
-                    black_box(mint_request.clone()),
-                    black_box(input_hashes.clone()),
-                )
+                .reissue(black_box(reissue.clone()), black_box(input_hashes.clone()))
                 .unwrap();
         })
     });
@@ -103,7 +100,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         )
     }));
 
-    let transaction = MintTransaction {
+    let transaction = ReissueTransaction {
         inputs,
         outputs: HashSet::from_iter(outputs.clone()),
     };
@@ -117,7 +114,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .combine_signatures(vec![(0, &sig_share)])
         .unwrap();
 
-    let mint_request = MintRequest {
+    let reissue = ReissueRequest {
         transaction,
         input_ownership_proofs: HashMap::from_iter(vec![(
             genesis_dbc.name(),
@@ -125,7 +122,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         )]),
     };
 
-    let (transaction, transaction_sigs) = genesis.reissue(mint_request, input_hashes).unwrap();
+    let (transaction, transaction_sigs) = genesis.reissue(reissue, input_hashes).unwrap();
 
     let (mint_key_set, mint_sig_share) = transaction_sigs.values().cloned().next().unwrap();
 
@@ -150,7 +147,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         bls_dkg_id().public_key_set.public_key(),
     );
 
-    let merge_transaction = MintTransaction {
+    let merge_transaction = ReissueTransaction {
         inputs: HashSet::from_iter(dbcs.clone()),
         outputs: HashSet::from_iter(vec![merged_output]),
     };
@@ -166,21 +163,18 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         (dbc.name(), (owners[i].public_key_set.public_key(), sig))
     }));
 
-    let merge_mint_request = MintRequest {
+    let merge_reissue = ReissueRequest {
         transaction: merge_transaction,
         input_ownership_proofs,
     };
-    let inputs = merge_mint_request.transaction.blinded().inputs;
+    let inputs = merge_reissue.transaction.blinded().inputs;
 
     let spendbook = genesis.snapshot_spendbook();
     c.bench_function(&format!("reissue merge {} to 1", n_outputs), |b| {
         b.iter(|| {
             genesis.reset_spendbook(spendbook.clone());
             genesis
-                .reissue(
-                    black_box(merge_mint_request.clone()),
-                    black_box(inputs.clone()),
-                )
+                .reissue(black_box(merge_reissue.clone()), black_box(inputs.clone()))
                 .unwrap();
         })
     });
