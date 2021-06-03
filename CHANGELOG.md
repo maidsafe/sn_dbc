@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.6.0](https://github.com/maidsafe/sn_dbc/compare/v1.5.0...v1.6.0) (2021-06-03)
+
+
+### Features
+
+* **mint:** replace ed25519 mint identities with BLS ([78baf59](https://github.com/maidsafe/sn_dbc/commit/78baf59d7f7e09c31ca083f459420ac15c847be5))
+
+
+### Bug Fixes
+
+* **bench:** update benchmarks to work with the new BLS keys ([e3da1fb](https://github.com/maidsafe/sn_dbc/commit/e3da1fb37dabc4b548ca819425065fd70f763f7a))
+* **bls:** remove ed25519 dependency ([d46422a](https://github.com/maidsafe/sn_dbc/commit/d46422a5a6c9672ca805d7108e600ed32bfdf8ec))
+* **mint:** replace mint keys with key sets; fixed size BLS indices ([3bd7e29](https://github.com/maidsafe/sn_dbc/commit/3bd7e29f7579414c884f8d092e0ef58debff514f))
+
 ## [1.5.0](https://github.com/maidsafe/sn_dbc/compare/v1.4.0...v1.5.0) (2021-06-02)
 
 
