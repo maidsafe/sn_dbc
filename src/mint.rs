@@ -13,13 +13,14 @@
 // input is vaid
 // Outputs <= input value
 
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::iter::FromIterator;
-
 use crate::{
     Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyCache, KeyManager,
     NodeSignature, PublicKeySet, Result,
+};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    iter::FromIterator,
 };
 
 pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)>;
@@ -41,7 +42,7 @@ impl SpendBook {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct ReissueTransaction {
     pub inputs: HashSet<Dbc>,
     pub outputs: HashSet<DbcContent>,
@@ -113,7 +114,7 @@ impl ReissueTransaction {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct ReissueRequest {
     pub transaction: ReissueTransaction,
     // Signatures from the owners of each input, signing `self.transaction.blinded().hash()`
@@ -121,7 +122,7 @@ pub struct ReissueRequest {
         HashMap<DbcContentHash, (threshold_crypto::PublicKey, threshold_crypto::Signature)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Mint {
     pub(crate) key_mgr: KeyManager,
     pub spendbook: SpendBook,

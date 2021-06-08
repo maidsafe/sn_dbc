@@ -1,12 +1,18 @@
-use std::collections::HashSet;
-
-use threshold_crypto::{SecretKeyShare, SignatureShare};
+// Copyright 2021 MaidSafe.net limited.
+//
+// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
+// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
+// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. Please review the Licences for the specific language governing
+// permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{Error, Hash, Result};
-
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 pub use threshold_crypto::{PublicKey, PublicKeySet, Signature};
+use threshold_crypto::{SecretKeyShare, SignatureShare};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Deserialize, Serialize)]
 pub struct NodeSignature(u64, SignatureShare);
 
 impl NodeSignature {
@@ -15,7 +21,7 @@ impl NodeSignature {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct KeyCache(HashSet<PublicKey>);
 
 impl KeyCache {
@@ -47,7 +53,7 @@ impl From<Vec<PublicKey>> for KeyCache {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct KeyManager {
     public_key_set: PublicKeySet,
     secret_key_share: (u64, SecretKeyShare),

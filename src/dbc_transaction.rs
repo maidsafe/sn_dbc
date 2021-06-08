@@ -6,17 +6,15 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use std::collections::BTreeSet;
-
-use tiny_keccak::{Hasher, Sha3};
-
 use crate::{DbcContentHash, Hash};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+use tiny_keccak::{Hasher, Sha3};
 
 /// The spent identifier of the outputs created from this input
 /// Note these are hashes and not identifiers as the Dbc is not addressable on the network.
 /// i.e. a Dbc can be stored anywhere, even offline.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct DbcTransaction {
     pub inputs: BTreeSet<DbcContentHash>,
     pub outputs: BTreeSet<DbcContentHash>,
