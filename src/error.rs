@@ -17,7 +17,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[non_exhaustive]
 /// Node error variants.
 pub enum Error {
-    /// Attempted to perform an operation meant only for Adults when we are not one.
+    #[error("An error occured when signing {0}")]
+    Signing(String),
     #[error("Attempted an invalid operation {0}")]
     InvalidOperation(String),
     #[error("This input has a signature, but it doesn't appear in the transaction")]

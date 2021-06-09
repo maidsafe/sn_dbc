@@ -56,9 +56,10 @@ impl From<Vec<PublicKey>> for KeyCache {
 
 #[async_trait]
 pub trait Signer {
-    async fn index(&self) -> Result<u64>;
-    async fn public_key_set(&self) -> Result<PublicKeySet>;
-    async fn sign<M: AsRef<[u8]> + Send>(&self, msg: M) -> Result<SignatureShare>;
+    type Error: std::error::Error;
+    async fn index(&self) -> Result<u64, Self::Error>;
+    async fn public_key_set(&self) -> Result<PublicKeySet, Self::Error>;
+    async fn sign(&self, msg: &[u8]) -> Result<SignatureShare, Self::Error>;
 }
 
 pub struct ExposedSigner {
@@ -79,6 +80,8 @@ impl ExposedSigner {
 
 #[async_trait]
 impl Signer for ExposedSigner {
+    type Error = crate::Error;
+
     async fn index(&self) -> Result<u64> {
         Ok(self.index)
     }
@@ -87,10 +90,7 @@ impl Signer for ExposedSigner {
         Ok(self.public_key_set.clone())
     }
 
-    async fn sign<M: AsRef<[u8]> + Send>(
-        &self,
-        msg: M,
-    ) -> Result<threshold_crypto::SignatureShare> {
+    async fn sign(&self, msg: &[u8]) -> Result<threshold_crypto::SignatureShare> {
         Ok(self.secret_key_share.sign(msg))
     }
 }
@@ -104,7 +104,10 @@ pub struct KeyManager<S: Signer> {
 
 impl<S: Signer> KeyManager<S> {
     pub async fn new(signer: S, genesis_key: PublicKey) -> Result<Self> {
-        let public_key_set = signer.public_key_set().await?;
+        let public_key_set = signer
+            .public_key_set()
+            .await
+            .map_err(|e| Error::Signing(e.to_string()))?;
         let mut cache = KeyCache::default();
         cache.add_known_key(genesis_key);
         cache.add_known_key(public_key_set.public_key());
@@ -116,7 +119,12 @@ impl<S: Signer> KeyManager<S> {
     }
 
     pub async fn verify_we_are_a_genesis_node(&self) -> Result<()> {
-        if self.signer.public_key_set().await?.public_key() == self.genesis_key {
+        let public_key_set = self
+            .signer
+            .public_key_set()
+            .await
+            .map_err(|e| Error::Signing(e.to_string()))?;
+        if public_key_set.public_key() == self.genesis_key {
             Ok(())
         } else {
             Err(Error::NotGenesisNode)
@@ -128,15 +136,24 @@ impl<S: Signer> KeyManager<S> {
     }
 
     pub async fn public_key_set(&self) -> Result<PublicKeySet> {
-        self.signer.public_key_set().await
+        self.signer
+            .public_key_set()
+            .await
+            .map_err(|e| Error::Signing(e.to_string()))
     }
 
-    #[allow(clippy::eval_order_dependence)]
     pub async fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature> {
-        Ok(NodeSignature(
-            self.signer.index().await?,
-            self.signer.sign(msg_hash).await?,
-        ))
+        let index = self
+            .signer
+            .index()
+            .await
+            .map_err(|e| Error::Signing(e.to_string()))?;
+        let sig = self
+            .signer
+            .sign(msg_hash)
+            .await
+            .map_err(|e| Error::Signing(e.to_string()))?;
+        Ok(NodeSignature(index, sig))
     }
 
     pub fn verify(&self, msg_hash: &Hash, key: &PublicKey, signature: &Signature) -> Result<()> {
