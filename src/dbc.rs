@@ -55,11 +55,10 @@ impl Dbc {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use futures::executor::block_on as block;
+    use quickcheck_macros::quickcheck;
     use std::collections::{BTreeSet, HashMap, HashSet};
     use std::iter::FromIterator;
-
-    use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{ExposedSigner, KeyManager, Mint, ReissueRequest, ReissueTransaction};
@@ -155,17 +154,20 @@ mod tests {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
 
-        let mut genesis_node = Mint::new(KeyManager::new(
-            ExposedSigner::new(
-                0,
-                genesis_owner.public_key_set.clone(),
-                genesis_owner.secret_key_share.clone(),
-            ),
-            genesis_key,
-        ));
+        let mut genesis_node = Mint::new(
+            block(KeyManager::new(
+                ExposedSigner::new(
+                    0,
+                    genesis_owner.public_key_set.clone(),
+                    genesis_owner.secret_key_share.clone(),
+                ),
+                genesis_key,
+            ))
+            .unwrap(),
+        );
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(amount).unwrap();
+            block(genesis_node.issue_genesis_dbc(amount)).unwrap();
 
         let genesis_sig = gen_key_set
             .combine_signatures(vec![gen_node_sig.threshold_crypto()])
@@ -193,9 +195,8 @@ mod tests {
             .iter()
             .map(|i| i.name())
             .collect();
-        let (split_transaction, split_transaction_sigs) = genesis_node
-            .reissue(reissue_request.clone(), input_hashes)
-            .unwrap();
+        let (split_transaction, split_transaction_sigs) =
+            block(genesis_node.reissue(reissue_request.clone(), input_hashes)).unwrap();
 
         assert_eq!(split_transaction, reissue_request.transaction.blinded());
 
@@ -250,9 +251,8 @@ mod tests {
             input_ownership_proofs,
         };
 
-        let (transaction, transaction_sigs) = genesis_node
-            .reissue(reissue_request.clone(), input_hashes.clone())
-            .unwrap();
+        let (transaction, transaction_sigs) =
+            block(genesis_node.reissue(reissue_request.clone(), input_hashes.clone())).unwrap();
         assert_eq!(reissue_request.transaction.blinded(), transaction);
 
         let (mint_key_set, mint_sig_share) = transaction_sigs.values().next().unwrap();
@@ -300,11 +300,12 @@ mod tests {
         for _ in 0..n_wrong_signer_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id();
-                let key_mgr = KeyManager::new(
+                let key_mgr = block(KeyManager::new(
                     ExposedSigner::new(0, id.public_key_set.clone(), id.secret_key_share.clone()),
                     genesis_key,
-                );
-                let trans_sig_share = key_mgr.sign(&transaction.hash());
+                ))
+                .unwrap();
+                let trans_sig_share = block(key_mgr.sign(&transaction.hash())).unwrap();
                 let trans_sig = id
                     .public_key_set
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
@@ -317,10 +318,9 @@ mod tests {
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
-                let wrong_msg_sig = genesis_node.key_mgr.sign(&Hash([0u8; 32]));
-                let wrong_msg_mint_sig = genesis_node
-                    .key_mgr
-                    .public_key_set()
+                let wrong_msg_sig = block(genesis_node.key_mgr.sign(&Hash([0u8; 32]))).unwrap();
+                let wrong_msg_mint_sig = block(genesis_node.key_mgr.public_key_set())
+                    .unwrap()
                     .combine_signatures(vec![wrong_msg_sig.threshold_crypto()])
                     .unwrap();
 

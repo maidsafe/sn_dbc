@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{Error, Hash, Result};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 pub use threshold_crypto::{PublicKey, PublicKeySet, Signature};
@@ -53,10 +54,11 @@ impl From<Vec<PublicKey>> for KeyCache {
     }
 }
 
+#[async_trait]
 pub trait Signer {
-    fn index(&self) -> u64;
-    fn public_key_set(&self) -> PublicKeySet;
-    fn sign<M: AsRef<[u8]>>(&self, msg: M) -> SignatureShare;
+    async fn index(&self) -> Result<u64>;
+    async fn public_key_set(&self) -> Result<PublicKeySet>;
+    async fn sign<M: AsRef<[u8]> + Send>(&self, msg: M) -> Result<SignatureShare>;
 }
 
 pub struct ExposedSigner {
@@ -75,17 +77,21 @@ impl ExposedSigner {
     }
 }
 
+#[async_trait]
 impl Signer for ExposedSigner {
-    fn index(&self) -> u64 {
-        self.index
+    async fn index(&self) -> Result<u64> {
+        Ok(self.index)
     }
 
-    fn public_key_set(&self) -> PublicKeySet {
-        self.public_key_set.clone()
+    async fn public_key_set(&self) -> Result<PublicKeySet> {
+        Ok(self.public_key_set.clone())
     }
 
-    fn sign<M: AsRef<[u8]>>(&self, msg: M) -> threshold_crypto::SignatureShare {
-        self.secret_key_share.sign(msg)
+    async fn sign<M: AsRef<[u8]> + Send>(
+        &self,
+        msg: M,
+    ) -> Result<threshold_crypto::SignatureShare> {
+        Ok(self.secret_key_share.sign(msg))
     }
 }
 
@@ -97,20 +103,20 @@ pub struct KeyManager<S: Signer> {
 }
 
 impl<S: Signer> KeyManager<S> {
-    pub fn new(signer: S, genesis_key: PublicKey) -> Self {
-        let public_key_set = signer.public_key_set();
+    pub async fn new(signer: S, genesis_key: PublicKey) -> Result<Self> {
+        let public_key_set = signer.public_key_set().await?;
         let mut cache = KeyCache::default();
         cache.add_known_key(genesis_key);
         cache.add_known_key(public_key_set.public_key());
-        Self {
+        Ok(Self {
             signer,
             genesis_key,
             cache,
-        }
+        })
     }
 
-    pub fn verify_we_are_a_genesis_node(&self) -> Result<()> {
-        if self.signer.public_key_set().public_key() == self.genesis_key {
+    pub async fn verify_we_are_a_genesis_node(&self) -> Result<()> {
+        if self.signer.public_key_set().await?.public_key() == self.genesis_key {
             Ok(())
         } else {
             Err(Error::NotGenesisNode)
@@ -121,12 +127,16 @@ impl<S: Signer> KeyManager<S> {
         &self.cache
     }
 
-    pub fn public_key_set(&self) -> PublicKeySet {
-        self.signer.public_key_set()
+    pub async fn public_key_set(&self) -> Result<PublicKeySet> {
+        self.signer.public_key_set().await
     }
 
-    pub fn sign(&self, msg_hash: &Hash) -> NodeSignature {
-        NodeSignature(self.signer.index(), self.signer.sign(msg_hash))
+    #[allow(clippy::eval_order_dependence)]
+    pub async fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature> {
+        Ok(NodeSignature(
+            self.signer.index().await?,
+            self.signer.sign(msg_hash).await?,
+        ))
     }
 
     pub fn verify(&self, msg_hash: &Hash, key: &PublicKey, signature: &Signature) -> Result<()> {

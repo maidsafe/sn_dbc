@@ -1,29 +1,32 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::iter::FromIterator;
-
+use futures::executor::block_on as block;
 use sn_dbc::{
     bls_dkg_id, Dbc, DbcContent, ExposedSigner, KeyManager, Mint, ReissueRequest,
     ReissueTransaction,
 };
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::iter::FromIterator;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn genesis(amount: u64) -> (Mint<ExposedSigner>, bls_dkg::outcome::Outcome, Dbc) {
     let genesis_owner = bls_dkg_id();
 
-    let mut genesis_node = Mint::new(KeyManager::new(
-        ExposedSigner::new(
-            0,
-            genesis_owner.public_key_set.clone(),
-            genesis_owner.secret_key_share.clone(),
-        ),
-        genesis_owner.public_key_set.public_key(),
-    ));
+    let mut genesis_node = Mint::new(
+        block(KeyManager::new(
+            ExposedSigner::new(
+                0,
+                genesis_owner.public_key_set.clone(),
+                genesis_owner.secret_key_share.clone(),
+            ),
+            genesis_owner.public_key_set.public_key(),
+        ))
+        .unwrap(),
+    );
 
     let (content, transaction, (mint_key_set, mint_sig_share)) =
-        genesis_node.issue_genesis_dbc(amount).unwrap();
+        block(genesis_node.issue_genesis_dbc(amount)).unwrap();
 
     let mint_sig = mint_key_set
         .combine_signatures(vec![mint_sig_share.threshold_crypto()])
@@ -82,8 +85,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
     c.bench_function(&format!("reissue split 1 to {}", n_outputs), |b| {
         b.iter(|| {
             genesis.reset_spendbook(spendbook.clone());
-            genesis
-                .reissue(black_box(reissue.clone()), black_box(input_hashes.clone()))
+            block(genesis.reissue(black_box(reissue.clone()), black_box(input_hashes.clone())))
                 .unwrap();
         })
     });
@@ -128,7 +130,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         )]),
     };
 
-    let (transaction, transaction_sigs) = genesis.reissue(reissue, input_hashes).unwrap();
+    let (transaction, transaction_sigs) = block(genesis.reissue(reissue, input_hashes)).unwrap();
 
     let (mint_key_set, mint_sig_share) = transaction_sigs.values().cloned().next().unwrap();
 
@@ -179,8 +181,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     c.bench_function(&format!("reissue merge {} to 1", n_outputs), |b| {
         b.iter(|| {
             genesis.reset_spendbook(spendbook.clone());
-            genesis
-                .reissue(black_box(merge_reissue.clone()), black_box(inputs.clone()))
+            block(genesis.reissue(black_box(merge_reissue.clone()), black_box(inputs.clone())))
                 .unwrap();
         })
     });
