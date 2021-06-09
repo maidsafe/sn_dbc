@@ -3,16 +3,22 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
-use sn_dbc::{bls_dkg_id, Dbc, DbcContent, KeyManager, Mint, ReissueRequest, ReissueTransaction};
+use sn_dbc::{
+    bls_dkg_id, Dbc, DbcContent, ExposedSigner, KeyManager, Mint, ReissueRequest,
+    ReissueTransaction,
+};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-fn genesis(amount: u64) -> (Mint, bls_dkg::outcome::Outcome, Dbc) {
+fn genesis(amount: u64) -> (Mint<ExposedSigner>, bls_dkg::outcome::Outcome, Dbc) {
     let genesis_owner = bls_dkg_id();
 
     let mut genesis_node = Mint::new(KeyManager::new(
-        genesis_owner.public_key_set.clone(),
-        (0, genesis_owner.secret_key_share.clone()),
+        ExposedSigner::new(
+            0,
+            genesis_owner.public_key_set.clone(),
+            genesis_owner.secret_key_share.clone(),
+        ),
         genesis_owner.public_key_set.public_key(),
     ));
 

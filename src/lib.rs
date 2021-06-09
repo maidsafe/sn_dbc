@@ -27,8 +27,11 @@ pub use crate::{
     dbc_content::{BlindedOwner, DbcContent},
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
-    key_manager::{KeyCache, KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature},
-    mint::{Mint, MintSignatures, ReissueRequest, ReissueTransaction, GENESIS_DBC_INPUT},
+    key_manager::{
+        ExposedSigner, KeyCache, KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature,
+        Signer,
+    },
+    mint::{Mint, ReissueRequest, ReissueTransaction, GENESIS_DBC_INPUT},
 };
 
 impl From<[u8; 32]> for Hash {

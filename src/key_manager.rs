@@ -53,33 +53,64 @@ impl From<Vec<PublicKey>> for KeyCache {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct KeyManager {
+pub trait Signer {
+    fn index(&self) -> u64;
+    fn public_key_set(&self) -> PublicKeySet;
+    fn sign<M: AsRef<[u8]>>(&self, msg: M) -> SignatureShare;
+}
+
+pub struct ExposedSigner {
+    index: u64,
     public_key_set: PublicKeySet,
-    secret_key_share: (u64, SecretKeyShare),
+    secret_key_share: SecretKeyShare,
+}
+
+impl ExposedSigner {
+    pub fn new(index: u64, public_key_set: PublicKeySet, secret_key_share: SecretKeyShare) -> Self {
+        Self {
+            index,
+            public_key_set,
+            secret_key_share,
+        }
+    }
+}
+
+impl Signer for ExposedSigner {
+    fn index(&self) -> u64 {
+        self.index
+    }
+
+    fn public_key_set(&self) -> PublicKeySet {
+        self.public_key_set.clone()
+    }
+
+    fn sign<M: AsRef<[u8]>>(&self, msg: M) -> threshold_crypto::SignatureShare {
+        self.secret_key_share.sign(msg)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct KeyManager<S: Signer> {
+    signer: S,
     genesis_key: PublicKey,
     cache: KeyCache,
 }
 
-impl KeyManager {
-    pub fn new(
-        public_key_set: PublicKeySet,
-        secret_key_share: (u64, SecretKeyShare),
-        genesis_key: PublicKey,
-    ) -> Self {
+impl<S: Signer> KeyManager<S> {
+    pub fn new(signer: S, genesis_key: PublicKey) -> Self {
+        let public_key_set = signer.public_key_set();
         let mut cache = KeyCache::default();
         cache.add_known_key(genesis_key);
         cache.add_known_key(public_key_set.public_key());
         Self {
-            public_key_set,
-            secret_key_share,
+            signer,
             genesis_key,
             cache,
         }
     }
 
     pub fn verify_we_are_a_genesis_node(&self) -> Result<()> {
-        if self.public_key_set.public_key() == self.genesis_key {
+        if self.signer.public_key_set().public_key() == self.genesis_key {
             Ok(())
         } else {
             Err(Error::NotGenesisNode)
@@ -91,17 +122,16 @@ impl KeyManager {
     }
 
     pub fn public_key_set(&self) -> PublicKeySet {
-        self.public_key_set.clone()
+        self.signer.public_key_set()
     }
 
     pub fn sign(&self, msg_hash: &Hash) -> NodeSignature {
-        NodeSignature(
-            self.secret_key_share.0,
-            self.secret_key_share.1.sign(msg_hash),
-        )
+        NodeSignature(self.signer.index(), self.signer.sign(msg_hash))
     }
 
     pub fn verify(&self, msg_hash: &Hash, key: &PublicKey, signature: &Signature) -> Result<()> {
+        // NB: this can fail if self.signer changes keys..
+        // then cache needs to be kept in sync with signer view of its current key
         self.cache.verify(msg_hash, key, signature)
     }
 }

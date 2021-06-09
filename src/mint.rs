@@ -14,8 +14,8 @@
 // Outputs <= input value
 
 use crate::{
-    Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyCache, KeyManager,
-    NodeSignature, PublicKeySet, Result,
+    key_manager::Signer, Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyCache,
+    KeyManager, NodeSignature, PublicKeySet, Result,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -123,13 +123,16 @@ pub struct ReissueRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct Mint {
-    pub(crate) key_mgr: KeyManager,
+pub struct Mint<S>
+where
+    S: Signer,
+{
+    pub(crate) key_mgr: KeyManager<S>,
     pub spendbook: SpendBook,
 }
 
-impl Mint {
-    pub fn new(key_mgr: KeyManager) -> Self {
+impl<S: Signer> Mint<S> {
+    pub fn new(key_mgr: KeyManager<S>) -> Self {
         Self {
             key_mgr,
             spendbook: Default::default(),
@@ -256,7 +259,10 @@ mod tests {
     use super::*;
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::{TinyInt, TinyVec};
+    use crate::{
+        tests::{TinyInt, TinyVec},
+        ExposedSigner,
+    };
 
     #[quickcheck]
     fn prop_genesis() {
@@ -264,8 +270,11 @@ mod tests {
         let genesis_key = genesis_owner.public_key_set.public_key();
 
         let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set,
-            (0, genesis_owner.secret_key_share),
+            ExposedSigner::new(
+                0,
+                genesis_owner.public_key_set.clone(),
+                genesis_owner.secret_key_share,
+            ),
             genesis_key,
         ));
 
@@ -298,8 +307,11 @@ mod tests {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
         let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set.clone(),
-            (0, genesis_owner.secret_key_share.clone()),
+            ExposedSigner::new(
+                0,
+                genesis_owner.public_key_set.clone(),
+                genesis_owner.secret_key_share.clone(),
+            ),
             genesis_key,
         ));
 
@@ -403,8 +415,11 @@ mod tests {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
         let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set,
-            (0, genesis_owner.secret_key_share),
+            ExposedSigner::new(
+                0,
+                genesis_owner.public_key_set.clone(),
+                genesis_owner.secret_key_share,
+            ),
             genesis_key,
         ));
 
@@ -530,8 +545,11 @@ mod tests {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
         let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set,
-            (0, genesis_owner.secret_key_share),
+            ExposedSigner::new(
+                0,
+                genesis_owner.public_key_set.clone(),
+                genesis_owner.secret_key_share,
+            ),
             genesis_key,
         ));
 
@@ -802,8 +820,11 @@ mod tests {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
         let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set,
-            (0, genesis_owner.secret_key_share),
+            ExposedSigner::new(
+                0,
+                genesis_owner.public_key_set.clone(),
+                genesis_owner.secret_key_share,
+            ),
             genesis_key,
         ));
 

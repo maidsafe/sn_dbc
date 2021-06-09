@@ -62,7 +62,7 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
-    use crate::{KeyManager, Mint, ReissueRequest, ReissueTransaction};
+    use crate::{ExposedSigner, KeyManager, Mint, ReissueRequest, ReissueTransaction};
 
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
         (0..n_ways).into_iter().map(move |i| {
@@ -156,8 +156,11 @@ mod tests {
         let genesis_key = genesis_owner.public_key_set.public_key();
 
         let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set.clone(),
-            (0, genesis_owner.secret_key_share.clone()),
+            ExposedSigner::new(
+                0,
+                genesis_owner.public_key_set.clone(),
+                genesis_owner.secret_key_share.clone(),
+            ),
             genesis_key,
         ));
 
@@ -298,8 +301,7 @@ mod tests {
             if let Some(input) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id();
                 let key_mgr = KeyManager::new(
-                    id.public_key_set.clone(),
-                    (0, id.secret_key_share),
+                    ExposedSigner::new(0, id.public_key_set.clone(), id.secret_key_share.clone()),
                     genesis_key,
                 );
                 let trans_sig_share = key_mgr.sign(&transaction.hash());
