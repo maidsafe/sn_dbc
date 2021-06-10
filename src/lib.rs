@@ -8,11 +8,12 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::ops::Deref;
 #[cfg(test)]
 use tiny_keccak::{Hasher, Sha3};
 /// These typdefs are to simplify algorithm for now and will be removed for production.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Hash([u8; 32]);
 pub(crate) type DbcContentHash = Hash;
 mod dbc;
@@ -34,6 +35,14 @@ pub use crate::{
 impl From<[u8; 32]> for Hash {
     fn from(val: [u8; 32]) -> Hash {
         Hash(val)
+    }
+}
+
+// Display Hash value as hex in Debug output.  consolidates 36 lines to 3 for pretty output
+// and the hex value is the same as sn_dbc_mint display of DBC IDs.
+impl fmt::Debug for Hash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Hash").field(&hex::encode(self.0)).finish()
     }
 }
 
