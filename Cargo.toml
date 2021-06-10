@@ -19,6 +19,7 @@ quickcheck = "1"
 quickcheck_macros = "1"
 rand = "0.7.1"
 threshold_crypto = "0.4"
+hex = "0.4.3"
 
   [dependencies.bls_dkg]
   version = "~0.3.8"
