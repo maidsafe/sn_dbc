@@ -1,6 +1,6 @@
 [package]
 name = "sn_dbc"
-version = "1.6.5"
+version = "1.6.6"
 description = "Safe Network DBC"
 license = "MIT OR BSD-3-Clause"
 repository = "https://github.com/maidsafe/sn_dbc"
@@ -35,7 +35,6 @@ hex = "0.4.3"
 
 [dev-dependencies]
 criterion = "0.3"
-# -- below this line are deps for mint-repl example -- #
 anyhow = "1.0.40"
 rustyline = "8.0.0"
 serde = "1.0.126"
@@ -54,5 +53,5 @@ harness = false
 required-features = [ "dkg" ]
 
 [[example]]
-name="mint-repl"
+name = "mint-repl"
 path = "examples/mint-repl/mint-repl.rs"
