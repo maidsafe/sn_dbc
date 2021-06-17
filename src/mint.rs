@@ -27,7 +27,7 @@ pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)
 
 pub const GENESIS_DBC_INPUT: Hash = Hash([0u8; 32]);
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SpendBook {
     pub transactions: BTreeMap<DbcContentHash, DbcTransaction>,
 }
@@ -122,7 +122,7 @@ pub struct ReissueRequest {
         HashMap<DbcContentHash, (threshold_crypto::PublicKey, threshold_crypto::Signature)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mint {
     pub(crate) key_mgr: KeyManager,
     pub spendbook: SpendBook,
