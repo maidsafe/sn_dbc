@@ -9,8 +9,8 @@
 use crate::{Error, Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use threshold_crypto::{serde_impl::SerdeSecret, SecretKeyShare, SignatureShare};
 pub use threshold_crypto::{PublicKey, PublicKeySet, Signature};
-use threshold_crypto::{SecretKeyShare, SignatureShare};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Deserialize, Serialize)]
 pub struct NodeSignature(u64, SignatureShare);
@@ -21,7 +21,7 @@ impl NodeSignature {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct KeyCache(HashSet<PublicKey>);
 
 impl KeyCache {
@@ -53,10 +53,10 @@ impl From<Vec<PublicKey>> for KeyCache {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyManager {
     public_key_set: PublicKeySet,
-    secret_key_share: (u64, SecretKeyShare),
+    secret_key_share: (u64, SerdeSecret<SecretKeyShare>),
     genesis_key: PublicKey,
     cache: KeyCache,
 }
@@ -72,7 +72,7 @@ impl KeyManager {
         cache.add_known_key(public_key_set.public_key());
         Self {
             public_key_set,
-            secret_key_share,
+            secret_key_share: (secret_key_share.0, SerdeSecret(secret_key_share.1)),
             genesis_key,
             cache,
         }
@@ -94,10 +94,14 @@ impl KeyManager {
         self.public_key_set.clone()
     }
 
+    pub fn secret_key_share(&self) -> SecretKeyShare {
+        self.secret_key_share.1.inner().clone()
+    }
+
     pub fn sign(&self, msg_hash: &Hash) -> NodeSignature {
         NodeSignature(
             self.secret_key_share.0,
-            self.secret_key_share.1.sign(msg_hash),
+            self.secret_key_share.1.inner().sign(msg_hash),
         )
     }
 
