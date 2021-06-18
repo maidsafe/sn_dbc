@@ -13,20 +13,32 @@ use threshold_crypto::{serde_impl::SerdeSecret, SecretKeyShare, SignatureShare};
 pub use threshold_crypto::{PublicKey, PublicKeySet, Signature};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Deserialize, Serialize)]
-pub struct NodeSignature(u64, SignatureShare);
+pub struct NodeSignature {
+    index: u64,
+    sig: SignatureShare,
+}
 
 impl NodeSignature {
+    pub fn new(index: u64, sig: SignatureShare) -> Self {
+        Self { index, sig }
+    }
+
     pub fn threshold_crypto(&self) -> (u64, &SignatureShare) {
-        (self.0, &self.1)
+        (self.index, &self.sig)
     }
 }
 
 pub trait KeyManager {
-    fn sign(&self, msg_hash: &Hash) -> NodeSignature;
-    fn verify_we_are_a_genesis_node(&self) -> Result<()>;
-    fn public_key_set(&self) -> PublicKeySet;
-    fn verify(&self, msg_hash: &Hash, key: &PublicKey, signature: &Signature) -> Result<()>;
-    fn verify_known_key(&self, key: &PublicKey) -> Result<()>;
+    type Error: std::error::Error;
+    fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature, Self::Error>;
+    fn public_key_set(&self) -> Result<PublicKeySet, Self::Error>;
+    fn verify(
+        &self,
+        msg_hash: &Hash,
+        key: &PublicKey,
+        signature: &Signature,
+    ) -> Result<(), Self::Error>;
+    fn verify_known_key(&self, key: &PublicKey) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -39,11 +51,16 @@ impl<K: KeyManager> Verifier<K> {
         Self { key_manager }
     }
 
-    pub fn verify(&self, msg: &Hash, key: &PublicKey, sig: &Signature) -> Result<()> {
+    pub fn verify(
+        &self,
+        msg: &Hash,
+        key: &PublicKey,
+        sig: &Signature,
+    ) -> Result<(), <K as KeyManager>::Error> {
         self.key_manager.verify(msg, key, sig)
     }
 
-    pub fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
+    pub fn verify_known_key(&self, key: &PublicKey) -> Result<(), <K as KeyManager>::Error> {
         self.key_manager.verify_known_key(key)
     }
 }
@@ -97,20 +114,17 @@ impl SimpleKeyManager {
 }
 
 impl KeyManager for SimpleKeyManager {
-    fn verify_we_are_a_genesis_node(&self) -> Result<()> {
-        if self.signer.public_key_set().public_key() == self.genesis_key {
-            Ok(())
-        } else {
-            Err(Error::NotGenesisNode)
-        }
+    type Error = crate::Error;
+
+    fn public_key_set(&self) -> Result<PublicKeySet> {
+        Ok(self.signer.public_key_set())
     }
 
-    fn public_key_set(&self) -> PublicKeySet {
-        self.signer.public_key_set()
-    }
-
-    fn sign(&self, msg_hash: &Hash) -> NodeSignature {
-        NodeSignature(self.signer.index(), self.signer.sign(msg_hash))
+    fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature> {
+        Ok(NodeSignature::new(
+            self.signer.index(),
+            self.signer.sign(msg_hash),
+        ))
     }
 
     fn verify(&self, msg_hash: &Hash, key: &PublicKey, signature: &Signature) -> Result<()> {

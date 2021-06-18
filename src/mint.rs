@@ -144,14 +144,15 @@ impl<K: KeyManager> Mint<K> {
         &mut self,
         amount: u64,
     ) -> Result<(DbcContent, DbcTransaction, (PublicKeySet, NodeSignature))> {
-        self.key_manager.verify_we_are_a_genesis_node()?;
-
         let parents = BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]);
         let content = DbcContent::new(
             parents,
             amount,
             0,
-            self.key_manager.public_key_set().public_key(),
+            self.key_manager
+                .public_key_set()
+                .map_err(|e| Error::Signing(e.to_string()))?
+                .public_key(),
         );
         let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]),
@@ -164,12 +165,20 @@ impl<K: KeyManager> Mint<K> {
         }
 
         self.spendbook.log(GENESIS_DBC_INPUT, transaction.clone());
-        let transaction_sig = self.key_manager.sign(&transaction.hash());
+        let transaction_sig = self
+            .key_manager
+            .sign(&transaction.hash())
+            .map_err(|e| Error::Signing(e.to_string()))?;
 
         Ok((
             content,
             transaction,
-            (self.key_manager.public_key_set(), transaction_sig),
+            (
+                self.key_manager
+                    .public_key_set()
+                    .map_err(|e| Error::Signing(e.to_string()))?,
+                transaction_sig,
+            ),
         ))
     }
 
@@ -208,7 +217,7 @@ impl<K: KeyManager> Mint<K> {
         for input in inputs_belonging_to_mint.iter() {
             if let Some(transaction) = self.spendbook.lookup(&input).cloned() {
                 // This input has already been spent, return the spend transaction to the user
-                let transaction_sigs = self.sign_transaction(&transaction);
+                let transaction_sigs = self.sign_transaction(&transaction)?;
                 return Err(Error::DbcAlreadySpent {
                     transaction,
                     transaction_sigs,
@@ -216,7 +225,7 @@ impl<K: KeyManager> Mint<K> {
             }
         }
 
-        let transaction_sigs = self.sign_transaction(&transaction);
+        let transaction_sigs = self.sign_transaction(&transaction)?;
 
         for input in reissue_req
             .transaction
@@ -233,15 +242,23 @@ impl<K: KeyManager> Mint<K> {
     fn sign_transaction(
         &self,
         transaction: &DbcTransaction,
-    ) -> BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)> {
-        let sig = self.key_manager.sign(&transaction.hash());
+    ) -> Result<BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)>> {
+        let sig = self
+            .key_manager
+            .sign(&transaction.hash())
+            .map_err(|e| Error::Signing(e.to_string()))?;
 
-        transaction
+        Ok(transaction
             .inputs
             .iter()
             .copied()
-            .zip(std::iter::repeat((self.key_manager.public_key_set(), sig)))
-            .collect()
+            .zip(std::iter::repeat((
+                self.key_manager
+                    .public_key_set()
+                    .map_err(|e| Error::Signing(e.to_string()))?,
+                sig,
+            )))
+            .collect())
     }
 
     // Used in testing / benchmarking
@@ -412,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn test_double_spend_protection() {
+    fn test_double_spend_protection() -> Result<()> {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
         let key_manager = SimpleKeyManager::new(
@@ -452,11 +469,13 @@ mod tests {
             )]),
         };
 
-        let sig_share = genesis_node.key_manager.sign(&transaction.blinded().hash());
+        let sig_share = genesis_node
+            .key_manager
+            .sign(&transaction.blinded().hash())?;
 
         let sig = genesis_node
             .key_manager
-            .public_key_set()
+            .public_key_set()?
             .combine_signatures(vec![sig_share.threshold_crypto()])
             .unwrap();
 
@@ -464,7 +483,7 @@ mod tests {
             transaction,
             input_ownership_proofs: HashMap::from_iter(vec![(
                 genesis_dbc.name(),
-                (genesis_node.key_manager.public_key_set().public_key(), sig),
+                (genesis_node.key_manager.public_key_set()?.public_key(), sig),
             )]),
         };
 
@@ -484,11 +503,11 @@ mod tests {
 
         let node_share = genesis_node
             .key_manager
-            .sign(&double_spend_transaction.blinded().hash());
+            .sign(&double_spend_transaction.blinded().hash())?;
 
         let sig = genesis_node
             .key_manager
-            .public_key_set()
+            .public_key_set()?
             .combine_signatures(vec![node_share.threshold_crypto()])
             .unwrap();
 
@@ -496,7 +515,7 @@ mod tests {
             transaction: double_spend_transaction,
             input_ownership_proofs: HashMap::from_iter(vec![(
                 genesis_dbc.name(),
-                (genesis_node.key_manager.public_key_set().public_key(), sig),
+                (genesis_node.key_manager.public_key_set()?.public_key(), sig),
             )]),
         };
 
@@ -507,6 +526,8 @@ mod tests {
             res,
             Err(Error::DbcAlreadySpent { transaction, transaction_sigs }) if transaction == t && transaction_sigs == s
         ));
+
+        Ok(())
     }
 
     #[quickcheck]
@@ -561,6 +582,7 @@ mod tests {
         let genesis_sig = genesis_node
             .key_manager
             .public_key_set()
+            .unwrap()
             .combine_signatures(vec![gen_node_sig.threshold_crypto()])
             .unwrap();
 
@@ -599,15 +621,24 @@ mod tests {
         };
         let sig_share = genesis_node
             .key_manager
-            .sign(&reissue_req.transaction.blinded().hash());
+            .sign(&reissue_req.transaction.blinded().hash())
+            .unwrap();
         let sig = genesis_node
             .key_manager
             .public_key_set()
+            .unwrap()
             .combine_signatures(vec![sig_share.threshold_crypto()])
             .unwrap();
         reissue_req.input_ownership_proofs.insert(
             genesis_dbc.name(),
-            (genesis_node.key_manager.public_key_set().public_key(), sig),
+            (
+                genesis_node
+                    .key_manager
+                    .public_key_set()
+                    .unwrap()
+                    .public_key(),
+                sig,
+            ),
         );
 
         let (transaction, transaction_sigs) =

@@ -37,7 +37,9 @@ impl Dbc {
                 return Err(Error::UnknownInput);
             }
 
-            verifier.verify(&self.transaction.hash(), &mint_key, &mint_sig)?;
+            verifier
+                .verify(&self.transaction.hash(), &mint_key, &mint_sig)
+                .map_err(|e| Error::Signing(e.to_string()))?;
         }
         if self.transaction.inputs.is_empty() {
             Err(Error::TransactionMustHaveAnInput)
@@ -314,7 +316,7 @@ mod tests {
                     SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share.clone())),
                     genesis_key,
                 );
-                let trans_sig_share = key_manager.sign(&transaction.hash());
+                let trans_sig_share = key_manager.sign(&transaction.hash()).unwrap();
                 let trans_sig = id
                     .public_key_set
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
@@ -327,10 +329,11 @@ mod tests {
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
-                let wrong_msg_sig = genesis_node.key_manager.sign(&Hash([0u8; 32]));
+                let wrong_msg_sig = genesis_node.key_manager.sign(&Hash([0u8; 32])).unwrap();
                 let wrong_msg_mint_sig = genesis_node
                     .key_manager
                     .public_key_set()
+                    .unwrap()
                     .combine_signatures(vec![wrong_msg_sig.threshold_crypto()])
                     .unwrap();
 
