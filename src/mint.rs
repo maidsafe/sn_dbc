@@ -14,13 +14,14 @@
 // Outputs <= input value
 
 use crate::{
-    Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyCache, KeyManager,
-    NodeSignature, PublicKeySet, Result,
+    Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, NodeSignature,
+    PublicKeySet, Result, Verifier,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     iter::FromIterator,
+    sync::Arc,
 };
 
 pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)>;
@@ -56,9 +57,9 @@ impl ReissueTransaction {
         }
     }
 
-    pub fn validate(&self, key_cache: &KeyCache) -> Result<()> {
+    pub fn validate<K: KeyManager>(&self, verifier: &Verifier<K>) -> Result<()> {
         self.validate_balance()?;
-        self.validate_input_dbcs(key_cache)?;
+        self.validate_input_dbcs(verifier)?;
         self.validate_outputs()?;
         Ok(())
     }
@@ -74,13 +75,13 @@ impl ReissueTransaction {
         }
     }
 
-    fn validate_input_dbcs(&self, key_cache: &KeyCache) -> Result<()> {
+    fn validate_input_dbcs<K: KeyManager>(&self, verifier: &Verifier<K>) -> Result<()> {
         if self.inputs.is_empty() {
             return Err(Error::TransactionMustHaveAnInput);
         }
 
         for input in self.inputs.iter() {
-            input.confirm_valid(key_cache)?;
+            input.confirm_valid(verifier)?;
         }
 
         Ok(())
@@ -123,15 +124,18 @@ pub struct ReissueRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Mint {
-    pub(crate) key_mgr: KeyManager,
+pub struct Mint<K>
+where
+    K: KeyManager,
+{
+    pub(crate) key_manager: Arc<K>,
     pub spendbook: SpendBook,
 }
 
-impl Mint {
-    pub fn new(key_mgr: KeyManager) -> Self {
+impl<K: KeyManager> Mint<K> {
+    pub fn new(key_manager: Arc<K>) -> Self {
         Self {
-            key_mgr,
+            key_manager,
             spendbook: Default::default(),
         }
     }
@@ -140,14 +144,14 @@ impl Mint {
         &mut self,
         amount: u64,
     ) -> Result<(DbcContent, DbcTransaction, (PublicKeySet, NodeSignature))> {
-        self.key_mgr.verify_we_are_a_genesis_node()?;
+        self.key_manager.verify_we_are_a_genesis_node()?;
 
         let parents = BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]);
         let content = DbcContent::new(
             parents,
             amount,
             0,
-            self.key_mgr.public_key_set().public_key(),
+            self.key_manager.public_key_set().public_key(),
         );
         let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]),
@@ -160,12 +164,12 @@ impl Mint {
         }
 
         self.spendbook.log(GENESIS_DBC_INPUT, transaction.clone());
-        let transaction_sig = self.key_mgr.sign(&transaction.hash());
+        let transaction_sig = self.key_manager.sign(&transaction.hash());
 
         Ok((
             content,
             transaction,
-            (self.key_mgr.public_key_set(), transaction_sig),
+            (self.key_manager.public_key_set(), transaction_sig),
         ))
     }
 
@@ -173,8 +177,8 @@ impl Mint {
         self.spendbook.lookup(&dbc_hash).is_some()
     }
 
-    pub fn key_cache(&self) -> &KeyCache {
-        self.key_mgr.key_cache()
+    pub fn verifier(&self) -> Verifier<K> {
+        Verifier::new(self.key_manager.clone())
     }
 
     pub fn reissue(
@@ -182,7 +186,7 @@ impl Mint {
         reissue_req: ReissueRequest,
         inputs_belonging_to_mint: BTreeSet<DbcContentHash>,
     ) -> Result<(DbcTransaction, MintSignatures)> {
-        reissue_req.transaction.validate(self.key_cache())?;
+        reissue_req.transaction.validate(&self.verifier())?;
         let transaction = reissue_req.transaction.blinded();
         let transaction_hash = transaction.hash();
 
@@ -230,13 +234,13 @@ impl Mint {
         &self,
         transaction: &DbcTransaction,
     ) -> BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)> {
-        let sig = self.key_mgr.sign(&transaction.hash());
+        let sig = self.key_manager.sign(&transaction.hash());
 
         transaction
             .inputs
             .iter()
             .copied()
-            .zip(std::iter::repeat((self.key_mgr.public_key_set(), sig)))
+            .zip(std::iter::repeat((self.key_manager.public_key_set(), sig)))
             .collect()
     }
 
@@ -256,18 +260,24 @@ mod tests {
     use super::*;
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::{TinyInt, TinyVec};
+    use crate::{
+        tests::{TinyInt, TinyVec},
+        SimpleKeyManager, SimpleSigner,
+    };
 
     #[quickcheck]
     fn prop_genesis() {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
 
-        let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set,
-            (0, genesis_owner.secret_key_share),
-            genesis_key,
-        ));
+        let key_manager = SimpleKeyManager::new(
+            SimpleSigner::new(
+                genesis_owner.public_key_set.clone(),
+                (0, genesis_owner.secret_key_share.clone()),
+            ),
+            genesis_owner.public_key_set.public_key(),
+        );
+        let mut genesis_node = Mint::new(Arc::new(key_manager));
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(1000).unwrap();
@@ -286,7 +296,7 @@ mod tests {
         };
 
         assert_eq!(genesis_dbc.content.amount, 1000);
-        let validation = genesis_dbc.confirm_valid(&genesis_node.key_cache());
+        let validation = genesis_dbc.confirm_valid(&genesis_node.verifier());
         assert!(validation.is_ok());
     }
 
@@ -297,11 +307,14 @@ mod tests {
 
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
-        let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set.clone(),
-            (0, genesis_owner.secret_key_share.clone()),
-            genesis_key,
+        let key_manager = Arc::new(SimpleKeyManager::new(
+            SimpleSigner::new(
+                genesis_owner.public_key_set.clone(),
+                (0, genesis_owner.secret_key_share.clone()),
+            ),
+            genesis_owner.public_key_set.public_key(),
         ));
+        let mut genesis_node = Mint::new(key_manager.clone());
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(output_amount).unwrap();
@@ -385,11 +398,11 @@ mod tests {
                 }
             }));
 
-        let key_cache = KeyCache::from(vec![genesis_key]);
+        let verifier = Verifier::new(key_manager);
         for dbc in output_dbcs.iter() {
             let expected_amount: u64 = output_amounts[dbc.content.output_number as usize];
             assert_eq!(dbc.amount(), expected_amount);
-            assert!(dbc.confirm_valid(&key_cache).is_ok());
+            assert!(dbc.confirm_valid(&verifier).is_ok());
         }
 
         assert_eq!(
@@ -402,11 +415,14 @@ mod tests {
     fn test_double_spend_protection() {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
-        let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set,
-            (0, genesis_owner.secret_key_share),
-            genesis_key,
-        ));
+        let key_manager = SimpleKeyManager::new(
+            SimpleSigner::new(
+                genesis_owner.public_key_set.clone(),
+                (0, genesis_owner.secret_key_share.clone()),
+            ),
+            genesis_owner.public_key_set.public_key(),
+        );
+        let mut genesis_node = Mint::new(Arc::new(key_manager));
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(1000).unwrap();
@@ -436,10 +452,10 @@ mod tests {
             )]),
         };
 
-        let sig_share = genesis_node.key_mgr.sign(&transaction.blinded().hash());
+        let sig_share = genesis_node.key_manager.sign(&transaction.blinded().hash());
 
         let sig = genesis_node
-            .key_mgr
+            .key_manager
             .public_key_set()
             .combine_signatures(vec![sig_share.threshold_crypto()])
             .unwrap();
@@ -448,7 +464,7 @@ mod tests {
             transaction,
             input_ownership_proofs: HashMap::from_iter(vec![(
                 genesis_dbc.name(),
-                (genesis_node.key_mgr.public_key_set().public_key(), sig),
+                (genesis_node.key_manager.public_key_set().public_key(), sig),
             )]),
         };
 
@@ -467,11 +483,11 @@ mod tests {
         };
 
         let node_share = genesis_node
-            .key_mgr
+            .key_manager
             .sign(&double_spend_transaction.blinded().hash());
 
         let sig = genesis_node
-            .key_mgr
+            .key_manager
             .public_key_set()
             .combine_signatures(vec![node_share.threshold_crypto()])
             .unwrap();
@@ -480,7 +496,7 @@ mod tests {
             transaction: double_spend_transaction,
             input_ownership_proofs: HashMap::from_iter(vec![(
                 genesis_dbc.name(),
-                (genesis_node.key_mgr.public_key_set().public_key(), sig),
+                (genesis_node.key_manager.public_key_set().public_key(), sig),
             )]),
         };
 
@@ -529,18 +545,21 @@ mod tests {
 
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
-        let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set,
-            (0, genesis_owner.secret_key_share),
-            genesis_key,
+        let key_manager = Arc::new(SimpleKeyManager::new(
+            SimpleSigner::new(
+                genesis_owner.public_key_set.clone(),
+                (0, genesis_owner.secret_key_share.clone()),
+            ),
+            genesis_owner.public_key_set.public_key(),
         ));
+        let mut genesis_node = Mint::new(key_manager.clone());
 
         let genesis_amount: u64 = input_amounts.iter().sum();
         let (gen_dbc_content, gen_dbc_trans, (_gen_key, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(genesis_amount).unwrap();
 
         let genesis_sig = genesis_node
-            .key_mgr
+            .key_manager
             .public_key_set()
             .combine_signatures(vec![gen_node_sig.threshold_crypto()])
             .unwrap();
@@ -579,16 +598,16 @@ mod tests {
             input_ownership_proofs: HashMap::default(),
         };
         let sig_share = genesis_node
-            .key_mgr
+            .key_manager
             .sign(&reissue_req.transaction.blinded().hash());
         let sig = genesis_node
-            .key_mgr
+            .key_manager
             .public_key_set()
             .combine_signatures(vec![sig_share.threshold_crypto()])
             .unwrap();
         reissue_req.input_ownership_proofs.insert(
             genesis_dbc.name(),
-            (genesis_node.key_mgr.public_key_set().public_key(), sig),
+            (genesis_node.key_manager.public_key_set().public_key(), sig),
         );
 
         let (transaction, transaction_sigs) =
@@ -744,7 +763,7 @@ mod tests {
                 }));
 
                 for dbc in output_dbcs.iter() {
-                    let dbc_confirm_result = dbc.confirm_valid(&KeyCache::from(vec![genesis_key]));
+                    let dbc_confirm_result = dbc.confirm_valid(&Verifier::new(key_manager.clone()));
                     println!("DBC confirm result {:?}", dbc_confirm_result);
                     assert!(dbc_confirm_result.is_ok());
                 }
@@ -800,12 +819,14 @@ mod tests {
     #[test]
     fn test_inputs_are_validated() {
         let genesis_owner = crate::bls_dkg_id();
-        let genesis_key = genesis_owner.public_key_set.public_key();
-        let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set,
-            (0, genesis_owner.secret_key_share),
-            genesis_key,
-        ));
+        let key_manager = SimpleKeyManager::new(
+            SimpleSigner::new(
+                genesis_owner.public_key_set.clone(),
+                (0, genesis_owner.secret_key_share.clone()),
+            ),
+            genesis_owner.public_key_set.public_key(),
+        );
+        let mut genesis_node = Mint::new(Arc::new(key_manager));
 
         let input_owner = crate::bls_dkg_id();
         let input_content = DbcContent::new(

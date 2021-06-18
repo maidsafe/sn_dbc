@@ -28,7 +28,10 @@ pub use crate::{
     dbc_content::{BlindedOwner, DbcContent},
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
-    key_manager::{KeyCache, KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature},
+    key_manager::{
+        KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
+        SimpleSigner, Verifier,
+    },
     mint::{Mint, MintSignatures, ReissueRequest, ReissueTransaction, GENESIS_DBC_INPUT},
 };
 

@@ -15,11 +15,14 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    BlindedOwner, Dbc, DbcContent, DbcTransaction, Hash, KeyManager, Mint, MintSignatures,
-    NodeSignature, ReissueRequest, ReissueTransaction,
+    BlindedOwner, Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature,
+    ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    sync::Arc,
+};
 use threshold_crypto::poly::Poly;
 use threshold_crypto::serde_impl::SerdeSecret;
 use threshold_crypto::{
@@ -29,7 +32,7 @@ use threshold_crypto::{
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
 struct MintInfo {
-    mintnodes: Vec<Mint>,
+    mintnodes: Vec<Mint<KeyManager>>,
     genesis: DbcUnblinded,
     secret_key_set: SecretKeySet,
     poly: Poly,
@@ -37,7 +40,7 @@ struct MintInfo {
 
 impl MintInfo {
     // returns the first mint node.
-    fn mintnode(&self) -> Result<&Mint> {
+    fn mintnode(&self) -> Result<&Mint<KeyManager>> {
         self.mintnodes
             .get(0)
             .ok_or_else(|| anyhow!("Mint not yet created"))
@@ -185,17 +188,19 @@ fn mk_new_random_mint(threshold: usize, amount: u64) -> Result<MintInfo> {
 /// creates a new mint from an existing SecretKeySet that was seeded by poly.
 fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: u64) -> Result<MintInfo> {
     let genesis_pubkey = secret_key_set.public_keys().public_key();
-    let mut mints: Vec<Mint> = Default::default();
+    let mut mints: Vec<Mint<KeyManager>> = Default::default();
 
     // Generate each Mint node, and corresponding NodeSignature. (Index + SignatureShare)
     let mut genesis_set: Vec<(DbcContent, DbcTransaction, (PublicKeySet, NodeSignature))> =
         Default::default();
     for i in 0..secret_key_set.threshold() as u64 + 1 {
-        let key_manager = KeyManager::new(
-            secret_key_set.public_keys().clone(),
-            (i, secret_key_set.secret_key_share(i).clone()),
+        let key_manager = Arc::new(KeyManager::new(
+            Signer::new(
+                secret_key_set.public_keys().clone(),
+                (i, secret_key_set.secret_key_share(i).clone()),
+            ),
             genesis_pubkey,
-        );
+        ));
         let mut mint = Mint::new(key_manager);
         genesis_set.push(mint.issue_genesis_dbc(amount)?);
         mints.push(mint);
@@ -492,7 +497,7 @@ fn validate(mintinfo: &MintInfo) -> Result<()> {
         from_be_hex(&dbc_input)?
     };
 
-    match dbc.confirm_valid(mintinfo.mintnode()?.key_cache()) {
+    match dbc.confirm_valid(&mintinfo.mintnode()?.verifier()) {
         Ok(_) => match mintinfo.mintnode()?.is_spent(dbc.name()) {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
