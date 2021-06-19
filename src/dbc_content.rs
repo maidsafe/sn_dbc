@@ -5,13 +5,12 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
-use std::collections::BTreeSet;
-
-use serde::{Deserialize, Serialize};
-use threshold_crypto::PublicKey;
-use tiny_keccak::{Hasher, Sha3};
 
 use crate::{DbcContentHash, Error, Hash};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+use threshold_crypto::PublicKey;
+use tiny_keccak::{Hasher, Sha3};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct BlindedOwner(Hash);

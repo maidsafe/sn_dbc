@@ -10,6 +10,7 @@
 //! Safe Network DBC Mint CLI playground.
 
 use anyhow::{anyhow, Error, Result};
+use futures::executor::block_on as block;
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -202,7 +203,7 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: u64) -> Result<
             genesis_pubkey,
         ));
         let mut mint = Mint::new(key_manager);
-        genesis_set.push(mint.issue_genesis_dbc(amount)?);
+        genesis_set.push(block(mint.issue_genesis_dbc(amount))?);
         mints.push(mint);
     }
 
@@ -497,7 +498,7 @@ fn validate(mintinfo: &MintInfo) -> Result<()> {
         from_be_hex(&dbc_input)?
     };
 
-    match dbc.confirm_valid(&mintinfo.mintnode()?.verifier()) {
+    match block(dbc.confirm_valid(&mintinfo.mintnode()?.verifier())) {
         Ok(_) => match mintinfo.mintnode()?.is_spent(dbc.name()) {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
@@ -928,7 +929,7 @@ fn reissue_exec(
         // here we pretend the client has made a network request to a single mint node
         // so this mint.reissue() execs on the Mint node and returns data to client.
         let (transaction, transaction_sigs) =
-            mint.reissue(reissue_request.clone(), input_hashes.clone())?;
+            block(mint.reissue(reissue_request.clone(), input_hashes.clone()))?;
 
         // and now we are back to client code.
 
