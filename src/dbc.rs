@@ -384,13 +384,6 @@ mod tests {
                     dbc.transaction.inputs
                 );
             }
-            Err(Error::UnrecognisedAuthority) => {
-                assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
-                assert!(dbc
-                    .transaction_sigs
-                    .values()
-                    .any(|(k, _)| verifier.verify_known_key(k).is_err()));
-            }
             Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
                 assert!(
                     n_add_random_parents.coerce::<u8>() > 0 || n_drop_parents.coerce::<u8>() > 0
@@ -406,6 +399,23 @@ mod tests {
             }
             Err(Error::FailedSignature) => {
                 assert_ne!(n_wrong_msg_sigs.coerce::<u8>(), 0);
+            }
+            Err(Error::Signing(s)) if s == Error::FailedSignature.to_string() => {
+                assert_ne!(n_wrong_msg_sigs.coerce::<u8>(), 0);
+            }
+            Err(Error::UnrecognisedAuthority) => {
+                assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
+                assert!(dbc
+                    .transaction_sigs
+                    .values()
+                    .any(|(k, _)| verifier.verify_known_key(k).is_err()));
+            }
+            Err(Error::Signing(s)) if s == Error::UnrecognisedAuthority.to_string() => {
+                assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
+                assert!(dbc
+                    .transaction_sigs
+                    .values()
+                    .any(|(k, _)| verifier.verify_known_key(k).is_err()));
             }
             res => panic!("Unexpected verification result {:?}", res),
         }
