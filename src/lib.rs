@@ -30,7 +30,7 @@ pub use crate::{
     error::{Error, Result},
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
-        SimpleSigner, Verifier,
+        SimpleSigner,
     },
     mint::{Mint, MintSignatures, ReissueRequest, ReissueTransaction, GENESIS_DBC_INPUT},
 };

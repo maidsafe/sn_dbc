@@ -2,7 +2,6 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
-use std::sync::Arc;
 
 use sn_dbc::{
     bls_dkg_id, Dbc, DbcContent, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager,
@@ -21,7 +20,7 @@ fn genesis(amount: u64) -> (Mint<SimpleKeyManager>, bls_dkg::outcome::Outcome, D
         ),
         genesis_owner.public_key_set.public_key(),
     );
-    let mut genesis_node = Mint::new(Arc::new(key_manager));
+    let mut genesis_node = Mint::new(key_manager);
 
     let (content, transaction, (mint_key_set, mint_sig_share)) =
         genesis_node.issue_genesis_dbc(amount).unwrap();

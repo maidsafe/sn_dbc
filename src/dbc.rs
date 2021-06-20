@@ -8,7 +8,7 @@
 
 use crate::{
     DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, PublicKey, Result,
-    Signature, Verifier,
+    Signature,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -31,7 +31,7 @@ impl Dbc {
 
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
-    pub fn confirm_valid<K: KeyManager>(&self, verifier: &Verifier<K>) -> Result<(), Error> {
+    pub fn confirm_valid<K: KeyManager>(&self, verifier: &K) -> Result<(), Error> {
         for (input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
             if !self.transaction.inputs.contains(input) {
                 return Err(Error::UnknownInput);
@@ -61,7 +61,6 @@ mod tests {
 
     use std::collections::{BTreeSet, HashMap, HashSet};
     use std::iter::FromIterator;
-    use std::sync::Arc;
 
     use quickcheck_macros::quickcheck;
 
@@ -146,7 +145,7 @@ mod tests {
         );
 
         assert!(matches!(
-            dbc.confirm_valid(&Verifier::new(Arc::new(key_manager))),
+            dbc.confirm_valid(&key_manager),
             Err(Error::TransactionMustHaveAnInput)
         ));
     }
@@ -174,7 +173,7 @@ mod tests {
             ),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(Arc::new(key_manager));
+        let mut genesis_node = Mint::new(key_manager);
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(amount).unwrap();
@@ -357,8 +356,7 @@ mod tests {
             SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share)),
             genesis_key,
         );
-        let verifier = Verifier::new(Arc::new(key_manager));
-        let validation_res = dbc.confirm_valid(&verifier);
+        let validation_res = dbc.confirm_valid(&key_manager);
 
         println!("Validation Result: {:#?}", validation_res);
         match validation_res {
@@ -408,14 +406,14 @@ mod tests {
                 assert!(dbc
                     .transaction_sigs
                     .values()
-                    .any(|(k, _)| verifier.verify_known_key(k).is_err()));
+                    .any(|(k, _)| key_manager.verify_known_key(k).is_err()));
             }
             Err(Error::Signing(s)) if s == Error::UnrecognisedAuthority.to_string() => {
                 assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
                 assert!(dbc
                     .transaction_sigs
                     .values()
-                    .any(|(k, _)| verifier.verify_known_key(k).is_err()));
+                    .any(|(k, _)| key_manager.verify_known_key(k).is_err()));
             }
             res => panic!("Unexpected verification result {:?}", res),
         }

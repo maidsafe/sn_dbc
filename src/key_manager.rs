@@ -8,7 +8,7 @@
 
 use crate::{Error, Hash, Result};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 use threshold_crypto::{serde_impl::SerdeSecret, SecretKeyShare, SignatureShare};
 pub use threshold_crypto::{PublicKey, PublicKeySet, Signature};
 
@@ -39,30 +39,6 @@ pub trait KeyManager {
         signature: &Signature,
     ) -> Result<(), Self::Error>;
     fn verify_known_key(&self, key: &PublicKey) -> Result<(), Self::Error>;
-}
-
-#[derive(Debug, Clone)]
-pub struct Verifier<K: KeyManager> {
-    key_manager: Arc<K>,
-}
-
-impl<K: KeyManager> Verifier<K> {
-    pub fn new(key_manager: Arc<K>) -> Self {
-        Self { key_manager }
-    }
-
-    pub fn verify(
-        &self,
-        msg: &Hash,
-        key: &PublicKey,
-        sig: &Signature,
-    ) -> Result<(), <K as KeyManager>::Error> {
-        self.key_manager.verify(msg, key, sig)
-    }
-
-    pub fn verify_known_key(&self, key: &PublicKey) -> Result<(), <K as KeyManager>::Error> {
-        self.key_manager.verify_known_key(key)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
