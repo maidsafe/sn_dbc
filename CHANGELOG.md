@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.6.8](https://github.com/maidsafe/sn_dbc/compare/v1.6.7...v1.6.8) (2021-06-21)
+
+
+### Bug Fixes
+
+* **tests:** also match on the mapped errors ([df5c98c](https://github.com/maidsafe/sn_dbc/commit/df5c98c1b5ee3106c26b73642cefb50b0cd61d38))
+
 ### [1.6.7](https://github.com/maidsafe/sn_dbc/compare/v1.6.6...v1.6.7) (2021-06-17)
 
 ### [1.6.6](https://github.com/maidsafe/sn_dbc/compare/v1.6.5...v1.6.6) (2021-06-16)
