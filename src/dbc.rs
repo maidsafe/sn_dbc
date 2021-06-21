@@ -7,7 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyCache, PublicKey, Result, Signature,
+    DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, PublicKey, Result,
+    Signature,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -30,13 +31,15 @@ impl Dbc {
 
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
-    pub fn confirm_valid(&self, key_cache: &KeyCache) -> Result<(), Error> {
+    pub fn confirm_valid<K: KeyManager>(&self, verifier: &K) -> Result<(), Error> {
         for (input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
             if !self.transaction.inputs.contains(input) {
                 return Err(Error::UnknownInput);
             }
 
-            key_cache.verify(&self.transaction.hash(), &mint_key, &mint_sig)?;
+            verifier
+                .verify(&self.transaction.hash(), &mint_key, &mint_sig)
+                .map_err(|e| Error::Signing(e.to_string()))?;
         }
         if self.transaction.inputs.is_empty() {
             Err(Error::TransactionMustHaveAnInput)
@@ -62,7 +65,9 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
-    use crate::{KeyManager, Mint, ReissueRequest, ReissueTransaction};
+    use crate::{
+        KeyManager, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager, SimpleSigner,
+    };
 
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
         (0..n_ways).into_iter().map(move |i| {
@@ -133,8 +138,14 @@ mod tests {
             transaction_sigs: Default::default(),
         };
 
+        let id = crate::bls_dkg_id();
+        let key_manager = SimpleKeyManager::new(
+            SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share.clone())),
+            id.public_key_set.public_key(),
+        );
+
         assert!(matches!(
-            dbc.confirm_valid(&KeyCache::default()),
+            dbc.confirm_valid(&key_manager),
             Err(Error::TransactionMustHaveAnInput)
         ));
     }
@@ -155,11 +166,14 @@ mod tests {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
 
-        let mut genesis_node = Mint::new(KeyManager::new(
-            genesis_owner.public_key_set.clone(),
-            (0, genesis_owner.secret_key_share.clone()),
-            genesis_key,
-        ));
+        let key_manager = SimpleKeyManager::new(
+            SimpleSigner::new(
+                genesis_owner.public_key_set.clone(),
+                (0, genesis_owner.secret_key_share.clone()),
+            ),
+            genesis_owner.public_key_set.public_key(),
+        );
+        let mut genesis_node = Mint::new(key_manager);
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(amount).unwrap();
@@ -297,12 +311,11 @@ mod tests {
         for _ in 0..n_wrong_signer_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id();
-                let key_mgr = KeyManager::new(
-                    id.public_key_set.clone(),
-                    (0, id.secret_key_share),
+                let key_manager = SimpleKeyManager::new(
+                    SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share.clone())),
                     genesis_key,
                 );
-                let trans_sig_share = key_mgr.sign(&transaction.hash());
+                let trans_sig_share = key_manager.sign(&transaction.hash()).unwrap();
                 let trans_sig = id
                     .public_key_set
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
@@ -315,10 +328,11 @@ mod tests {
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
-                let wrong_msg_sig = genesis_node.key_mgr.sign(&Hash([0u8; 32]));
+                let wrong_msg_sig = genesis_node.key_manager.sign(&Hash([0u8; 32])).unwrap();
                 let wrong_msg_mint_sig = genesis_node
-                    .key_mgr
+                    .key_manager
                     .public_key_set()
+                    .unwrap()
                     .combine_signatures(vec![wrong_msg_sig.threshold_crypto()])
                     .unwrap();
 
@@ -337,8 +351,12 @@ mod tests {
             transaction_sigs: fuzzed_transaction_sigs,
         };
 
-        let key_cache = KeyCache::from(vec![genesis_key]);
-        let validation_res = dbc.confirm_valid(&key_cache);
+        let id = crate::bls_dkg_id();
+        let key_manager = SimpleKeyManager::new(
+            SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share)),
+            genesis_key,
+        );
+        let validation_res = dbc.confirm_valid(&key_manager);
 
         println!("Validation Result: {:#?}", validation_res);
         match validation_res {
@@ -364,13 +382,6 @@ mod tests {
                     dbc.transaction.inputs
                 );
             }
-            Err(Error::UnrecognisedAuthority) => {
-                assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
-                assert!(dbc
-                    .transaction_sigs
-                    .values()
-                    .any(|(k, _)| key_cache.verify_known_key(k).is_err()));
-            }
             Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
                 assert!(
                     n_add_random_parents.coerce::<u8>() > 0 || n_drop_parents.coerce::<u8>() > 0
@@ -386,6 +397,23 @@ mod tests {
             }
             Err(Error::FailedSignature) => {
                 assert_ne!(n_wrong_msg_sigs.coerce::<u8>(), 0);
+            }
+            Err(Error::Signing(s)) if s == Error::FailedSignature.to_string() => {
+                assert_ne!(n_wrong_msg_sigs.coerce::<u8>(), 0);
+            }
+            Err(Error::UnrecognisedAuthority) => {
+                assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
+                assert!(dbc
+                    .transaction_sigs
+                    .values()
+                    .any(|(k, _)| key_manager.verify_known_key(k).is_err()));
+            }
+            Err(Error::Signing(s)) if s == Error::UnrecognisedAuthority.to_string() => {
+                assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
+                assert!(dbc
+                    .transaction_sigs
+                    .values()
+                    .any(|(k, _)| key_manager.verify_known_key(k).is_err()));
             }
             res => panic!("Unexpected verification result {:?}", res),
         }
