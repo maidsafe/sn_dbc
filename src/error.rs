@@ -61,4 +61,6 @@ pub enum Error {
     /// JSON serialisation error.
     #[error("JSON serialisation error:: {0}")]
     JsonSerialisation(#[from] serde_json::Error),
+    #[error("SpendBook error {0}")]
+    SpendBook(String),
 }
