@@ -32,7 +32,10 @@ pub use crate::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
         SimpleSigner,
     },
-    mint::{Mint, MintSignatures, ReissueRequest, ReissueTransaction, GENESIS_DBC_INPUT},
+    mint::{
+        Mint, MintSignatures, ReissueRequest, ReissueTransaction, SimpleSpendBook, SpendBook,
+        GENESIS_DBC_INPUT,
+    },
 };
 
 impl From<[u8; 32]> for Hash {

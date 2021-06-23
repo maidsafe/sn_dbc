@@ -27,18 +27,40 @@ pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)
 
 pub const GENESIS_DBC_INPUT: Hash = Hash([0u8; 32]);
 
+pub trait SpendBook: std::fmt::Debug + Clone + IntoIterator {
+    fn lookup(&self, dbc_hash: &DbcContentHash) -> Option<&DbcTransaction>;
+    fn log(&mut self, dbc_hash: DbcContentHash, transaction: DbcTransaction);
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct SpendBook {
+pub struct SimpleSpendBook {
     pub transactions: BTreeMap<DbcContentHash, DbcTransaction>,
 }
 
-impl SpendBook {
+impl SpendBook for SimpleSpendBook {
     fn lookup(&self, dbc_hash: &DbcContentHash) -> Option<&DbcTransaction> {
         self.transactions.get(dbc_hash)
     }
 
     fn log(&mut self, dbc_hash: DbcContentHash, transaction: DbcTransaction) {
         self.transactions.insert(dbc_hash, transaction);
+    }
+}
+
+impl IntoIterator for SimpleSpendBook {
+    type Item = (DbcContentHash, DbcTransaction);
+    type IntoIter = std::collections::btree_map::IntoIter<DbcContentHash, DbcTransaction>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.transactions.into_iter()
+    }
+}
+
+impl SimpleSpendBook {
+    pub fn new() -> Self {
+        Self {
+            transactions: Default::default(),
+        }
     }
 }
 
@@ -122,20 +144,21 @@ pub struct ReissueRequest {
         HashMap<DbcContentHash, (threshold_crypto::PublicKey, threshold_crypto::Signature)>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Mint<K>
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Mint<K, S>
 where
     K: KeyManager,
+    S: SpendBook,
 {
     pub(crate) key_manager: K,
-    pub spendbook: SpendBook,
+    pub spendbook: S,
 }
 
-impl<K: KeyManager> Mint<K> {
-    pub fn new(key_manager: K) -> Self {
+impl<K: KeyManager, S: SpendBook> Mint<K, S> {
+    pub fn new(key_manager: K, spendbook: S) -> Self {
         Self {
             key_manager,
-            spendbook: Default::default(),
+            spendbook,
         }
     }
 
@@ -261,12 +284,12 @@ impl<K: KeyManager> Mint<K> {
     }
 
     // Used in testing / benchmarking
-    pub fn snapshot_spendbook(&self) -> SpendBook {
+    pub fn snapshot_spendbook(&self) -> S {
         self.spendbook.clone()
     }
 
     // Used in testing / benchmarking
-    pub fn reset_spendbook(&mut self, spendbook: SpendBook) {
+    pub fn reset_spendbook(&mut self, spendbook: S) {
         self.spendbook = spendbook
     }
 }
@@ -293,7 +316,7 @@ mod tests {
             ),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager);
+        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(1000).unwrap();
@@ -330,7 +353,7 @@ mod tests {
             ),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager.clone());
+        let mut genesis_node = Mint::new(key_manager.clone(), SimpleSpendBook::new());
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(output_amount).unwrap();
@@ -437,7 +460,7 @@ mod tests {
             ),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager);
+        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(1000).unwrap();
@@ -571,7 +594,7 @@ mod tests {
             ),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager);
+        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
         let genesis_amount: u64 = input_amounts.iter().sum();
         let (gen_dbc_content, gen_dbc_trans, (_gen_key, gen_node_sig)) =
@@ -855,7 +878,7 @@ mod tests {
             ),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager);
+        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
         let input_owner = crate::bls_dkg_id();
         let input_content = DbcContent::new(

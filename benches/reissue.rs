@@ -5,12 +5,18 @@ use std::iter::FromIterator;
 
 use sn_dbc::{
     bls_dkg_id, Dbc, DbcContent, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager,
-    SimpleSigner,
+    SimpleSigner, SimpleSpendBook,
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-fn genesis(amount: u64) -> (Mint<SimpleKeyManager>, bls_dkg::outcome::Outcome, Dbc) {
+fn genesis(
+    amount: u64,
+) -> (
+    Mint<SimpleKeyManager, SimpleSpendBook>,
+    bls_dkg::outcome::Outcome,
+    Dbc,
+) {
     let genesis_owner = bls_dkg_id();
 
     let key_manager = SimpleKeyManager::new(
@@ -20,7 +26,7 @@ fn genesis(amount: u64) -> (Mint<SimpleKeyManager>, bls_dkg::outcome::Outcome, D
         ),
         genesis_owner.public_key_set.public_key(),
     );
-    let mut genesis_node = Mint::new(key_manager);
+    let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
     let (content, transaction, (mint_key_set, mint_sig_share)) =
         genesis_node.issue_genesis_dbc(amount).unwrap();

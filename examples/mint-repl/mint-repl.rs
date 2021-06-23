@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use sn_dbc::{
     BlindedOwner, Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature,
     ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
+    SimpleSpendBook as SpendBook,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
@@ -29,7 +30,7 @@ use threshold_crypto::{
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
 struct MintInfo {
-    mintnodes: Vec<Mint<KeyManager>>,
+    mintnodes: Vec<Mint<KeyManager, SpendBook>>,
     genesis: DbcUnblinded,
     secret_key_set: SecretKeySet,
     poly: Poly,
@@ -37,7 +38,7 @@ struct MintInfo {
 
 impl MintInfo {
     // returns the first mint node.
-    fn mintnode(&self) -> Result<&Mint<KeyManager>> {
+    fn mintnode(&self) -> Result<&Mint<KeyManager, SpendBook>> {
         self.mintnodes
             .get(0)
             .ok_or_else(|| anyhow!("Mint not yet created"))
@@ -91,7 +92,10 @@ fn main() -> Result<()> {
                     continue;
                 };
                 let result = match cmd {
-                    "newmint" => newmint().map(|_| ()),
+                    "newmint" => {
+                        mintinfo = newmint()?;
+                        Ok(())
+                    }
                     "mintinfo" => print_mintinfo_human(&mintinfo),
                     "prepare_tx" => prepare_tx(),
                     "sign_tx" => sign_tx(),
@@ -185,7 +189,7 @@ fn mk_new_random_mint(threshold: usize, amount: u64) -> Result<MintInfo> {
 /// creates a new mint from an existing SecretKeySet that was seeded by poly.
 fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: u64) -> Result<MintInfo> {
     let genesis_pubkey = secret_key_set.public_keys().public_key();
-    let mut mints: Vec<Mint<KeyManager>> = Default::default();
+    let mut mints: Vec<Mint<KeyManager, SpendBook>> = Default::default();
 
     // Generate each Mint node, and corresponding NodeSignature. (Index + SignatureShare)
     let mut genesis_set: Vec<(DbcContent, DbcTransaction, (PublicKeySet, NodeSignature))> =
@@ -198,7 +202,7 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: u64) -> Result<
             ),
             genesis_pubkey,
         );
-        let mut mint = Mint::new(key_manager);
+        let mut mint = Mint::new(key_manager, SpendBook::new());
         genesis_set.push(mint.issue_genesis_dbc(amount)?);
         mints.push(mint);
     }
