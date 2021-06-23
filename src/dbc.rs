@@ -67,6 +67,7 @@ mod tests {
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
         KeyManager, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager, SimpleSigner,
+        SimpleSpendBook,
     };
 
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
@@ -173,7 +174,7 @@ mod tests {
             ),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager);
+        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(amount).unwrap();
