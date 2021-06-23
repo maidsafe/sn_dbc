@@ -28,8 +28,14 @@ pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)
 pub const GENESIS_DBC_INPUT: Hash = Hash([0u8; 32]);
 
 pub trait SpendBook: std::fmt::Debug + Clone + IntoIterator {
-    fn lookup(&self, dbc_hash: &DbcContentHash) -> Option<&DbcTransaction>;
-    fn log(&mut self, dbc_hash: DbcContentHash, transaction: DbcTransaction);
+    type Error: std::error::Error;
+
+    fn lookup(&self, dbc_hash: &DbcContentHash) -> Result<Option<&DbcTransaction>, Self::Error>;
+    fn log(
+        &mut self,
+        dbc_hash: DbcContentHash,
+        transaction: DbcTransaction,
+    ) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -38,12 +44,19 @@ pub struct SimpleSpendBook {
 }
 
 impl SpendBook for SimpleSpendBook {
-    fn lookup(&self, dbc_hash: &DbcContentHash) -> Option<&DbcTransaction> {
-        self.transactions.get(dbc_hash)
+    type Error = std::convert::Infallible;
+
+    fn lookup(&self, dbc_hash: &DbcContentHash) -> Result<Option<&DbcTransaction>, Self::Error> {
+        Ok(self.transactions.get(dbc_hash))
     }
 
-    fn log(&mut self, dbc_hash: DbcContentHash, transaction: DbcTransaction) {
+    fn log(
+        &mut self,
+        dbc_hash: DbcContentHash,
+        transaction: DbcTransaction,
+    ) -> Result<(), Self::Error> {
         self.transactions.insert(dbc_hash, transaction);
+        Ok(())
     }
 }
 
@@ -181,12 +194,18 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
             outputs: BTreeSet::from_iter(vec![content.hash()]),
         };
 
-        match self.spendbook.lookup(&GENESIS_DBC_INPUT) {
+        match self
+            .spendbook
+            .lookup(&GENESIS_DBC_INPUT)
+            .map_err(|e| Error::SpendBook(e.to_string()))?
+        {
             Some(tx) if tx != &transaction => return Err(Error::GenesisInputAlreadySpent),
             _ => (),
         }
 
-        self.spendbook.log(GENESIS_DBC_INPUT, transaction.clone());
+        self.spendbook
+            .log(GENESIS_DBC_INPUT, transaction.clone())
+            .map_err(|e| Error::SpendBook(e.to_string()))?;
         let transaction_sig = self
             .key_manager
             .sign(&transaction.hash())
@@ -204,8 +223,12 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
         ))
     }
 
-    pub fn is_spent(&self, dbc_hash: DbcContentHash) -> bool {
-        self.spendbook.lookup(&dbc_hash).is_some()
+    pub fn is_spent(&self, dbc_hash: DbcContentHash) -> Result<bool> {
+        Ok(self
+            .spendbook
+            .lookup(&dbc_hash)
+            .map_err(|e| Error::SpendBook(e.to_string()))?
+            .is_some())
     }
 
     pub fn key_manager(&self) -> &K {
@@ -237,7 +260,12 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
 
         // Validate that each input has not yet been spent.
         for input in inputs_belonging_to_mint.iter() {
-            if let Some(transaction) = self.spendbook.lookup(&input).cloned() {
+            if let Some(transaction) = self
+                .spendbook
+                .lookup(&input)
+                .map_err(|e| Error::SpendBook(e.to_string()))?
+                .cloned()
+            {
                 // This input has already been spent, return the spend transaction to the user
                 let transaction_sigs = self.sign_transaction(&transaction)?;
                 return Err(Error::DbcAlreadySpent {
@@ -255,7 +283,9 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
             .iter()
             .filter(|&i| inputs_belonging_to_mint.contains(&i.name()))
         {
-            self.spendbook.log(input.name(), transaction.clone());
+            self.spendbook
+                .log(input.name(), transaction.clone())
+                .map_err(|e| Error::SpendBook(e.to_string()))?;
         }
 
         Ok((transaction, transaction_sigs))

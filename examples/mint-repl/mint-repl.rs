@@ -499,7 +499,7 @@ fn validate(mintinfo: &MintInfo) -> Result<()> {
     };
 
     match dbc.confirm_valid(mintinfo.mintnode()?.key_manager()) {
-        Ok(_) => match mintinfo.mintnode()?.is_spent(dbc.name()) {
+        Ok(_) => match mintinfo.mintnode()?.is_spent(dbc.name())? {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
         },
