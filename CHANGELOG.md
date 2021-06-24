@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.7.0](https://github.com/maidsafe/sn_dbc/compare/v1.6.8...v1.7.0) (2021-06-24)
+
+
+### Features
+
+* add SpendBook::entries() to enforce type of Iterator values ([5a6d20e](https://github.com/maidsafe/sn_dbc/commit/5a6d20ec1a9d15fe363aab24a77d11e5db72c9c8))
+* make SpendBook a trait so that implementer can decide how to store it ([287a341](https://github.com/maidsafe/sn_dbc/commit/287a34131da204a20d0a03a08bca0ac4e1acd0d9))
+* return Result for SpendBook trait methods.  adds Error::SpendBook enum ([5bddb4c](https://github.com/maidsafe/sn_dbc/commit/5bddb4c346a140e2eb44f59641bc46dedcce94e5))
+
 ### [1.6.8](https://github.com/maidsafe/sn_dbc/compare/v1.6.7...v1.6.8) (2021-06-21)
 
 
