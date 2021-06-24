@@ -27,7 +27,7 @@ pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)
 
 pub const GENESIS_DBC_INPUT: Hash = Hash([0u8; 32]);
 
-pub trait SpendBook: std::fmt::Debug + Clone + IntoIterator {
+pub trait SpendBook: std::fmt::Debug + Clone {
     type Error: std::error::Error;
 
     fn lookup(&self, dbc_hash: &DbcContentHash) -> Result<Option<&DbcTransaction>, Self::Error>;
@@ -36,6 +36,8 @@ pub trait SpendBook: std::fmt::Debug + Clone + IntoIterator {
         dbc_hash: DbcContentHash,
         transaction: DbcTransaction,
     ) -> Result<(), Self::Error>;
+
+    fn entries(&self) -> Box<dyn Iterator<Item = (&DbcContentHash, &DbcTransaction)> + '_>;
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -58,14 +60,9 @@ impl SpendBook for SimpleSpendBook {
         self.transactions.insert(dbc_hash, transaction);
         Ok(())
     }
-}
 
-impl IntoIterator for SimpleSpendBook {
-    type Item = (DbcContentHash, DbcTransaction);
-    type IntoIter = std::collections::btree_map::IntoIter<DbcContentHash, DbcTransaction>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.transactions.into_iter()
+    fn entries(&self) -> Box<dyn Iterator<Item = (&DbcContentHash, &DbcTransaction)> + '_> {
+        Box::new(self.transactions.iter())
     }
 }
 

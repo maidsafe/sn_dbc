@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use sn_dbc::{
     BlindedOwner, Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature,
     ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
-    SimpleSpendBook as SpendBook,
+    SimpleSpendBook as SpendBook, SpendBook as SpendBookTrait,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
@@ -360,7 +360,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     println!("\n");
 
     println!("-- SpendBook --\n");
-    for (dbchash, _tx) in mintinfo.mintnode()?.spendbook.transactions.iter() {
+    for (dbchash, _tx) in mintinfo.mintnode()?.spendbook.entries() {
         println!("  {}", encode(&dbchash));
     }
 
