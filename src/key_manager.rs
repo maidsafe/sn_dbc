@@ -7,10 +7,10 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{Error, Hash, Result};
+use blsttc::{serde_impl::SerdeSecret, SecretKeyShare, SignatureShare};
+pub use blsttc::{PublicKey, PublicKeySet, Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use threshold_crypto::{serde_impl::SerdeSecret, SecretKeyShare, SignatureShare};
-pub use threshold_crypto::{PublicKey, PublicKeySet, Signature};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Deserialize, Serialize)]
 pub struct NodeSignature {
@@ -63,7 +63,7 @@ impl SimpleSigner {
         self.public_key_set.clone()
     }
 
-    fn sign<M: AsRef<[u8]>>(&self, msg: M) -> threshold_crypto::SignatureShare {
+    fn sign<M: AsRef<[u8]>>(&self, msg: M) -> blsttc::SignatureShare {
         self.secret_key_share.1.sign(msg)
     }
 }
