@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.0.0](https://github.com/maidsafe/sn_dbc/compare/v1.7.0...v2.0.0) (2021-06-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* updates to use blsstc
+
+### Features
+
+* use blsstc instead of threshold_crypto ([4044c27](https://github.com/maidsafe/sn_dbc/commit/4044c27aca4fdf03ec7e13a01e7cde4b9605e107))
+
 ## [1.7.0](https://github.com/maidsafe/sn_dbc/compare/v1.6.8...v1.7.0) (2021-06-24)
 
 
