@@ -10,6 +10,9 @@
 //! Safe Network DBC Mint CLI playground.
 
 use anyhow::{anyhow, Error, Result};
+use blsttc::poly::Poly;
+use blsttc::serde_impl::SerdeSecret;
+use blsttc::{PublicKey, PublicKeySet, SecretKeySet, SecretKeyShare, Signature, SignatureShare};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -21,11 +24,6 @@ use sn_dbc::{
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
-use threshold_crypto::poly::Poly;
-use threshold_crypto::serde_impl::SerdeSecret;
-use threshold_crypto::{
-    PublicKey, PublicKeySet, SecretKeySet, SecretKeyShare, Signature, SignatureShare,
-};
 
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.

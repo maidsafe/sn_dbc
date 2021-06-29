@@ -84,7 +84,7 @@ mod tests {
         dbc_owner: &bls_dkg::outcome::Outcome,
         dbc: &Dbc,
         n_ways: u8,
-        output_owner: &threshold_crypto::PublicKeySet,
+        output_owner: &blsttc::PublicKeySet,
     ) -> ReissueRequest {
         let inputs = HashSet::from_iter(vec![dbc.clone()]);
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));

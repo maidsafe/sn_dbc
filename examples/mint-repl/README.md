@@ -13,7 +13,7 @@ https://iancoleman.io/threshold_crypto_ui/
 
 Key components are:
 * [sn_dbc](https://github.com/maidsafe/sn_dbc/) - Safe Network DBC library
-* [threshold_crypto](https://github.com/poanetwork/threshold_crypto) - BLS key library
+* [blsttc](https://github.com/maidsafe/blsttc) - BLS key library
 
 
 ## Building

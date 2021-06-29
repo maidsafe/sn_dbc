@@ -150,8 +150,7 @@ impl ReissueTransaction {
 pub struct ReissueRequest {
     pub transaction: ReissueTransaction,
     // Signatures from the owners of each input, signing `self.transaction.blinded().hash()`
-    pub input_ownership_proofs:
-        HashMap<DbcContentHash, (threshold_crypto::PublicKey, threshold_crypto::Signature)>,
+    pub input_ownership_proofs: HashMap<DbcContentHash, (blsttc::PublicKey, blsttc::Signature)>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -740,7 +739,7 @@ mod tests {
 
         let mut input_ownership_proofs: HashMap<
             crate::Hash,
-            (threshold_crypto::PublicKey, threshold_crypto::Signature),
+            (blsttc::PublicKey, blsttc::Signature),
         > = Default::default();
         input_ownership_proofs.extend(
             inputs_to_create_owner_proofs
