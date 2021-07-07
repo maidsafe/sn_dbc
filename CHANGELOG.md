@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.1.0](https://github.com/maidsafe/sn_dbc/compare/v2.0.0...v2.1.0) (2021-07-07)
+
+
+### Features
+
+* remove IntoIterator requirement on SpendBook trait ([c0ac6c2](https://github.com/maidsafe/sn_dbc/commit/c0ac6c2b215fc853d4d979bb68fd13d8862c92ea))
+
 ## [2.0.0](https://github.com/maidsafe/sn_dbc/compare/v1.7.0...v2.0.0) (2021-06-29)
 
 
