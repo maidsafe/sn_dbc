@@ -27,9 +27,7 @@ pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)
 
 pub const GENESIS_DBC_INPUT: Hash = Hash([0u8; 32]);
 
-pub trait SpendBook:
-    std::fmt::Debug + Clone + IntoIterator<Item = (DbcContentHash, DbcTransaction)>
-{
+pub trait SpendBook: std::fmt::Debug + Clone {
     type Error: std::error::Error;
 
     fn lookup(&self, dbc_hash: &DbcContentHash) -> Result<Option<&DbcTransaction>, Self::Error>;
