@@ -96,6 +96,7 @@ mod tests {
                     amount,
                     i as u32,
                     output_owner.public_key(),
+                    None,
                 )
             }));
 
@@ -126,6 +127,7 @@ mod tests {
             100,
             0,
             crate::bls_dkg_id().public_key_set.public_key(),
+            None,
         );
 
         let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
@@ -237,6 +239,7 @@ mod tests {
             amount,
             0,
             crate::bls_dkg_id().public_key_set.public_key(),
+            None,
         );
         let outputs = HashSet::from_iter(vec![content]);
 
@@ -289,6 +292,7 @@ mod tests {
             amount + extra_output_amount.coerce::<u64>(),
             0,
             crate::bls_dkg_id().public_key_set.public_key(),
+            None,
         );
 
         let mut fuzzed_transaction_sigs: BTreeMap<Hash, (PublicKey, Signature)> = BTreeMap::new();

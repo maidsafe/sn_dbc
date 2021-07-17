@@ -34,7 +34,7 @@ pub enum Error {
     #[error("At least one input is missing an ownership proof")]
     MissingInputOwnerProof,
     #[error("Mint request doesn't balance out sum(input) == sum(output)")]
-    DbcReissueRequestDoesNotBalance { input: u64, output: u64 },
+    DbcReissueRequestDoesNotBalance,
     #[error("Outputs must be numbered 0..N where N = # of outputs")]
     OutputsAreNotNumberedCorrectly,
     #[error("Failed to unblind an input DBC")]
@@ -55,11 +55,15 @@ pub enum Error {
     DbcContentNotPresentInTransactionOutput,
     #[error("Dbc Content parents is not the same transaction inputs")]
     DbcContentParentsDifferentFromTransactionInputs,
+
+    #[error("RangeProof error: {0}")]
+    RangeProof(#[from] bulletproofs::ProofError),
+
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
     /// JSON serialisation error.
-    #[error("JSON serialisation error:: {0}")]
+    #[error("JSON serialisation error: {0}")]
     JsonSerialisation(#[from] serde_json::Error),
     #[error("SpendBook error {0}")]
     SpendBook(String),

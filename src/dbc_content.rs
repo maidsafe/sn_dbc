@@ -10,6 +10,11 @@ use std::collections::BTreeSet;
 use blsttc::PublicKey;
 use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
+use bulletproofs::{PedersenGens, RangeProof, BulletproofGens};
+use curve25519_dalek_ng::ristretto::CompressedRistretto;
+use curve25519_dalek_ng::scalar::Scalar;
+use merlin::Transcript;
+use rand8::rngs::OsRng;
 
 use crate::{DbcContentHash, Error, Hash};
 
@@ -43,6 +48,10 @@ impl BlindedOwner {
 pub struct DbcContent {
     pub parents: BTreeSet<DbcContentHash>, // Parent DBC's, acts as a nonce
     pub amount: u64,
+    pub blinding_factor: Scalar,
+    pub commitment: CompressedRistretto,
+//    pub range_proof_bytes: [u8; 32*21],  // RangeProof::to_bytes() -> (2 lg n + 9) 32-byte elements, where n is # of secret bits, or 64 in our case. Gives 21 32-byte elements.
+    pub range_proof_bytes: Vec<u8>,  // RangeProof::to_bytes() -> (2 lg n + 9) 32-byte elements, where n is # of secret bits, or 64 in our case. Gives 21 32-byte elements.
     pub output_number: u32,
     pub owner: BlindedOwner,
 }
@@ -54,13 +63,37 @@ impl DbcContent {
         amount: u64,
         output_number: u32,
         owner_key: PublicKey,
+        blinding_factor: Option<Scalar>,
     ) -> Self {
         let owner = BlindedOwner::new(&owner_key, &parents, amount, output_number);
+        let secret = amount;
+        let nbits = 64;
+
+        let ped_commits = PedersenGens::default();
+        let bullet_gens = BulletproofGens::new(64, 1);
+        let bfactor = match blinding_factor {
+            Some(b) => b,
+            None => {
+                let mut csprng: OsRng = OsRng::default();
+                Scalar::random(&mut csprng)
+            }
+        };
+//        let blinding_factor = Scalar::random(&mut csprng);
+//        let blinding_factor = Scalar::default();
+        let mut prover_ts = Transcript::new("Test".as_bytes());
+        let (proof, commitment) = RangeProof::prove_single( &bullet_gens,&ped_commits,&mut prover_ts,secret,&bfactor, nbits,).expect("Oops!");
+
+        println!("in DbcContent::new()");
+        println!("amount: {}\ncommitment: {:?}\n\n", amount, commitment);
+
         DbcContent {
             parents,
             amount,
             output_number,
             owner,
+            commitment,
+            range_proof_bytes: proof.to_bytes(),
+            blinding_factor: bfactor,
         }
     }
 

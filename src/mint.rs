@@ -22,12 +22,17 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     iter::FromIterator,
 };
+use curve25519_dalek_ng::ristretto::RistrettoPoint;
+use bulletproofs::{PedersenGens, RangeProof, BulletproofGens};
+use merlin::Transcript;
 
 pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)>;
 
 pub const GENESIS_DBC_INPUT: Hash = Hash([0u8; 32]);
 
-pub trait SpendBook: std::fmt::Debug + Clone {
+pub trait SpendBook:
+    std::fmt::Debug + Clone
+{
     type Error: std::error::Error;
 
     fn lookup(&self, dbc_hash: &DbcContentHash) -> Result<Option<&DbcTransaction>, Self::Error>;
@@ -108,11 +113,39 @@ impl ReissueTransaction {
     }
 
     fn validate_balance(&self) -> Result<()> {
-        let input: u64 = self.inputs.iter().map(|input| input.amount()).sum();
-        let output: u64 = self.outputs.iter().map(|output| output.amount).sum();
+        let input64: u64 = self.inputs.iter().map(|input| input.amount()).sum();
+        let output64: u64 = self.outputs.iter().map(|output| output.amount).sum();
+
+        let input: RistrettoPoint = self.inputs.iter().map(|input| input.content.commitment.decompress().unwrap()).sum();
+        let output: RistrettoPoint = self.outputs.iter().map(|output| output.commitment.decompress().unwrap()).sum();
+
+        // Verify the range proof for each output.  (bulletproof)
+        let bullet_gens = BulletproofGens::new(64, 1);
+        let ped_commits = PedersenGens::default();
+        let nbits = 64;
+
+        // TODO: Do we need to verify range proofs for inputs, or only outputs?
+        for input in self.inputs.iter() {
+println!("input #{}. making proof.", input.content.output_number);
+            let proof = RangeProof::from_bytes(&input.content.range_proof_bytes)?;
+println!("input #{}. verifying proof", input.content.output_number);
+            let mut verifier_ts = Transcript::new("Test".as_bytes());
+            proof.verify_single(&bullet_gens, &ped_commits, &mut verifier_ts, &input.content.commitment, nbits)?;
+        }
+        
+        for output in self.outputs.iter() {
+println!("output #{}. making proof.", output.output_number);
+            let proof = RangeProof::from_bytes(&output.range_proof_bytes)?;
+println!("output #{}. verifying proof.", output.output_number);
+            let mut verifier_ts = Transcript::new("Test".as_bytes());
+            proof.verify_single(&bullet_gens, &ped_commits, &mut verifier_ts, &output.commitment, nbits)?;
+        }
+
+        println!("in validate_balance()");
+        println!("{}\n{}\n\n{:?}\n{:?}", input64, output64, input, output);
 
         if input != output {
-            Err(Error::DbcReissueRequestDoesNotBalance { input, output })
+            Err(Error::DbcReissueRequestDoesNotBalance)
         } else {
             Ok(())
         }
@@ -196,6 +229,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
                 .public_key_set()
                 .map_err(|e| Error::Signing(e.to_string()))?
                 .public_key(),
+            None,
         );
         let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]),
@@ -418,6 +452,7 @@ mod tests {
                 *amount,
                 i as u32,
                 output_owner.public_key_set.public_key(),
+                None,
             )
         }));
 
@@ -525,6 +560,7 @@ mod tests {
                 1000,
                 0,
                 crate::bls_dkg_id().public_key_set.public_key(),
+                None,
             )]),
         };
 
@@ -557,6 +593,7 @@ mod tests {
                 1000,
                 0,
                 crate::bls_dkg_id().public_key_set.public_key(),
+                None,
             )]),
         };
 
@@ -668,6 +705,7 @@ mod tests {
                     *amount,
                     i as u32,
                     owner_public_key,
+                    None,
                 )
             }));
 
@@ -739,6 +777,7 @@ mod tests {
                 *amount,
                 *output_number,
                 output_owner.public_key_set.public_key(),
+                None,
             )
         }));
 
@@ -924,6 +963,7 @@ mod tests {
             100,
             0,
             input_owner.public_key_set.public_key(),
+            None,
         );
         let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
 
@@ -943,6 +983,7 @@ mod tests {
                         100,
                         0,
                         crate::bls_dkg_id().public_key_set.public_key(),
+                        None,
                     )]),
                 },
                 input_ownership_proofs: HashMap::default(),

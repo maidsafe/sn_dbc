@@ -18,12 +18,13 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    BlindedOwner, Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature,
+    Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature,
     ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
     SimpleSpendBook as SpendBook,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
+use curve25519_dalek_ng::scalar::Scalar;
 
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
@@ -530,11 +531,13 @@ fn prepare_tx() -> Result<()> {
     }
 
     let input_hashes = inputs.iter().map(|e| e.name()).collect::<BTreeSet<_>>();
+    let inputs_bf_sum: Scalar = inputs.iter().map(|e| e.content.blinding_factor).sum();
     let mut i = 0u32;
     let mut outputs: HashSet<DbcContent> = Default::default();
 
     // Get outputs from user
     let mut outputs_total = 0u64;
+    let mut outputs_bf_sum = Scalar::default();
     // note, we upcast to i128 to allow negative value.
     // This permits unbalanced inputs/outputs to reach sn_dbc layer for validation.
     while inputs_total as i128 - outputs_total as i128 > 0 {
@@ -571,16 +574,26 @@ fn prepare_tx() -> Result<()> {
 
         let pub_out_set: PublicKeySet = from_be_hex(&pub_out)?;
 
+        // If this is the final output we need to calculate the final
+        // blinding factor.
+        let blinding_factor = if outputs_total + amount == inputs_total {
+            Some(inputs_bf_sum - outputs_bf_sum)
+        } else {
+            None
+        };
+
         let dbc_content = DbcContent::new(
             input_hashes.clone(),     // parents
             amount,                   // amount
             i,                        // output_number
             pub_out_set.public_key(), // public_key
+            blinding_factor,
         );
         outputs_owners.insert(dbc_content.hash(), pub_out_set);
 
-        outputs.insert(dbc_content);
         outputs_total += amount;
+        outputs_bf_sum += dbc_content.blinding_factor;
+        outputs.insert(dbc_content);
         i += 1;
     }
 
@@ -821,11 +834,13 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         .collect::<BTreeSet<_>>();
 
     let inputs_total: u64 = inputs.iter().map(|(dbc, _)| dbc.inner.content.amount).sum();
+    let inputs_bf_sum: Scalar = inputs.iter().map(|(dbc, _)| dbc.inner.content.blinding_factor).sum();
     let mut i = 0u32;
     let mut outputs: HashSet<DbcContent> = Default::default();
 
     let mut outputs_pks: HashMap<Hash, PublicKeySet> = Default::default();
     let mut outputs_total = 0u64;
+    let mut outputs_bf_sum = Scalar::default();
 
     // Get from user: Amount and PublicKeySet for each output DBC
     // note, we upcast to i128 to allow negative value.
@@ -864,17 +879,27 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
         let pub_out_set: PublicKeySet = from_be_hex(&pub_out)?;
 
-        let dbc_content = DbcContent {
-            parents: input_hashes.clone(),
-            amount,
-            output_number: i,
-            owner: BlindedOwner::new(&pub_out_set.public_key(), &input_hashes, amount, i),
+        // If this is the final output we need to calculate the final
+        // blinding factor.
+        let blinding_factor = if outputs_total + amount == inputs_total {
+            Some(inputs_bf_sum - outputs_bf_sum)
+        } else {
+            None
         };
+
+        let dbc_content = DbcContent::new(
+            input_hashes.clone(),     // parents
+            amount,                   // amount
+            i,                        // output_number
+            pub_out_set.public_key(), // owner
+            blinding_factor,
+        );
 
         outputs_pks.insert(dbc_content.hash(), pub_out_set.clone());
 
-        outputs.insert(dbc_content);
         outputs_total += amount;
+        outputs_bf_sum += dbc_content.blinding_factor;
+        outputs.insert(dbc_content);
         i += 1;
     }
 
