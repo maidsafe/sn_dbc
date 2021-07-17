@@ -17,6 +17,7 @@ use crate::{
     Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, NodeSignature,
     PublicKeySet, Result,
 };
+use curve25519_dalek_ng::ristretto::RistrettoPoint;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -108,11 +109,44 @@ impl ReissueTransaction {
     }
 
     fn validate_balance(&self) -> Result<()> {
-        let input: u64 = self.inputs.iter().map(|input| input.amount()).sum();
-        let output: u64 = self.outputs.iter().map(|output| output.amount).sum();
+        // Calculate sum(input_commitments) and sum(output_commitments)
+        let inputs: RistrettoPoint = self
+            .inputs
+            .iter()
+            .map(|input| {
+                input
+                    .content
+                    .commitment
+                    .decompress()
+                    .ok_or(Error::AmountCommitmentInvalid)
+            })
+            .sum::<Result<RistrettoPoint, _>>()?;
+        let outputs: RistrettoPoint = self
+            .outputs
+            .iter()
+            .map(|output| {
+                output
+                    .commitment
+                    .decompress()
+                    .ok_or(Error::AmountCommitmentInvalid)
+            })
+            .sum::<Result<RistrettoPoint, _>>()?;
 
-        if input != output {
-            Err(Error::DbcReissueRequestDoesNotBalance { input, output })
+        // Verify the range proof for each output.  (bulletproof)
+        // This validates that the committed amount is a positive value.
+        // (somewhere in the range 0..u64::max)
+        //
+        // TODO: investigate is there some way we could use RangeProof::verify_multiple() instead?
+        // batched verifications should be faster.  It would seem to require that client call
+        // RangeProof::prove_multiple() over all output DBC amounts. But then where to store the aggregated
+        // RangeProof?  It corresponds to a set of outputs, not a single DBC. Would it make sense to store
+        // a dup copy in each?  Unlike eg Monero we do not have a long-lived Transaction to store such data.
+        for output in self.outputs.iter() {
+            output.verify_range_proof()?;
+        }
+
+        if inputs != outputs {
+            Err(Error::DbcReissueRequestDoesNotBalance)
         } else {
             Ok(())
         }
@@ -196,7 +230,8 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
                 .public_key_set()
                 .map_err(|e| Error::Signing(e.to_string()))?
                 .public_key(),
-        );
+            DbcContent::random_blinding_factor(),
+        )?;
         let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]),
             outputs: BTreeSet::from_iter(vec![content.hash()]),
@@ -254,7 +289,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
 
         for input_dbc in reissue_req.transaction.inputs.iter() {
             match reissue_req.input_ownership_proofs.get(&input_dbc.name()) {
-                Some((owner, sig)) if owner.verify(&sig, &transaction_hash) => {
+                Some((owner, sig)) if owner.verify(sig, &transaction_hash) => {
                     input_dbc.content.validate_unblinding(owner)?;
                 }
                 Some(_) => return Err(Error::FailedSignature),
@@ -270,7 +305,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
         for input in inputs_belonging_to_mint.iter() {
             if let Some(transaction) = self
                 .spendbook
-                .lookup(&input)
+                .lookup(input)
                 .map_err(|e| Error::SpendBook(e.to_string()))?
                 .cloned()
             {
@@ -335,15 +370,16 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use curve25519_dalek_ng::scalar::Scalar;
     use quickcheck_macros::quickcheck;
 
     use crate::{
-        tests::{TinyInt, TinyVec},
+        tests::{DbcHelper, TinyInt, TinyVec},
         SimpleKeyManager, SimpleSigner,
     };
 
     #[quickcheck]
-    fn prop_genesis() {
+    fn prop_genesis() -> Result<(), Error> {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
 
@@ -372,13 +408,17 @@ mod tests {
             )]),
         };
 
-        assert_eq!(genesis_dbc.content.amount, 1000);
+        let genesis_amount = DbcHelper::decrypt_amount(&genesis_owner, &genesis_dbc.content)?;
+
+        assert_eq!(genesis_amount, 1000);
         let validation = genesis_dbc.confirm_valid(genesis_node.key_manager());
         assert!(validation.is_ok());
+
+        Ok(())
     }
 
     #[quickcheck]
-    fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) {
+    fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
         let output_amounts = Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<u64>));
         let output_amount = output_amounts.iter().sum();
 
@@ -394,10 +434,8 @@ mod tests {
         let mut genesis_node = Mint::new(key_manager.clone(), SimpleSpendBook::new());
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(output_amount).unwrap();
-        let genesis_sig = gen_key_set
-            .combine_signatures(vec![gen_node_sig.threshold_crypto()])
-            .unwrap();
+            genesis_node.issue_genesis_dbc(output_amount)?;
+        let genesis_sig = gen_key_set.combine_signatures(vec![gen_node_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
@@ -411,15 +449,33 @@ mod tests {
         let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
+        let genesis_amount_secrets =
+            DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
+
         let output_owner = crate::bls_dkg_id();
-        let outputs = HashSet::from_iter(output_amounts.iter().enumerate().map(|(i, amount)| {
-            DbcContent::new(
-                input_hashes.clone(),
-                *amount,
-                i as u32,
-                output_owner.public_key_set.public_key(),
-            )
-        }));
+        let mut outputs_bf_sum = Scalar::default();
+        let outputs = HashSet::from_iter(
+            output_amounts
+                .iter()
+                .enumerate()
+                .map(|(i, amount)| {
+                    let blinding_factor = DbcContent::calc_blinding_factor(
+                        i == output_amounts.len() - 1,
+                        genesis_amount_secrets.blinding_factor,
+                        outputs_bf_sum,
+                    );
+                    outputs_bf_sum += blinding_factor;
+
+                    DbcContent::new(
+                        input_hashes.clone(),
+                        *amount,
+                        i as u32,
+                        output_owner.public_key_set.public_key(),
+                        blinding_factor,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
 
         let transaction = ReissueTransaction { inputs, outputs };
 
@@ -429,8 +485,7 @@ mod tests {
 
         let sig = genesis_owner
             .public_key_set
-            .combine_signatures(vec![(0, &sig_share)])
-            .unwrap();
+            .combine_signatures(vec![(0, &sig_share)])?;
 
         let reissue_req = ReissueRequest {
             transaction,
@@ -440,9 +495,20 @@ mod tests {
             )]),
         };
 
-        let (transaction, transaction_sigs) = genesis_node
-            .reissue(reissue_req.clone(), input_hashes)
-            .unwrap();
+        let (transaction, transaction_sigs) =
+            match genesis_node.reissue(reissue_req.clone(), input_hashes) {
+                Ok((tx, sigs)) => {
+                    // Verify that at least one output was present.
+                    assert!(!output_amounts.is_empty());
+                    (tx, sigs)
+                }
+                Err(Error::DbcReissueRequestDoesNotBalance) => {
+                    // Verify that no outputs were present and we got correct validation error.
+                    assert!(output_amounts.is_empty());
+                    return Ok(());
+                }
+                Err(e) => return Err(e),
+            };
 
         // Verify transaction returned to us by the Mint matches our request
         assert_eq!(reissue_req.transaction.blinded(), transaction);
@@ -459,8 +525,7 @@ mod tests {
 
         let mint_sig = genesis_owner
             .public_key_set
-            .combine_signatures(vec![sig.threshold_crypto()])
-            .unwrap();
+            .combine_signatures(vec![sig.threshold_crypto()])?;
 
         let output_dbcs =
             Vec::from_iter(reissue_req.transaction.outputs.into_iter().map(|content| {
@@ -477,14 +542,20 @@ mod tests {
 
         for dbc in output_dbcs.iter() {
             let expected_amount: u64 = output_amounts[dbc.content.output_number as usize];
-            assert_eq!(dbc.amount(), expected_amount);
+            let dbc_amount = DbcHelper::decrypt_amount(&output_owner, &dbc.content)?;
+            assert_eq!(dbc_amount, expected_amount);
             assert!(dbc.confirm_valid(&key_manager).is_ok());
         }
 
         assert_eq!(
-            output_dbcs.iter().map(|dbc| dbc.amount()).sum::<u64>(),
+            output_dbcs
+                .iter()
+                .map(|dbc| { DbcHelper::decrypt_amount(&output_owner, &dbc.content) })
+                .sum::<Result<u64, _>>()?,
             output_amount
         );
+
+        Ok(())
     }
 
     #[test]
@@ -501,10 +572,8 @@ mod tests {
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
         let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(1000).unwrap();
-        let genesis_sig = gen_key_set
-            .combine_signatures(vec![gen_node_sig.threshold_crypto()])
-            .unwrap();
+            genesis_node.issue_genesis_dbc(1000)?;
+        let genesis_sig = gen_key_set.combine_signatures(vec![gen_node_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
@@ -518,14 +587,20 @@ mod tests {
         let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
         let input_hashes = BTreeSet::from_iter(vec![genesis_dbc.name()]);
 
+        let genesis_secrets =
+            DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
+        let outputs_owner = crate::bls_dkg_id();
+
         let transaction = ReissueTransaction {
             inputs: inputs.clone(),
             outputs: HashSet::from_iter(vec![DbcContent::new(
                 input_hashes.clone(),
                 1000,
                 0,
-                crate::bls_dkg_id().public_key_set.public_key(),
-            )]),
+                outputs_owner.public_key_set.public_key(),
+                genesis_secrets.blinding_factor,
+            )
+            .unwrap()]),
         };
 
         let sig_share = genesis_node
@@ -535,8 +610,7 @@ mod tests {
         let sig = genesis_node
             .key_manager
             .public_key_set()?
-            .combine_signatures(vec![sig_share.threshold_crypto()])
-            .unwrap();
+            .combine_signatures(vec![sig_share.threshold_crypto()])?;
 
         let reissue_req = ReissueRequest {
             transaction,
@@ -546,9 +620,7 @@ mod tests {
             )]),
         };
 
-        let (t, s) = genesis_node
-            .reissue(reissue_req, input_hashes.clone())
-            .unwrap();
+        let (t, s) = genesis_node.reissue(reissue_req, input_hashes.clone())?;
 
         let double_spend_transaction = ReissueTransaction {
             inputs,
@@ -556,8 +628,10 @@ mod tests {
                 input_hashes.clone(),
                 1000,
                 0,
-                crate::bls_dkg_id().public_key_set.public_key(),
-            )]),
+                outputs_owner.public_key_set.public_key(),
+                genesis_secrets.blinding_factor,
+            )
+            .unwrap()]),
         };
 
         let node_share = genesis_node
@@ -567,8 +641,7 @@ mod tests {
         let sig = genesis_node
             .key_manager
             .public_key_set()?
-            .combine_signatures(vec![node_share.threshold_crypto()])
-            .unwrap();
+            .combine_signatures(vec![node_share.threshold_crypto()])?;
 
         let double_spend_reissue_req = ReissueRequest {
             transaction: double_spend_transaction,
@@ -602,7 +675,7 @@ mod tests {
         input_owner_proofs: TinyVec<TinyInt>,
         // Include an invalid ownership proof for the following inputs
         invalid_input_owner_proofs: TinyVec<TinyInt>,
-    ) {
+    ) -> Result<(), Error> {
         let input_amounts = Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<u64>));
 
         let output_amounts = Vec::from_iter(
@@ -636,14 +709,12 @@ mod tests {
 
         let genesis_amount: u64 = input_amounts.iter().sum();
         let (gen_dbc_content, gen_dbc_trans, (_gen_key, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(genesis_amount).unwrap();
+            genesis_node.issue_genesis_dbc(genesis_amount)?;
 
         let genesis_sig = genesis_node
             .key_manager
-            .public_key_set()
-            .unwrap()
-            .combine_signatures(vec![gen_node_sig.threshold_crypto()])
-            .unwrap();
+            .public_key_set()?
+            .combine_signatures(vec![gen_node_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
@@ -658,18 +729,33 @@ mod tests {
 
         let gen_inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
         let gen_input_hashes = BTreeSet::from_iter(gen_inputs.iter().map(Dbc::name));
-        let input_content =
-            HashSet::from_iter(input_amounts.iter().enumerate().map(|(i, amount)| {
-                let owner = crate::bls_dkg_id();
-                let owner_public_key = owner.public_key_set.public_key();
-                owners.insert(i as u32, owner);
-                DbcContent::new(
-                    gen_input_hashes.clone(),
-                    *amount,
-                    i as u32,
-                    owner_public_key,
-                )
-            }));
+        let mut inputs_bf_sum: Scalar = Default::default();
+        let genesis_amount_secrets =
+            DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
+        let input_content = HashSet::from_iter(
+            input_amounts
+                .iter()
+                .enumerate()
+                .map(|(i, amount)| {
+                    let owner = crate::bls_dkg_id();
+                    let owner_public_key = owner.public_key_set.public_key();
+                    owners.insert(i as u32, owner);
+                    let blinding_factor = DbcContent::calc_blinding_factor(
+                        i == input_amounts.len() - 1,
+                        genesis_amount_secrets.blinding_factor,
+                        inputs_bf_sum,
+                    );
+                    inputs_bf_sum += blinding_factor;
+                    DbcContent::new(
+                        gen_input_hashes.clone(),
+                        *amount,
+                        i as u32,
+                        owner_public_key,
+                        blinding_factor,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
 
         let mut reissue_req = ReissueRequest {
             transaction: ReissueTransaction {
@@ -680,34 +766,34 @@ mod tests {
         };
         let sig_share = genesis_node
             .key_manager
-            .sign(&reissue_req.transaction.blinded().hash())
-            .unwrap();
+            .sign(&reissue_req.transaction.blinded().hash())?;
         let sig = genesis_node
             .key_manager
-            .public_key_set()
-            .unwrap()
-            .combine_signatures(vec![sig_share.threshold_crypto()])
-            .unwrap();
+            .public_key_set()?
+            .combine_signatures(vec![sig_share.threshold_crypto()])?;
         reissue_req.input_ownership_proofs.insert(
             genesis_dbc.name(),
-            (
-                genesis_node
-                    .key_manager
-                    .public_key_set()
-                    .unwrap()
-                    .public_key(),
-                sig,
-            ),
+            (genesis_node.key_manager.public_key_set()?.public_key(), sig),
         );
 
         let (transaction, transaction_sigs) =
-            genesis_node.reissue(reissue_req, gen_input_hashes).unwrap();
+            match genesis_node.reissue(reissue_req, gen_input_hashes) {
+                Ok((tx, sigs)) => {
+                    // Verify that at least one input (output in this tx) was present.
+                    assert!(!input_amounts.is_empty());
+                    (tx, sigs)
+                }
+                Err(Error::DbcReissueRequestDoesNotBalance) => {
+                    // Verify that no inputs (outputs in this tx) were present and we got correct validation error.
+                    assert!(input_amounts.is_empty());
+                    return Ok(());
+                }
+                Err(e) => return Err(e),
+            };
 
         let (mint_key_set, mint_sig_share) = transaction_sigs.values().cloned().next().unwrap();
 
-        let mint_sig = mint_key_set
-            .combine_signatures(vec![mint_sig_share.threshold_crypto()])
-            .unwrap();
+        let mint_sig = mint_key_set.combine_signatures(vec![mint_sig_share.threshold_crypto()])?;
 
         let input_dbcs = HashSet::from_iter(input_content.into_iter().map(|content| {
             Dbc {
@@ -723,24 +809,40 @@ mod tests {
 
         let input_hashes = BTreeSet::from_iter(input_dbcs.iter().map(Dbc::name));
 
-        let outputs = HashSet::from_iter(output_amounts.iter().map(|(output_number, amount)| {
-            let mut fuzzed_parents = input_hashes.clone();
-
-            for _ in extra_output_parents
+        let outputs_owner = crate::bls_dkg_id();
+        let mut outputs_bf_sum: Scalar = Default::default();
+        let mut output_counter: usize = 0;
+        let outputs = HashSet::from_iter(
+            output_amounts
                 .iter()
-                .filter(|idx| idx == &output_number)
-            {
-                fuzzed_parents.insert(rand::random());
-            }
+                .map(|(output_number, amount)| {
+                    let mut fuzzed_parents = input_hashes.clone();
 
-            let output_owner = crate::bls_dkg_id();
-            DbcContent::new(
-                fuzzed_parents,
-                *amount,
-                *output_number,
-                output_owner.public_key_set.public_key(),
-            )
-        }));
+                    for _ in extra_output_parents
+                        .iter()
+                        .filter(|idx| idx == &output_number)
+                    {
+                        fuzzed_parents.insert(rand::random());
+                    }
+
+                    let blinding_factor = DbcContent::calc_blinding_factor(
+                        output_counter == output_amounts.len() - 1,
+                        inputs_bf_sum,
+                        outputs_bf_sum,
+                    );
+                    outputs_bf_sum += blinding_factor;
+                    output_counter += 1;
+
+                    DbcContent::new(
+                        fuzzed_parents,
+                        *amount,
+                        *output_number,
+                        outputs_owner.public_key_set.public_key(),
+                        blinding_factor,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
 
         let transaction = ReissueTransaction {
             inputs: input_dbcs,
@@ -802,7 +904,10 @@ mod tests {
 
         let many_to_many_result = genesis_node.reissue(reissue_req, input_hashes);
 
-        let output_amount: u64 = outputs.iter().map(|output| output.amount).sum();
+        let output_amount: u64 = outputs
+            .iter()
+            .map(|output| DbcHelper::decrypt_amount(&outputs_owner, output))
+            .sum::<Result<u64, _>>()?;
         let number_of_fuzzed_output_parents = BTreeSet::from_iter(extra_output_parents)
             .intersection(&BTreeSet::from_iter(output_amounts.iter().map(|(n, _)| *n)))
             .count();
@@ -823,7 +928,12 @@ mod tests {
 
                 // The output amounts should correspond to the output_amounts
                 assert_eq!(
-                    BTreeSet::from_iter(outputs.iter().map(|o| o.amount)),
+                    BTreeSet::from_iter(
+                        outputs
+                            .iter()
+                            .map(|o| { DbcHelper::decrypt_amount(&outputs_owner, o) })
+                            .collect::<Result<Vec<_>, _>>()?
+                    ),
                     BTreeSet::from_iter(output_amounts.into_iter().map(|(_, a)| a))
                 );
 
@@ -836,9 +946,8 @@ mod tests {
                 );
 
                 let (mint_key_set, mint_sig_share) = transaction_sigs.values().next().unwrap();
-                let mint_sig = mint_key_set
-                    .combine_signatures(vec![mint_sig_share.threshold_crypto()])
-                    .unwrap();
+                let mint_sig =
+                    mint_key_set.combine_signatures(vec![mint_sig_share.threshold_crypto()])?;
 
                 let output_dbcs = Vec::from_iter(outputs.into_iter().map(|content| {
                     Dbc {
@@ -859,12 +968,24 @@ mod tests {
                 }
 
                 assert_eq!(
-                    output_dbcs.iter().map(|dbc| dbc.amount()).sum::<u64>(),
+                    output_dbcs
+                        .iter()
+                        .map(|dbc| { DbcHelper::decrypt_amount(&outputs_owner, &dbc.content) })
+                        .sum::<Result<u64, _>>()?,
                     output_amount
                 );
             }
             Err(Error::DbcReissueRequestDoesNotBalance { .. }) => {
-                assert_ne!(genesis_amount, output_amount);
+                if genesis_amount == output_amount {
+                    // This can correctly occur if there are 0 outputs and inputs sum to zero.
+                    //
+                    // The error occurs because there is no output with a commitment
+                    // to match against the input commitment, and also no way to
+                    // know that the input amount is zero.
+                    assert!(output_amounts.is_empty());
+                    assert_eq!(input_amounts.iter().sum::<u64>(), 0);
+                    assert!(!input_amounts.is_empty());
+                }
             }
             Err(Error::TransactionMustHaveAnInput) => {
                 assert_eq!(input_amounts.len(), 0);
@@ -892,6 +1013,8 @@ mod tests {
             }
             err => panic!("Unexpected reissue err {:#?}", err),
         }
+
+        Ok(())
     }
 
     #[quickcheck]
@@ -907,7 +1030,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inputs_are_validated() {
+    fn test_inputs_are_validated() -> Result<(), Error> {
         let genesis_owner = crate::bls_dkg_id();
         let key_manager = SimpleKeyManager::new(
             SimpleSigner::new(
@@ -924,7 +1047,8 @@ mod tests {
             100,
             0,
             input_owner.public_key_set.public_key(),
-        );
+            DbcContent::random_blinding_factor(),
+        )?;
         let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
 
         let fraudulant_reissue_result = genesis_node.reissue(
@@ -943,12 +1067,15 @@ mod tests {
                         100,
                         0,
                         crate::bls_dkg_id().public_key_set.public_key(),
-                    )]),
+                        DbcContent::random_blinding_factor(),
+                    )?]),
                 },
                 input_ownership_proofs: HashMap::default(),
             },
             input_content_hashes,
         );
         assert!(fraudulant_reissue_result.is_err());
+
+        Ok(())
     }
 }

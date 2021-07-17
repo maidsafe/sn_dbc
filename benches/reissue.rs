@@ -1,14 +1,26 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
+use bls_dkg::SecretKeyShare;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
+use curve25519_dalek_ng::scalar::Scalar;
 use sn_dbc::{
-    bls_dkg_id, Dbc, DbcContent, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager,
-    SimpleSigner, SimpleSpendBook,
+    bls_dkg_id, AmountSecrets, Dbc, DbcContent, Error, Mint, ReissueRequest, ReissueTransaction,
+    SimpleKeyManager, SimpleSigner, SimpleSpendBook,
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+fn decrypt_amount_secrets(
+    owner: &bls_dkg::outcome::Outcome,
+    dbcc: &DbcContent,
+) -> Result<AmountSecrets, Error> {
+    let mut shares: BTreeMap<usize, SecretKeyShare> = Default::default();
+    shares.insert(0, owner.secret_key_share.clone());
+
+    dbcc.amount_secrets_by_secret_key_shares(&owner.public_key_set, &shares)
+}
 
 fn genesis(
     amount: u64,
@@ -58,12 +70,24 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
     let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
     let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
+    let genesis_secrets = decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content).unwrap();
+
     let output_owner = bls_dkg_id();
     let owner_pub_key = output_owner.public_key_set.public_key();
+    let mut outputs_bf_sum: Scalar = Default::default();
     let outputs = (0..n_outputs)
         .into_iter()
-        .map(|i| DbcContent::new(input_hashes.clone(), 1, i, owner_pub_key))
-        .collect();
+        .map(|i| {
+            let blinding_factor = DbcContent::calc_blinding_factor(
+                i == n_outputs - 1,
+                genesis_secrets.blinding_factor,
+                outputs_bf_sum,
+            );
+            outputs_bf_sum += blinding_factor;
+            DbcContent::new(input_hashes.clone(), 1, i, owner_pub_key, blinding_factor)
+        })
+        .collect::<Result<_, _>>()
+        .unwrap();
 
     let transaction = ReissueTransaction { inputs, outputs };
 
@@ -102,15 +126,31 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
     let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
+    let genesis_secrets = decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content).unwrap();
+    let mut outputs_bf_sum: Scalar = Default::default();
+
     let owners: Vec<_> = (0..n_outputs).into_iter().map(|_| bls_dkg_id()).collect();
-    let outputs = Vec::from_iter((0..n_outputs).into_iter().map(|i| {
-        DbcContent::new(
-            input_hashes.clone(),
-            1,
-            i,
-            owners[i as usize].public_key_set.public_key(),
-        )
-    }));
+    let outputs = Vec::from_iter(
+        (0..n_outputs)
+            .into_iter()
+            .map(|i| {
+                let blinding_factor = DbcContent::calc_blinding_factor(
+                    i == n_outputs - 1,
+                    genesis_secrets.blinding_factor,
+                    outputs_bf_sum,
+                );
+                outputs_bf_sum += blinding_factor;
+                DbcContent::new(
+                    input_hashes.clone(),
+                    1,
+                    i,
+                    owners[i as usize].public_key_set.public_key(),
+                    blinding_factor,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap(),
+    );
 
     let transaction = ReissueTransaction {
         inputs,
@@ -157,7 +197,9 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         n_outputs as u64,
         0,
         bls_dkg_id().public_key_set.public_key(),
-    );
+        outputs_bf_sum,
+    )
+    .unwrap();
 
     let merge_transaction = ReissueTransaction {
         inputs: HashSet::from_iter(dbcs.clone()),
