@@ -12,18 +12,27 @@
 use anyhow::{anyhow, Error, Result};
 use blsttc::poly::Poly;
 use blsttc::serde_impl::SerdeSecret;
-use blsttc::{PublicKey, PublicKeySet, SecretKeySet, SecretKeyShare, Signature, SignatureShare};
+use blsttc::{
+    PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, Signature, SignatureShare,
+};
+use curve25519_dalek_ng::scalar::Scalar;
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    BlindedOwner, Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature,
-    ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
+    Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature, ReissueRequest,
+    ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
     SimpleSpendBook as SpendBook,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
+
+#[cfg(unix)]
+use std::os::unix::{io::AsRawFd, prelude::RawFd};
+
+#[cfg(unix)]
+use termios::{tcsetattr, Termios, ICANON, TCSADRAIN};
 
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
@@ -40,6 +49,13 @@ impl MintInfo {
         self.mintnodes
             .get(0)
             .ok_or_else(|| anyhow!("Mint not yet created"))
+    }
+
+    // returns SecretKey
+    #[allow(dead_code)]
+    fn secret_key(&self) -> SecretKey {
+        let mut fr = self.poly.evaluate(0);
+        SecretKey::from_mut(&mut fr)
     }
 }
 
@@ -72,6 +88,11 @@ struct SignatureSharesMap(HashMap<Hash, HashMap<usize, SignatureShare>>);
 
 /// program entry point and interactive command handler.
 fn main() -> Result<()> {
+    // Disable TTY ICANON.  So readline() can read more than 4096 bytes.
+    // termios_old has the previous settings so we can restore before exit.
+    #[cfg(unix)]
+    let (tty_fd, termios_old) = unset_tty_icanon()?;
+
     print_logo();
     println!("Type 'help' to get started.\n");
 
@@ -113,7 +134,7 @@ fn main() -> Result<()> {
                     _ => Err(anyhow!("Unknown command")),
                 };
                 if let Err(msg) = result {
-                    println!("\nError: {}\n", msg);
+                    println!("\nError: {:?}\n", msg);
                 }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => break,
@@ -122,6 +143,10 @@ fn main() -> Result<()> {
             }
         }
     }
+
+    // restore original TTY settings.
+    #[cfg(unix)]
+    tcsetattr(tty_fd, TCSADRAIN, &termios_old)?;
 
     Ok(())
 }
@@ -329,6 +354,8 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
         );
     }
 
+    let mut secret_key_shares: BTreeMap<usize, SecretKeyShare> = Default::default();
+
     println!("\n   -- PublicKeyShares --");
     for i in (0..mintinfo.secret_key_set.threshold() + 2).into_iter() {
         // the 2nd line matches ian coleman's bls tool output.  but why not the first?
@@ -344,6 +371,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
                     .to_bytes()
             )
         );
+        secret_key_shares.insert(i, mintinfo.secret_key_set.secret_key_share(i));
     }
 
     println!(
@@ -353,7 +381,11 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     );
 
     println!("\n-- Genesis DBC --\n");
-    print_dbc_human(&mintinfo.genesis, true)?;
+    print_dbc_human(
+        &mintinfo.genesis,
+        true,
+        Some((&mintinfo.secret_key_set.public_keys(), &secret_key_shares)),
+    )?;
 
     println!("\n");
 
@@ -367,10 +399,38 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     Ok(())
 }
 
+fn secret_key_set_to_shares(sks: &SecretKeySet) -> (PublicKeySet, BTreeMap<usize, SecretKeyShare>) {
+    let mut secret_key_shares: BTreeMap<usize, SecretKeyShare> = Default::default();
+    for i in (0..sks.threshold() + 1).into_iter() {
+        secret_key_shares.insert(i, sks.secret_key_share(i));
+    }
+    (sks.public_keys(), secret_key_shares)
+}
+
 /// displays Dbc in human readable form
-fn print_dbc_human(dbc: &DbcUnblinded, outputs: bool) -> Result<()> {
+fn print_dbc_human(
+    dbc: &DbcUnblinded,
+    outputs: bool,
+    keys: Option<(&PublicKeySet, &BTreeMap<usize, SecretKeyShare>)>,
+) -> Result<()> {
     println!("id: {}\n", encode(dbc.inner.name()));
-    println!("amount: {}\n", dbc.inner.content.amount);
+
+    match keys {
+        Some((public_key_set, secret_key_shares)) => {
+            let amount_secrets = dbc
+                .inner
+                .content
+                .amount_secrets_by_secret_key_shares(public_key_set, secret_key_shares)?;
+            println!("*** Secrets (decrypted) ***");
+            println!("     amount: {}\n", amount_secrets.amount);
+            println!(
+                "     blinding_factor: {}\n",
+                to_be_hex(&amount_secrets.blinding_factor)?
+            );
+        }
+        None => println!("amount: unknown.  SecretKey not available\n"),
+    }
+
     println!("output_number: {}\n", dbc.inner.content.output_number);
     println!("owner: {}\n", to_be_hex(&dbc.owner)?);
 
@@ -406,9 +466,23 @@ fn decode_input() -> Result<()> {
 
     match t.as_str() {
         "d" => {
-            println!("\n\n-- Start DBC --\n");
-            print_dbc_human(&from_be_bytes(&bytes)?, true)?;
-            println!("-- End DBC --\n");
+            let sks_input = readline_prompt_nl("\nSecretKeySet (or \"none\"): ")?;
+            match sks_input.as_str() {
+                "none" => {
+                    println!("\n\n-- Start DBC --\n");
+                    print_dbc_human(&from_be_bytes(&bytes)?, true, None)?;
+                    println!("-- End DBC --\n");
+                }
+                _ => {
+                    let poly: Poly = from_be_bytes(&decode(sks_input)?)?;
+                    let sks = SecretKeySet::from(poly);
+                    let keys = secret_key_set_to_shares(&sks);
+
+                    println!("\n\n-- Start DBC --\n");
+                    print_dbc_human(&from_be_bytes(&bytes)?, true, Some((&keys.0, &keys.1)))?;
+                    println!("-- End DBC --\n");
+                }
+            }
         }
         "pks" => {
             let pks: PublicKeySet = from_be_bytes(&bytes)?;
@@ -515,6 +589,7 @@ fn prepare_tx() -> Result<()> {
 
     // Get DBC inputs from user
     let mut inputs_total: u64 = 0;
+    let mut inputs_bf_total: Scalar = Default::default();
     loop {
         let dbc_input = readline_prompt_nl("\nInput DBC, or 'done': ")?;
         let dbc: DbcUnblinded = if dbc_input == "done" {
@@ -523,9 +598,43 @@ fn prepare_tx() -> Result<()> {
             from_be_hex(&dbc_input)?
         };
 
+        let mut secrets: BTreeMap<usize, SecretKeyShare> = Default::default();
+        println!(
+            "We need {} SecretKeyShare in order to decrypt the input amount.",
+            dbc.owner.threshold() + 1
+        );
+        loop {
+            println!(
+                "\nWe have {} of {} required SecretKeyShare",
+                secrets.len(),
+                dbc.owner.threshold() + 1
+            );
+
+            let key = readline_prompt_nl("\nSecretKeyShare, or 'done': ")?;
+            let secret: SecretKeyShare = if key == "done" {
+                break;
+            } else {
+                from_be_hex(&key)?
+            };
+            let idx_input = readline_prompt("\nSecretKeyShare Index: ")?;
+            let idx: usize = idx_input.parse()?;
+
+            secrets.insert(idx, secret);
+
+            if secrets.len() > dbc.owner.threshold() {
+                break;
+            }
+        }
+
+        let amount_secrets = dbc
+            .inner
+            .content
+            .amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
+
         inputs_owners.insert(dbc.inner.name(), dbc.owner);
 
-        inputs_total += dbc.inner.content.amount;
+        inputs_total += amount_secrets.amount;
+        inputs_bf_total += amount_secrets.blinding_factor;
         inputs.insert(dbc.inner);
     }
 
@@ -535,6 +644,7 @@ fn prepare_tx() -> Result<()> {
 
     // Get outputs from user
     let mut outputs_total = 0u64;
+    let mut outputs_bf_sum = Scalar::default();
     // note, we upcast to i128 to allow negative value.
     // This permits unbalanced inputs/outputs to reach sn_dbc layer for validation.
     while inputs_total as i128 - outputs_total as i128 > 0 {
@@ -571,16 +681,26 @@ fn prepare_tx() -> Result<()> {
 
         let pub_out_set: PublicKeySet = from_be_hex(&pub_out)?;
 
+        // If this is the final output we need to calculate the final
+        // blinding factor, else generate random.
+        let blinding_factor = DbcContent::calc_blinding_factor(
+            outputs_total + amount == inputs_total,
+            inputs_bf_total,
+            outputs_bf_sum,
+        );
+
         let dbc_content = DbcContent::new(
             input_hashes.clone(),     // parents
             amount,                   // amount
             i,                        // output_number
             pub_out_set.public_key(), // public_key
-        );
+            blinding_factor,
+        )?;
         outputs_owners.insert(dbc_content.hash(), pub_out_set);
 
-        outputs.insert(dbc_content);
         outputs_total += amount;
+        outputs_bf_sum += blinding_factor;
+        outputs.insert(dbc_content);
         i += 1;
     }
 
@@ -610,10 +730,9 @@ fn sign_tx() -> Result<()> {
     for (i, dbc) in tx.inner.inputs.iter().enumerate() {
         println!("-----------------");
         println!(
-            "Input #{} [id: {}, amount: {}]",
+            "Input #{} [id: {}, amount: ???  (encrypted)]",
             i,
             encode(dbc.name()),
-            dbc.content.amount
         );
         println!("-----------------");
 
@@ -682,7 +801,7 @@ fn prepare_reissue() -> Result<()> {
             "Input #{} [id: {}, amount: {}]",
             dbc.content.output_number,
             encode(dbc.name()),
-            dbc.content.amount
+            0 // fixme: dbc.content.amount
         );
         println!("-----------------");
 
@@ -777,7 +896,9 @@ fn reissue(mintinfo: &mut MintInfo) -> Result<()> {
 
 /// Implements reissue_ez command.
 fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
-    let mut inputs: HashMap<DbcUnblinded, HashMap<usize, SecretKeyShare>> = Default::default();
+    let mut inputs: HashMap<DbcUnblinded, BTreeMap<usize, SecretKeyShare>> = Default::default();
+    let mut inputs_total: u64 = 0;
+    let mut inputs_bf_sum: Scalar = Default::default();
 
     // Get from user: input DBC(s) and required # of SecretKeyShare+index for each.
     loop {
@@ -793,11 +914,11 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         };
 
         println!(
-            "\nWe need {} SecretKeyShare for this input DBC.",
+            "We need {} SecretKeyShare in order to decrypt the input amount.",
             dbc.owner.threshold() + 1
         );
 
-        let mut secrets: HashMap<usize, SecretKeyShare> = Default::default();
+        let mut secrets: BTreeMap<usize, SecretKeyShare> = Default::default();
         while secrets.len() < dbc.owner.threshold() + 1 {
             let key = readline_prompt_nl("\nSecretKeyShare, or 'cancel': ")?;
             let secret = if key == "cancel" {
@@ -811,6 +932,12 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
             secrets.insert(idx, secret);
         }
+        let amount_secrets = dbc
+            .inner
+            .content
+            .amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
+        inputs_total += amount_secrets.amount;
+        inputs_bf_sum += amount_secrets.blinding_factor;
 
         inputs.insert(dbc, secrets);
     }
@@ -820,12 +947,14 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         .map(|(dbc, _)| dbc.inner.name())
         .collect::<BTreeSet<_>>();
 
-    let inputs_total: u64 = inputs.iter().map(|(dbc, _)| dbc.inner.content.amount).sum();
+    //    let inputs_total: u64 = inputs.iter().map(|(dbc, _)| dbc.inner.content.amount).sum();
+    //    let inputs_bf_sum: Scalar = inputs.iter().map(|(dbc, _)| dbc.inner.content.blinding_factor).sum();
     let mut i = 0u32;
     let mut outputs: HashSet<DbcContent> = Default::default();
 
     let mut outputs_pks: HashMap<Hash, PublicKeySet> = Default::default();
     let mut outputs_total = 0u64;
+    let mut outputs_bf_sum = Scalar::default();
 
     // Get from user: Amount and PublicKeySet for each output DBC
     // note, we upcast to i128 to allow negative value.
@@ -864,17 +993,25 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
         let pub_out_set: PublicKeySet = from_be_hex(&pub_out)?;
 
-        let dbc_content = DbcContent {
-            parents: input_hashes.clone(),
-            amount,
-            output_number: i,
-            owner: BlindedOwner::new(&pub_out_set.public_key(), &input_hashes, amount, i),
-        };
+        let blinding_factor = DbcContent::calc_blinding_factor(
+            outputs_total + amount == inputs_total,
+            inputs_bf_sum,
+            outputs_bf_sum,
+        );
+
+        let dbc_content = DbcContent::new(
+            input_hashes.clone(),     // parents
+            amount,                   // amount
+            i,                        // output_number
+            pub_out_set.public_key(), // owner
+            blinding_factor,
+        )?;
 
         outputs_pks.insert(dbc_content.hash(), pub_out_set.clone());
 
-        outputs.insert(dbc_content);
         outputs_total += amount;
+        outputs_bf_sum += blinding_factor;
+        outputs.insert(dbc_content);
         i += 1;
     }
 
@@ -1008,7 +1145,7 @@ fn reissue_exec(
         };
 
         println!("\n-- Begin DBC --");
-        print_dbc_human(&dbc_owned, false)?;
+        print_dbc_human(&dbc_owned, false, None)?;
         println!("-- End DBC --\n");
     }
 
@@ -1114,4 +1251,17 @@ fn big_endian_bytes_to_bincode_bytes(mut beb: Vec<u8>) -> Vec<u8> {
 fn bincode_bytes_to_big_endian_bytes(mut bb: Vec<u8>) -> Vec<u8> {
     bb.reverse();
     bb
+}
+
+/// Unsets TTY ICANON.  So readline() can read more than 4096 bytes.
+///
+/// returns FD of our input TTY and the previous settings
+#[cfg(unix)]
+fn unset_tty_icanon() -> Result<(RawFd, Termios)> {
+    let tty_fd = std::io::stdin().as_raw_fd();
+    let termios_old = Termios::from_fd(tty_fd).unwrap();
+    let mut termios_new = termios_old;
+    termios_new.c_lflag &= !ICANON;
+    tcsetattr(tty_fd, TCSADRAIN, &termios_new)?;
+    Ok((tty_fd, termios_old))
 }
