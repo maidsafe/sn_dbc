@@ -24,6 +24,7 @@ hex = "0.4.3"
 bulletproofs = "4.0.0"
 curve25519-dalek-ng = "4.0.1"
 merlin = "3.0.0"
+slice_as_array = "1.1.0"
 
   [dependencies.bls_dkg]
   version = "~0.4"

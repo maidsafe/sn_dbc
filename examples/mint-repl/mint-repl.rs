@@ -378,10 +378,14 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
 fn print_dbc_human(dbc: &DbcUnblinded, outputs: bool, secret_key: Option<&SecretKey>) -> Result<()> {
     println!("id: {}\n", encode(dbc.inner.name()));
 //    println!("amount: {}\n", dbc.inner.content.amount);
-    println!("amount_enc: {:?}\n", dbc.inner.content.amount_enc);
+    println!("amount_secrets_cipher: {:?}\n", dbc.inner.content.amount_secrets_cipher);
 
     match secret_key {
-        Some(secret) => println!("amount: {}\n", dbc.inner.content.amount(secret)?),
+        Some(secret) => {
+            let amount_secrets = dbc.inner.content.amount_secrets(secret)?;
+            println!("amount: {}\n", amount_secrets.amount);
+            println!("blinding_factor: {:?}\n", amount_secrets.blinding_factor);
+        },
         None => println!("amount: unknown.  SecretKey not available"),
     }
 
@@ -544,7 +548,7 @@ fn prepare_tx() -> Result<()> {
     }
 
     let input_hashes = inputs.iter().map(|e| e.name()).collect::<BTreeSet<_>>();
-    let inputs_bf_sum: Scalar = inputs.iter().map(|e| e.content.blinding_factor).sum();
+    let inputs_bf_sum: Scalar = Default::default();  // breaks it! inputs.iter().map(|e| e.content.blinding_factor).sum();
     let mut i = 0u32;
     let mut outputs: HashSet<DbcContent> = Default::default();
 
@@ -588,11 +592,11 @@ fn prepare_tx() -> Result<()> {
         let pub_out_set: PublicKeySet = from_be_hex(&pub_out)?;
 
         // If this is the final output we need to calculate the final
-        // blinding factor.
+        // blinding factor, else generate random.
         let blinding_factor = if outputs_total + amount == inputs_total {
-            Some(inputs_bf_sum - outputs_bf_sum)
+            inputs_bf_sum - outputs_bf_sum
         } else {
-            None
+            DbcContent::random_blinding_factor()
         };
 
         let dbc_content = DbcContent::new(
@@ -605,7 +609,7 @@ fn prepare_tx() -> Result<()> {
         outputs_owners.insert(dbc_content.hash(), pub_out_set);
 
         outputs_total += amount;
-        outputs_bf_sum += dbc_content.blinding_factor;
+        outputs_bf_sum += blinding_factor;
         outputs.insert(dbc_content);
         i += 1;
     }
@@ -805,6 +809,7 @@ fn reissue(mintinfo: &mut MintInfo) -> Result<()> {
 fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
     let mut inputs: HashMap<DbcUnblinded, BTreeMap<usize, SecretKeyShare>> = Default::default();
     let mut inputs_total: u64 = 0;
+    let mut inputs_bf_sum: Scalar = Default::default();
 
     // Get from user: input DBC(s) and required # of SecretKeyShare+index for each.
     loop {
@@ -838,8 +843,9 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
             secrets.insert(idx, secret);
         }
-        let amount = dbc.inner.content.amount_by_shares(&dbc.owner, &secrets)?;
-        inputs_total += amount;
+        let amount_secrets = dbc.inner.content.amount_secrets_by_shares(&dbc.owner, &secrets)?;
+        inputs_total += amount_secrets.amount;
+        inputs_bf_sum += amount_secrets.blinding_factor;
 
         inputs.insert(dbc, secrets);
     }
@@ -850,7 +856,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         .collect::<BTreeSet<_>>();
 
 //    let inputs_total: u64 = inputs.iter().map(|(dbc, _)| dbc.inner.content.amount).sum();
-    let inputs_bf_sum: Scalar = inputs.iter().map(|(dbc, _)| dbc.inner.content.blinding_factor).sum();
+//    let inputs_bf_sum: Scalar = inputs.iter().map(|(dbc, _)| dbc.inner.content.blinding_factor).sum();
     let mut i = 0u32;
     let mut outputs: HashSet<DbcContent> = Default::default();
 
@@ -898,9 +904,9 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         // If this is the final output we need to calculate the final
         // blinding factor.
         let blinding_factor = if outputs_total + amount == inputs_total {
-            Some(inputs_bf_sum - outputs_bf_sum)
+            inputs_bf_sum - outputs_bf_sum
         } else {
-            None
+            DbcContent::random_blinding_factor()
         };
 
         let dbc_content = DbcContent::new(
@@ -914,7 +920,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         outputs_pks.insert(dbc_content.hash(), pub_out_set.clone());
 
         outputs_total += amount;
-        outputs_bf_sum += dbc_content.blinding_factor;
+        outputs_bf_sum += blinding_factor;
         outputs.insert(dbc_content);
         i += 1;
     }

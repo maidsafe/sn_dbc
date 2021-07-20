@@ -229,7 +229,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
                 .public_key_set()
                 .map_err(|e| Error::Signing(e.to_string()))?
                 .public_key(),
-            None,
+            DbcContent::random_blinding_factor(),
         );
         let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]),

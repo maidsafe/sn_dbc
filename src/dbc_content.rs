@@ -17,6 +17,7 @@ use merlin::Transcript;
 use rand8::rngs::OsRng;
 use std::convert::TryInto;
 use std::collections::BTreeMap;
+use slice_as_array::*;
 
 use crate::{DbcContentHash, Error, Hash};
 
@@ -46,14 +47,13 @@ impl BlindedOwner {
     }
 }
 
-/*
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
-pub struct AmountEnc {
-    amount: u64,
-    blinding_factor: Scalar,
+pub struct AmountSecrets {
+    pub amount: u64,
+    pub blinding_factor: Scalar,
 }
 
-impl AmountEnc {
+impl AmountSecrets {
     fn to_bytes(&self) -> Vec<u8> {
         let a = self.amount.to_le_bytes();
         let b = self.blinding_factor.to_bytes();
@@ -67,15 +67,21 @@ impl AmountEnc {
         }
         v
     }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        println!("bytes: {:?}", bytes);
+        let amount = u64::from_le_bytes( *slice_as_array!(&bytes[0..8], [u8; 8]).unwrap() );
+        let blinding_factor = Scalar::from_bytes_mod_order( *slice_as_array!(&bytes[8..], [u8; 32]).unwrap());
+        Self {amount, blinding_factor}
+    }
 }
-*/
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
     pub parents: BTreeSet<DbcContentHash>, // Parent DBC's, acts as a nonce
     pub amount: u64,
-    pub amount_enc: Ciphertext,
-    pub blinding_factor: Scalar,
+    pub amount_secrets_cipher: Ciphertext,
+//    pub blinding_factor: Scalar,
     pub commitment: CompressedRistretto,
 //    pub range_proof_bytes: [u8; 32*21],  // RangeProof::to_bytes() -> (2 lg n + 9) 32-byte elements, where n is # of secret bits, or 64 in our case. Gives 21 32-byte elements.
     pub range_proof_bytes: Vec<u8>,  // RangeProof::to_bytes() -> (2 lg n + 9) 32-byte elements, where n is # of secret bits, or 64 in our case. Gives 21 32-byte elements.
@@ -90,7 +96,7 @@ impl DbcContent {
         amount: u64,
         output_number: u32,
         owner_key: PublicKey,
-        blinding_factor: Option<Scalar>,
+        blinding_factor: Scalar,
     ) -> Self {
         let owner = BlindedOwner::new(&owner_key, &parents, amount, output_number);
         let secret = amount;
@@ -98,19 +104,11 @@ impl DbcContent {
 
         let ped_commits = PedersenGens::default();
         let bullet_gens = BulletproofGens::new(64, 1);
-        let bfactor = match blinding_factor {
-            Some(b) => b,
-            None => {
-                let mut csprng: OsRng = OsRng::default();
-                Scalar::random(&mut csprng)
-            }
-        };
-//        let blinding_factor = Scalar::random(&mut csprng);
-//        let blinding_factor = Scalar::default();
         let mut prover_ts = Transcript::new("Test".as_bytes());
-        let (proof, commitment) = RangeProof::prove_single( &bullet_gens,&ped_commits,&mut prover_ts,secret,&bfactor, nbits,).expect("Oops!");
+        let (proof, commitment) = RangeProof::prove_single( &bullet_gens,&ped_commits,&mut prover_ts,secret,&blinding_factor, nbits,).expect("Oops!");
 
-        let amount_enc = owner_key.encrypt( &amount.to_le_bytes() );
+        let amount_secrets = AmountSecrets{ amount, blinding_factor };
+        let amount_secrets_cipher = owner_key.encrypt( amount_secrets.to_bytes().as_slice() );
 
         println!("in DbcContent::new()");
         println!("amount: {}\ncommitment: {:?}\n\n", amount, commitment);
@@ -118,13 +116,17 @@ impl DbcContent {
         DbcContent {
             parents,
             amount,
-            amount_enc,
+            amount_secrets_cipher,
             output_number,
             owner,
             commitment,
             range_proof_bytes: proof.to_bytes(),
-            blinding_factor: bfactor,
         }
+    }
+
+    pub fn random_blinding_factor() -> Scalar {
+        let mut csprng: OsRng = OsRng::default();
+        Scalar::random(&mut csprng)
     }
 
     pub fn validate_unblinding(&self, owner_key: &PublicKey) -> Result<(), Error> {
@@ -152,28 +154,28 @@ impl DbcContent {
         Hash(hash)
     }
 
-    pub fn amount(&self, secret_key: &SecretKey) -> Result<u64, Error> {
-        match secret_key.decrypt(&self.amount_enc) {
+    pub fn amount_secrets(&self, secret_key: &SecretKey) -> Result<AmountSecrets, Error> {
+        match secret_key.decrypt(&self.amount_secrets_cipher) {
             Some(bytes_vec) => {
-                let bytes = bytes_vec.try_into().map_err(|_e| Error::AmountDecryptionFailed)?;
-                Ok(u64::from_le_bytes(bytes))
+                let bytes: Vec<u8> = bytes_vec.try_into().map_err(|_e| Error::AmountDecryptionFailed)?;
+                Ok(AmountSecrets::from_bytes(&bytes))
             },
             None => Err(Error::AmountDecryptionFailed),
         }
     }
 
-    pub fn amount_by_shares(&self, public_key_set: &PublicKeySet, secret_key_shares: &BTreeMap<usize, SecretKeyShare>) -> Result<u64, Error> {
+    pub fn amount_secrets_by_shares(&self, public_key_set: &PublicKeySet, secret_key_shares: &BTreeMap<usize, SecretKeyShare>) -> Result<AmountSecrets, Error> {
 
         let mut decryption_shares: BTreeMap<usize, DecryptionShare> = Default::default();
         for (idx, sec_share) in secret_key_shares.iter() {
-            let share = sec_share.decrypt_share_no_verify(&self.amount_enc);
+            let share = sec_share.decrypt_share_no_verify(&self.amount_secrets_cipher);
             decryption_shares.insert(*idx, share);
         }
 
-        match public_key_set.decrypt(&decryption_shares, &self.amount_enc) {
+        match public_key_set.decrypt(&decryption_shares, &self.amount_secrets_cipher) {
             Ok(bytes_vec) => {
-                let bytes = bytes_vec.try_into().map_err(|_e| Error::AmountDecryptionFailed)?;
-                Ok(u64::from_le_bytes(bytes))
+                let bytes: Vec<u8> = bytes_vec.try_into().map_err(|_e| Error::AmountDecryptionFailed)?;
+                Ok(AmountSecrets::from_bytes(&bytes))
             },
             Err(_e) => Err(Error::AmountDecryptionFailed),
         }
