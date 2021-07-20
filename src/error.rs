@@ -59,6 +59,9 @@ pub enum Error {
     #[error("RangeProof error: {0}")]
     RangeProof(#[from] bulletproofs::ProofError),
 
+    #[error("Amount could not be decrypted.")]
+    AmountDecryptionFailed,
+
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),

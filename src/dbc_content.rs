@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 use std::collections::BTreeSet;
 
-use blsttc::PublicKey;
+use blsttc::{PublicKey, PublicKeySet, DecryptionShare, SecretKey, SecretKeyShare, Ciphertext};
 use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
 use bulletproofs::{PedersenGens, RangeProof, BulletproofGens};
@@ -15,6 +15,8 @@ use curve25519_dalek_ng::ristretto::CompressedRistretto;
 use curve25519_dalek_ng::scalar::Scalar;
 use merlin::Transcript;
 use rand8::rngs::OsRng;
+use std::convert::TryInto;
+use std::collections::BTreeMap;
 
 use crate::{DbcContentHash, Error, Hash};
 
@@ -44,10 +46,35 @@ impl BlindedOwner {
     }
 }
 
+/*
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+pub struct AmountEnc {
+    amount: u64,
+    blinding_factor: Scalar,
+}
+
+impl AmountEnc {
+    fn to_bytes(&self) -> Vec<u8> {
+        let a = self.amount.to_le_bytes();
+        let b = self.blinding_factor.to_bytes();
+
+        let mut v: Vec<u8> = Default::default();
+        for c in a {
+            v.push(c);
+        }
+        for c in b {
+            v.push(c);
+        }
+        v
+    }
+}
+*/
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
     pub parents: BTreeSet<DbcContentHash>, // Parent DBC's, acts as a nonce
     pub amount: u64,
+    pub amount_enc: Ciphertext,
     pub blinding_factor: Scalar,
     pub commitment: CompressedRistretto,
 //    pub range_proof_bytes: [u8; 32*21],  // RangeProof::to_bytes() -> (2 lg n + 9) 32-byte elements, where n is # of secret bits, or 64 in our case. Gives 21 32-byte elements.
@@ -83,12 +110,15 @@ impl DbcContent {
         let mut prover_ts = Transcript::new("Test".as_bytes());
         let (proof, commitment) = RangeProof::prove_single( &bullet_gens,&ped_commits,&mut prover_ts,secret,&bfactor, nbits,).expect("Oops!");
 
+        let amount_enc = owner_key.encrypt( &amount.to_le_bytes() );
+
         println!("in DbcContent::new()");
         println!("amount: {}\ncommitment: {:?}\n\n", amount, commitment);
 
         DbcContent {
             parents,
             amount,
+            amount_enc,
             output_number,
             owner,
             commitment,
@@ -120,5 +150,32 @@ impl DbcContent {
         let mut hash = [0; 32];
         sha3.finalize(&mut hash);
         Hash(hash)
+    }
+
+    pub fn amount(&self, secret_key: &SecretKey) -> Result<u64, Error> {
+        match secret_key.decrypt(&self.amount_enc) {
+            Some(bytes_vec) => {
+                let bytes = bytes_vec.try_into().map_err(|_e| Error::AmountDecryptionFailed)?;
+                Ok(u64::from_le_bytes(bytes))
+            },
+            None => Err(Error::AmountDecryptionFailed),
+        }
+    }
+
+    pub fn amount_by_shares(&self, public_key_set: &PublicKeySet, secret_key_shares: &BTreeMap<usize, SecretKeyShare>) -> Result<u64, Error> {
+
+        let mut decryption_shares: BTreeMap<usize, DecryptionShare> = Default::default();
+        for (idx, sec_share) in secret_key_shares.iter() {
+            let share = sec_share.decrypt_share_no_verify(&self.amount_enc);
+            decryption_shares.insert(*idx, share);
+        }
+
+        match public_key_set.decrypt(&decryption_shares, &self.amount_enc) {
+            Ok(bytes_vec) => {
+                let bytes = bytes_vec.try_into().map_err(|_e| Error::AmountDecryptionFailed)?;
+                Ok(u64::from_le_bytes(bytes))
+            },
+            Err(_e) => Err(Error::AmountDecryptionFailed),
+        }
     }
 }

@@ -12,7 +12,7 @@
 use anyhow::{anyhow, Error, Result};
 use blsttc::poly::Poly;
 use blsttc::serde_impl::SerdeSecret;
-use blsttc::{PublicKey, PublicKeySet, SecretKeySet, SecretKeyShare, Signature, SignatureShare};
+use blsttc::{PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, Signature, SignatureShare, DecryptionShare};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -41,6 +41,12 @@ impl MintInfo {
         self.mintnodes
             .get(0)
             .ok_or_else(|| anyhow!("Mint not yet created"))
+    }
+
+    // returns SecretKey
+    fn secret_key(&self) -> SecretKey {
+        let mut fr = self.poly.evaluate(0);
+        SecretKey::from_mut(&mut fr)
     }
 }
 
@@ -354,7 +360,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     );
 
     println!("\n-- Genesis DBC --\n");
-    print_dbc_human(&mintinfo.genesis, true)?;
+    print_dbc_human(&mintinfo.genesis, true, Some(&mintinfo.secret_key()))?;
 
     println!("\n");
 
@@ -369,9 +375,16 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
 }
 
 /// displays Dbc in human readable form
-fn print_dbc_human(dbc: &DbcUnblinded, outputs: bool) -> Result<()> {
+fn print_dbc_human(dbc: &DbcUnblinded, outputs: bool, secret_key: Option<&SecretKey>) -> Result<()> {
     println!("id: {}\n", encode(dbc.inner.name()));
-    println!("amount: {}\n", dbc.inner.content.amount);
+//    println!("amount: {}\n", dbc.inner.content.amount);
+    println!("amount_enc: {:?}\n", dbc.inner.content.amount_enc);
+
+    match secret_key {
+        Some(secret) => println!("amount: {}\n", dbc.inner.content.amount(secret)?),
+        None => println!("amount: unknown.  SecretKey not available"),
+    }
+
     println!("output_number: {}\n", dbc.inner.content.output_number);
     println!("owner: {}\n", to_be_hex(&dbc.owner)?);
 
@@ -408,7 +421,7 @@ fn decode_input() -> Result<()> {
     match t.as_str() {
         "d" => {
             println!("\n\n-- Start DBC --\n");
-            print_dbc_human(&from_be_bytes(&bytes)?, true)?;
+            print_dbc_human(&from_be_bytes(&bytes)?, true, None)?;
             println!("-- End DBC --\n");
         }
         "pks" => {
@@ -790,7 +803,8 @@ fn reissue(mintinfo: &mut MintInfo) -> Result<()> {
 
 /// Implements reissue_ez command.
 fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
-    let mut inputs: HashMap<DbcUnblinded, HashMap<usize, SecretKeyShare>> = Default::default();
+    let mut inputs: HashMap<DbcUnblinded, BTreeMap<usize, SecretKeyShare>> = Default::default();
+    let mut inputs_total: u64 = 0;
 
     // Get from user: input DBC(s) and required # of SecretKeyShare+index for each.
     loop {
@@ -810,7 +824,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
             dbc.owner.threshold() + 1
         );
 
-        let mut secrets: HashMap<usize, SecretKeyShare> = Default::default();
+        let mut secrets: BTreeMap<usize, SecretKeyShare> = Default::default();
         while secrets.len() < dbc.owner.threshold() + 1 {
             let key = readline_prompt_nl("\nSecretKeyShare, or 'cancel': ")?;
             let secret = if key == "cancel" {
@@ -824,6 +838,8 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
             secrets.insert(idx, secret);
         }
+        let amount = dbc.inner.content.amount_by_shares(&dbc.owner, &secrets)?;
+        inputs_total += amount;
 
         inputs.insert(dbc, secrets);
     }
@@ -833,7 +849,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         .map(|(dbc, _)| dbc.inner.name())
         .collect::<BTreeSet<_>>();
 
-    let inputs_total: u64 = inputs.iter().map(|(dbc, _)| dbc.inner.content.amount).sum();
+//    let inputs_total: u64 = inputs.iter().map(|(dbc, _)| dbc.inner.content.amount).sum();
     let inputs_bf_sum: Scalar = inputs.iter().map(|(dbc, _)| dbc.inner.content.blinding_factor).sum();
     let mut i = 0u32;
     let mut outputs: HashSet<DbcContent> = Default::default();
@@ -1033,7 +1049,7 @@ fn reissue_exec(
         };
 
         println!("\n-- Begin DBC --");
-        print_dbc_human(&dbc_owned, false)?;
+        print_dbc_human(&dbc_owned, false, None)?;
         println!("-- End DBC --\n");
     }
 
