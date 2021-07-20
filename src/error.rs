@@ -62,6 +62,9 @@ pub enum Error {
     #[error("Amount could not be decrypted.")]
     AmountDecryptionFailed,
 
+    #[error("Invalid AmountSecret bytes")]
+    AmountSecretsBytesInvalid,
+
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),

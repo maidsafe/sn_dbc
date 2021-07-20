@@ -12,7 +12,7 @@
 use anyhow::{anyhow, Error, Result};
 use blsttc::poly::Poly;
 use blsttc::serde_impl::SerdeSecret;
-use blsttc::{PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, Signature, SignatureShare, DecryptionShare};
+use blsttc::{PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, Signature, SignatureShare};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -543,7 +543,7 @@ fn prepare_tx() -> Result<()> {
 
         inputs_owners.insert(dbc.inner.name(), dbc.owner);
 
-        inputs_total += dbc.inner.content.amount;
+        inputs_total += 0;   // fixme: dbc.inner.content.amount;
         inputs.insert(dbc.inner);
     }
 
@@ -643,7 +643,7 @@ fn sign_tx() -> Result<()> {
             "Input #{} [id: {}, amount: {}]",
             i,
             encode(dbc.name()),
-            dbc.content.amount
+            0   // fixme: dbc.content.amount
         );
         println!("-----------------");
 
@@ -712,7 +712,7 @@ fn prepare_reissue() -> Result<()> {
             "Input #{} [id: {}, amount: {}]",
             dbc.content.output_number,
             encode(dbc.name()),
-            dbc.content.amount
+            0  // fixme: dbc.content.amount
         );
         println!("-----------------");
 

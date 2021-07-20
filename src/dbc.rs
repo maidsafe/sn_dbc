@@ -21,10 +21,6 @@ pub struct Dbc {
 }
 
 impl Dbc {
-    pub fn amount(&self) -> u64 {
-        self.content.amount
-    }
-
     pub fn name(&self) -> Hash {
         self.content.hash()
     }

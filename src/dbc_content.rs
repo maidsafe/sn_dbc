@@ -28,7 +28,6 @@ impl BlindedOwner {
     pub fn new(
         owner: &PublicKey,
         parents: &BTreeSet<DbcContentHash>,
-        amount: u64,
         output_number: u32,
     ) -> Self {
         let mut sha3 = Sha3::v256();
@@ -37,7 +36,7 @@ impl BlindedOwner {
             sha3.update(parent);
         }
 
-        sha3.update(&amount.to_be_bytes());
+//        sha3.update(&amount.to_be_bytes());
         sha3.update(&output_number.to_be_bytes());
         sha3.update(&owner.to_bytes());
 
@@ -68,18 +67,18 @@ impl AmountSecrets {
         v
     }
 
-    fn from_bytes(bytes: &[u8]) -> Self {
-        println!("bytes: {:?}", bytes);
-        let amount = u64::from_le_bytes( *slice_as_array!(&bytes[0..8], [u8; 8]).unwrap() );
-        let blinding_factor = Scalar::from_bytes_mod_order( *slice_as_array!(&bytes[8..], [u8; 32]).unwrap());
-        Self {amount, blinding_factor}
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+//        println!("bytes: {:?}", bytes);
+        let amount = u64::from_le_bytes( *slice_as_array!(&bytes[0..8], [u8; 8]).ok_or(Error::AmountSecretsBytesInvalid)?);
+        let blinding_factor = Scalar::from_bytes_mod_order( *slice_as_array!(&bytes[8..], [u8; 32]).ok_or(Error::AmountSecretsBytesInvalid)?);
+        Ok(Self {amount, blinding_factor})
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
     pub parents: BTreeSet<DbcContentHash>, // Parent DBC's, acts as a nonce
-    pub amount: u64,
+//    pub amount: u64,
     pub amount_secrets_cipher: Ciphertext,
 //    pub blinding_factor: Scalar,
     pub commitment: CompressedRistretto,
@@ -98,7 +97,7 @@ impl DbcContent {
         owner_key: PublicKey,
         blinding_factor: Scalar,
     ) -> Self {
-        let owner = BlindedOwner::new(&owner_key, &parents, amount, output_number);
+        let owner = BlindedOwner::new(&owner_key, &parents, output_number);
         let secret = amount;
         let nbits = 64;
 
@@ -115,7 +114,6 @@ impl DbcContent {
 
         DbcContent {
             parents,
-            amount,
             amount_secrets_cipher,
             output_number,
             owner,
@@ -130,7 +128,7 @@ impl DbcContent {
     }
 
     pub fn validate_unblinding(&self, owner_key: &PublicKey) -> Result<(), Error> {
-        let blinded = BlindedOwner::new(owner_key, &self.parents, self.amount, self.output_number);
+        let blinded = BlindedOwner::new(owner_key, &self.parents, self.output_number);
         if blinded == self.owner {
             Ok(())
         } else {
@@ -145,7 +143,9 @@ impl DbcContent {
             sha3.update(parent);
         }
 
-        sha3.update(&self.amount.to_be_bytes());
+        // let amount_secrets_cipher_bytes = bincode::serialize(&self.amount_secrets_cipher).unwrap();
+
+        sha3.update(&self.amount_secrets_cipher.to_bytes());
         sha3.update(&self.output_number.to_be_bytes());
         sha3.update(&self.owner.0);
 
@@ -158,7 +158,7 @@ impl DbcContent {
         match secret_key.decrypt(&self.amount_secrets_cipher) {
             Some(bytes_vec) => {
                 let bytes: Vec<u8> = bytes_vec.try_into().map_err(|_e| Error::AmountDecryptionFailed)?;
-                Ok(AmountSecrets::from_bytes(&bytes))
+                Ok(AmountSecrets::from_bytes(&bytes)?)
             },
             None => Err(Error::AmountDecryptionFailed),
         }
@@ -175,7 +175,7 @@ impl DbcContent {
         match public_key_set.decrypt(&decryption_shares, &self.amount_secrets_cipher) {
             Ok(bytes_vec) => {
                 let bytes: Vec<u8> = bytes_vec.try_into().map_err(|_e| Error::AmountDecryptionFailed)?;
-                Ok(AmountSecrets::from_bytes(&bytes))
+                Ok(AmountSecrets::from_bytes(&bytes)?)
             },
             Err(_e) => Err(Error::AmountDecryptionFailed),
         }

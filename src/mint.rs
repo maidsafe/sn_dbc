@@ -113,11 +113,11 @@ impl ReissueTransaction {
     }
 
     fn validate_balance(&self) -> Result<()> {
-        let input64: u64 = self.inputs.iter().map(|input| input.amount()).sum();
-        let output64: u64 = self.outputs.iter().map(|output| output.amount).sum();
+        // let input64: u64 = self.inputs.iter().map(|input| input.amount()).sum();
+        // let output64: u64 = self.outputs.iter().map(|output| output.amount).sum();
 
-        let input: RistrettoPoint = self.inputs.iter().map(|input| input.content.commitment.decompress().unwrap()).sum();
-        let output: RistrettoPoint = self.outputs.iter().map(|output| output.commitment.decompress().unwrap()).sum();
+        let input: RistrettoPoint = self.inputs.iter().map(|input| input.content.commitment.decompress().ok_or(Error::AmountSecretsBytesInvalid)).sum::<Result<RistrettoPoint,_>>()?;
+        let output: RistrettoPoint = self.outputs.iter().map(|output| output.commitment.decompress().ok_or(Error::AmountSecretsBytesInvalid)).sum::<Result<RistrettoPoint,_>>()?;
 
         // Verify the range proof for each output.  (bulletproof)
         let bullet_gens = BulletproofGens::new(64, 1);
@@ -141,8 +141,8 @@ println!("output #{}. verifying proof.", output.output_number);
             proof.verify_single(&bullet_gens, &ped_commits, &mut verifier_ts, &output.commitment, nbits)?;
         }
 
-        println!("in validate_balance()");
-        println!("{}\n{}\n\n{:?}\n{:?}", input64, output64, input, output);
+//        println!("in validate_balance()");
+//        println!("{}\n{}\n\n{:?}\n{:?}", input64, output64, input, output);
 
         if input != output {
             Err(Error::DbcReissueRequestDoesNotBalance)
