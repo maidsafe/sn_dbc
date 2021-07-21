@@ -336,6 +336,8 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
         );
     }
 
+    let mut secret_key_shares: BTreeMap<usize, SecretKeyShare> = Default::default();
+
     println!("\n   -- PublicKeyShares --");
     for i in (0..mintinfo.secret_key_set.threshold() + 2).into_iter() {
         // the 2nd line matches ian coleman's bls tool output.  but why not the first?
@@ -351,6 +353,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
                     .to_bytes()
             )
         );
+        secret_key_shares.insert(i, mintinfo.secret_key_set.secret_key_share(i));
     }
 
     println!(
@@ -360,7 +363,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     );
 
     println!("\n-- Genesis DBC --\n");
-    print_dbc_human(&mintinfo.genesis, true, Some(&mintinfo.secret_key()))?;
+    print_dbc_human(&mintinfo.genesis, true, Some((&mintinfo.secret_key_set.public_keys(), &secret_key_shares)))?;
 
     println!("\n");
 
@@ -374,17 +377,26 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     Ok(())
 }
 
+fn secret_key_set_to_shares(sks: &SecretKeySet) -> (PublicKeySet, BTreeMap<usize, SecretKeyShare>) {
+    let mut secret_key_shares: BTreeMap<usize, SecretKeyShare> = Default::default();
+    for i in (0..sks.threshold() + 1).into_iter() {
+        secret_key_shares.insert(i, sks.secret_key_share(i));
+    }
+    (sks.public_keys(), secret_key_shares)
+}
+
 /// displays Dbc in human readable form
-fn print_dbc_human(dbc: &DbcUnblinded, outputs: bool, secret_key: Option<&SecretKey>) -> Result<()> {
+fn print_dbc_human(dbc: &DbcUnblinded, outputs: bool, keys: Option<(&PublicKeySet, &BTreeMap<usize, SecretKeyShare>)>) -> Result<()> {
     println!("id: {}\n", encode(dbc.inner.name()));
 //    println!("amount: {}\n", dbc.inner.content.amount);
     println!("amount_secrets_cipher: {:?}\n", dbc.inner.content.amount_secrets_cipher);
 
-    match secret_key {
-        Some(secret) => {
-            let amount_secrets = dbc.inner.content.amount_secrets(secret)?;
-            println!("amount: {}\n", amount_secrets.amount);
-            println!("blinding_factor: {:?}\n", amount_secrets.blinding_factor);
+    match keys {
+        Some((public_key_set, secret_key_shares)) => {
+            let amount_secrets = dbc.inner.content.amount_secrets_by_shares(public_key_set, secret_key_shares)?;
+            println!("*** Secrets (decrypted) ***");
+            println!("     amount: {}\n", amount_secrets.amount);
+            println!("     blinding_factor: {}\n", to_be_hex(&amount_secrets.blinding_factor)?);
         },
         None => println!("amount: unknown.  SecretKey not available"),
     }
@@ -424,9 +436,23 @@ fn decode_input() -> Result<()> {
 
     match t.as_str() {
         "d" => {
-            println!("\n\n-- Start DBC --\n");
-            print_dbc_human(&from_be_bytes(&bytes)?, true, None)?;
-            println!("-- End DBC --\n");
+            let sks_input = readline_prompt_nl("\nSecretKeySet (or \"none\"): ")?;
+            match sks_input.as_str() {
+                "none" => {
+                    println!("\n\n-- Start DBC --\n");
+                    print_dbc_human(&from_be_bytes(&bytes)?, true, None)?;
+                    println!("-- End DBC --\n");
+                }
+                _ => {
+                    let poly: Poly = from_be_bytes(&decode(sks_input)?)?;
+                    let sks = SecretKeySet::from(poly);
+                    let keys = secret_key_set_to_shares(&sks);
+
+                    println!("\n\n-- Start DBC --\n");
+                    print_dbc_human(&from_be_bytes(&bytes)?, true, Some((&keys.0, &keys.1)))?;
+                    println!("-- End DBC --\n");
+                },
+            }
         }
         "pks" => {
             let pks: PublicKeySet = from_be_bytes(&bytes)?;
