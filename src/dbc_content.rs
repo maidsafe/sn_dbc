@@ -60,8 +60,8 @@ pub struct AmountSecrets {
 impl AmountSecrets {
     fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
-        v.extend(self.amount.to_le_bytes());
-        v.extend(self.blinding_factor.to_bytes());
+        v.extend(&self.amount.to_le_bytes());
+        v.extend(&self.blinding_factor.to_bytes());
         v
     }
 
