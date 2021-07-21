@@ -20,7 +20,7 @@ quickcheck_macros = "1"
 rand = "0.7.1"
 rand8 = { package = "rand", version = "0.8.0" }
 #blsttc = "1.0.1"
-blsttc = {path="/home/danda/dev/maidsafe/blsttc"} 
+blsttc = {git="https://github.com/maidsafe/blsttc", branch="ciphertext_to_bytes_pr"} 
 hex = "0.4.3"
 bulletproofs = "4.0.0"
 curve25519-dalek-ng = "4.0.1"
