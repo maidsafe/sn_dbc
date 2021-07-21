@@ -59,11 +59,17 @@ pub enum Error {
     #[error("RangeProof error: {0}")]
     RangeProof(#[from] bulletproofs::ProofError),
 
-    #[error("Amount could not be decrypted.")]
-    AmountDecryptionFailed,
+    #[error("Decryption error: {0}")]
+    DecryptionBySharesFailed(#[from] blsttc::error::Error),
+
+    #[error("Decryption failed")]
+    DecryptionBySecretKeyFailed,
 
     #[error("Invalid AmountSecret bytes")]
     AmountSecretsBytesInvalid,
+
+    #[error("Invalid Amount Commitment")]
+    AmountCommitmentInvalid,
 
     /// I/O error.
     #[error("I/O error: {0}")]
@@ -73,4 +79,7 @@ pub enum Error {
     JsonSerialisation(#[from] serde_json::Error),
     #[error("SpendBook error {0}")]
     SpendBook(String),
+
+    #[error("Infallible.  Can never fail")]
+    Infallible(#[from] std::convert::Infallible),
 }

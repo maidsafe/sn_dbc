@@ -44,6 +44,7 @@ impl MintInfo {
     }
 
     // returns SecretKey
+    #[allow(dead_code)]
     fn secret_key(&self) -> SecretKey {
         let mut fr = self.poly.evaluate(0);
         SecretKey::from_mut(&mut fr)
@@ -388,17 +389,15 @@ fn secret_key_set_to_shares(sks: &SecretKeySet) -> (PublicKeySet, BTreeMap<usize
 /// displays Dbc in human readable form
 fn print_dbc_human(dbc: &DbcUnblinded, outputs: bool, keys: Option<(&PublicKeySet, &BTreeMap<usize, SecretKeyShare>)>) -> Result<()> {
     println!("id: {}\n", encode(dbc.inner.name()));
-//    println!("amount: {}\n", dbc.inner.content.amount);
-    println!("amount_secrets_cipher: {:?}\n", dbc.inner.content.amount_secrets_cipher);
 
     match keys {
         Some((public_key_set, secret_key_shares)) => {
-            let amount_secrets = dbc.inner.content.amount_secrets_by_shares(public_key_set, secret_key_shares)?;
+            let amount_secrets = dbc.inner.content.amount_secrets_by_secret_key_shares(public_key_set, secret_key_shares)?;
             println!("*** Secrets (decrypted) ***");
             println!("     amount: {}\n", amount_secrets.amount);
             println!("     blinding_factor: {}\n", to_be_hex(&amount_secrets.blinding_factor)?);
         },
-        None => println!("amount: unknown.  SecretKey not available"),
+        None => println!("amount: unknown.  SecretKey not available\n"),
     }
 
     println!("output_number: {}\n", dbc.inner.content.output_number);
@@ -631,7 +630,7 @@ fn prepare_tx() -> Result<()> {
             i,                        // output_number
             pub_out_set.public_key(), // public_key
             blinding_factor,
-        );
+        )?;
         outputs_owners.insert(dbc_content.hash(), pub_out_set);
 
         outputs_total += amount;
@@ -869,7 +868,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
             secrets.insert(idx, secret);
         }
-        let amount_secrets = dbc.inner.content.amount_secrets_by_shares(&dbc.owner, &secrets)?;
+        let amount_secrets = dbc.inner.content.amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
         inputs_total += amount_secrets.amount;
         inputs_bf_sum += amount_secrets.blinding_factor;
 
@@ -941,7 +940,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
             i,                        // output_number
             pub_out_set.public_key(), // owner
             blinding_factor,
-        );
+        )?;
 
         outputs_pks.insert(dbc_content.hash(), pub_out_set.clone());
 

@@ -15,7 +15,7 @@
 
 use crate::{
     Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, NodeSignature,
-    PublicKeySet, Result,
+    PublicKeySet, Result, dbc_content::{RANGE_PROOF_BITS, MERLIN_TRANSCRIPT_LABEL},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -113,38 +113,40 @@ impl ReissueTransaction {
     }
 
     fn validate_balance(&self) -> Result<()> {
-        // let input64: u64 = self.inputs.iter().map(|input| input.amount()).sum();
-        // let output64: u64 = self.outputs.iter().map(|output| output.amount).sum();
 
-        let input: RistrettoPoint = self.inputs.iter().map(|input| input.content.commitment.decompress().ok_or(Error::AmountSecretsBytesInvalid)).sum::<Result<RistrettoPoint,_>>()?;
-        let output: RistrettoPoint = self.outputs.iter().map(|output| output.commitment.decompress().ok_or(Error::AmountSecretsBytesInvalid)).sum::<Result<RistrettoPoint,_>>()?;
+        // Calculate sum(input_commitments) and sum(output_commitments)
+        let inputs: RistrettoPoint = self.inputs.iter().map(|input| input.content.commitment.decompress().ok_or(Error::AmountCommitmentInvalid)).sum::<Result<RistrettoPoint,_>>()?;
+        let outputs: RistrettoPoint = self.outputs.iter().map(|output| output.commitment.decompress().ok_or(Error::AmountCommitmentInvalid)).sum::<Result<RistrettoPoint,_>>()?;
 
         // Verify the range proof for each output.  (bulletproof)
+        // This validates that the committed amount is a positive value.
+        // (somewhere in the range 0..u64::max)
         let bullet_gens = BulletproofGens::new(64, 1);
         let ped_commits = PedersenGens::default();
-        let nbits = 64;
 
         // TODO: Do we need to verify range proofs for inputs, or only outputs?
+        // Input range proofs were already verified (when created) in order to have 
+        // our mint sig.  So I *think* we could skip it and speed things up a bit.
+        // But for now, it does no harm to leave it in. Better to error on side of
+        // paranoia.
         for input in self.inputs.iter() {
-println!("input #{}. making proof.", input.content.output_number);
+            let mut verifier_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
             let proof = RangeProof::from_bytes(&input.content.range_proof_bytes)?;
-println!("input #{}. verifying proof", input.content.output_number);
-            let mut verifier_ts = Transcript::new("Test".as_bytes());
-            proof.verify_single(&bullet_gens, &ped_commits, &mut verifier_ts, &input.content.commitment, nbits)?;
+            proof.verify_single(&bullet_gens, &ped_commits, &mut verifier_ts, &input.content.commitment, RANGE_PROOF_BITS)?;
         }
-        
+
+        // TODO: investigate is there some way we could use RangeProof::verify_multiple() instead?
+        // batched verifications should be faster.  It would seem to require that client call
+        // RangeProof::prove_multiple() over all output DBC amounts. But then where to store the aggregated
+        // RangeProof?  It corresponds to a set of outputs, not a single DBC. Would it make sense to store
+        // a dup copy in each?  Unlike eg Monero we do not have a long-lived Transaction to store such data.
         for output in self.outputs.iter() {
-println!("output #{}. making proof.", output.output_number);
+            let mut verifier_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
             let proof = RangeProof::from_bytes(&output.range_proof_bytes)?;
-println!("output #{}. verifying proof.", output.output_number);
-            let mut verifier_ts = Transcript::new("Test".as_bytes());
-            proof.verify_single(&bullet_gens, &ped_commits, &mut verifier_ts, &output.commitment, nbits)?;
+            proof.verify_single(&bullet_gens, &ped_commits, &mut verifier_ts, &output.commitment, RANGE_PROOF_BITS)?;
         }
 
-//        println!("in validate_balance()");
-//        println!("{}\n{}\n\n{:?}\n{:?}", input64, output64, input, output);
-
-        if input != output {
+        if inputs != outputs {
             Err(Error::DbcReissueRequestDoesNotBalance)
         } else {
             Ok(())
@@ -230,7 +232,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
                 .map_err(|e| Error::Signing(e.to_string()))?
                 .public_key(),
             DbcContent::random_blinding_factor(),
-        );
+        )?;
         let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]),
             outputs: BTreeSet::from_iter(vec![content.hash()]),
