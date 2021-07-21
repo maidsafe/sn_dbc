@@ -12,19 +12,21 @@
 use anyhow::{anyhow, Error, Result};
 use blsttc::poly::Poly;
 use blsttc::serde_impl::SerdeSecret;
-use blsttc::{PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, Signature, SignatureShare};
+use blsttc::{
+    PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, Signature, SignatureShare,
+};
+use curve25519_dalek_ng::scalar::Scalar;
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature,
-    ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
+    Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature, ReissueRequest,
+    ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
     SimpleSpendBook as SpendBook,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
-use curve25519_dalek_ng::scalar::Scalar;
 
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
@@ -364,7 +366,11 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     );
 
     println!("\n-- Genesis DBC --\n");
-    print_dbc_human(&mintinfo.genesis, true, Some((&mintinfo.secret_key_set.public_keys(), &secret_key_shares)))?;
+    print_dbc_human(
+        &mintinfo.genesis,
+        true,
+        Some((&mintinfo.secret_key_set.public_keys(), &secret_key_shares)),
+    )?;
 
     println!("\n");
 
@@ -387,16 +393,26 @@ fn secret_key_set_to_shares(sks: &SecretKeySet) -> (PublicKeySet, BTreeMap<usize
 }
 
 /// displays Dbc in human readable form
-fn print_dbc_human(dbc: &DbcUnblinded, outputs: bool, keys: Option<(&PublicKeySet, &BTreeMap<usize, SecretKeyShare>)>) -> Result<()> {
+fn print_dbc_human(
+    dbc: &DbcUnblinded,
+    outputs: bool,
+    keys: Option<(&PublicKeySet, &BTreeMap<usize, SecretKeyShare>)>,
+) -> Result<()> {
     println!("id: {}\n", encode(dbc.inner.name()));
 
     match keys {
         Some((public_key_set, secret_key_shares)) => {
-            let amount_secrets = dbc.inner.content.amount_secrets_by_secret_key_shares(public_key_set, secret_key_shares)?;
+            let amount_secrets = dbc
+                .inner
+                .content
+                .amount_secrets_by_secret_key_shares(public_key_set, secret_key_shares)?;
             println!("*** Secrets (decrypted) ***");
             println!("     amount: {}\n", amount_secrets.amount);
-            println!("     blinding_factor: {}\n", to_be_hex(&amount_secrets.blinding_factor)?);
-        },
+            println!(
+                "     blinding_factor: {}\n",
+                to_be_hex(&amount_secrets.blinding_factor)?
+            );
+        }
         None => println!("amount: unknown.  SecretKey not available\n"),
     }
 
@@ -450,7 +466,7 @@ fn decode_input() -> Result<()> {
                     println!("\n\n-- Start DBC --\n");
                     print_dbc_human(&from_be_bytes(&bytes)?, true, Some((&keys.0, &keys.1)))?;
                     println!("-- End DBC --\n");
-                },
+                }
             }
         }
         "pks" => {
@@ -568,12 +584,12 @@ fn prepare_tx() -> Result<()> {
 
         inputs_owners.insert(dbc.inner.name(), dbc.owner);
 
-        inputs_total += 0;   // fixme: dbc.inner.content.amount;
+        inputs_total += 0; // fixme: dbc.inner.content.amount;
         inputs.insert(dbc.inner);
     }
 
     let input_hashes = inputs.iter().map(|e| e.name()).collect::<BTreeSet<_>>();
-    let inputs_bf_sum: Scalar = Default::default();  // breaks it! inputs.iter().map(|e| e.content.blinding_factor).sum();
+    let inputs_bf_sum: Scalar = Default::default(); // breaks it! inputs.iter().map(|e| e.content.blinding_factor).sum();
     let mut i = 0u32;
     let mut outputs: HashSet<DbcContent> = Default::default();
 
@@ -668,7 +684,7 @@ fn sign_tx() -> Result<()> {
             "Input #{} [id: {}, amount: {}]",
             i,
             encode(dbc.name()),
-            0   // fixme: dbc.content.amount
+            0 // fixme: dbc.content.amount
         );
         println!("-----------------");
 
@@ -737,7 +753,7 @@ fn prepare_reissue() -> Result<()> {
             "Input #{} [id: {}, amount: {}]",
             dbc.content.output_number,
             encode(dbc.name()),
-            0  // fixme: dbc.content.amount
+            0 // fixme: dbc.content.amount
         );
         println!("-----------------");
 
@@ -868,7 +884,10 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
             secrets.insert(idx, secret);
         }
-        let amount_secrets = dbc.inner.content.amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
+        let amount_secrets = dbc
+            .inner
+            .content
+            .amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
         inputs_total += amount_secrets.amount;
         inputs_bf_sum += amount_secrets.blinding_factor;
 
@@ -880,8 +899,8 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         .map(|(dbc, _)| dbc.inner.name())
         .collect::<BTreeSet<_>>();
 
-//    let inputs_total: u64 = inputs.iter().map(|(dbc, _)| dbc.inner.content.amount).sum();
-//    let inputs_bf_sum: Scalar = inputs.iter().map(|(dbc, _)| dbc.inner.content.blinding_factor).sum();
+    //    let inputs_total: u64 = inputs.iter().map(|(dbc, _)| dbc.inner.content.amount).sum();
+    //    let inputs_bf_sum: Scalar = inputs.iter().map(|(dbc, _)| dbc.inner.content.blinding_factor).sum();
     let mut i = 0u32;
     let mut outputs: HashSet<DbcContent> = Default::default();
 

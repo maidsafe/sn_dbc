@@ -14,25 +14,24 @@
 // Outputs <= input value
 
 use crate::{
+    dbc_content::{MERLIN_TRANSCRIPT_LABEL, RANGE_PROOF_BITS},
     Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, NodeSignature,
-    PublicKeySet, Result, dbc_content::{RANGE_PROOF_BITS, MERLIN_TRANSCRIPT_LABEL},
+    PublicKeySet, Result,
 };
+use bulletproofs::{BulletproofGens, PedersenGens, RangeProof};
+use curve25519_dalek_ng::ristretto::RistrettoPoint;
+use merlin::Transcript;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     iter::FromIterator,
 };
-use curve25519_dalek_ng::ristretto::RistrettoPoint;
-use bulletproofs::{PedersenGens, RangeProof, BulletproofGens};
-use merlin::Transcript;
 
 pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)>;
 
 pub const GENESIS_DBC_INPUT: Hash = Hash([0u8; 32]);
 
-pub trait SpendBook:
-    std::fmt::Debug + Clone
-{
+pub trait SpendBook: std::fmt::Debug + Clone {
     type Error: std::error::Error;
 
     fn lookup(&self, dbc_hash: &DbcContentHash) -> Result<Option<&DbcTransaction>, Self::Error>;
@@ -113,10 +112,28 @@ impl ReissueTransaction {
     }
 
     fn validate_balance(&self) -> Result<()> {
-
         // Calculate sum(input_commitments) and sum(output_commitments)
-        let inputs: RistrettoPoint = self.inputs.iter().map(|input| input.content.commitment.decompress().ok_or(Error::AmountCommitmentInvalid)).sum::<Result<RistrettoPoint,_>>()?;
-        let outputs: RistrettoPoint = self.outputs.iter().map(|output| output.commitment.decompress().ok_or(Error::AmountCommitmentInvalid)).sum::<Result<RistrettoPoint,_>>()?;
+        let inputs: RistrettoPoint = self
+            .inputs
+            .iter()
+            .map(|input| {
+                input
+                    .content
+                    .commitment
+                    .decompress()
+                    .ok_or(Error::AmountCommitmentInvalid)
+            })
+            .sum::<Result<RistrettoPoint, _>>()?;
+        let outputs: RistrettoPoint = self
+            .outputs
+            .iter()
+            .map(|output| {
+                output
+                    .commitment
+                    .decompress()
+                    .ok_or(Error::AmountCommitmentInvalid)
+            })
+            .sum::<Result<RistrettoPoint, _>>()?;
 
         // Verify the range proof for each output.  (bulletproof)
         // This validates that the committed amount is a positive value.
@@ -125,14 +142,20 @@ impl ReissueTransaction {
         let ped_commits = PedersenGens::default();
 
         // TODO: Do we need to verify range proofs for inputs, or only outputs?
-        // Input range proofs were already verified (when created) in order to have 
+        // Input range proofs were already verified (when created) in order to have
         // our mint sig.  So I *think* we could skip it and speed things up a bit.
         // But for now, it does no harm to leave it in. Better to error on side of
         // paranoia.
         for input in self.inputs.iter() {
             let mut verifier_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
             let proof = RangeProof::from_bytes(&input.content.range_proof_bytes)?;
-            proof.verify_single(&bullet_gens, &ped_commits, &mut verifier_ts, &input.content.commitment, RANGE_PROOF_BITS)?;
+            proof.verify_single(
+                &bullet_gens,
+                &ped_commits,
+                &mut verifier_ts,
+                &input.content.commitment,
+                RANGE_PROOF_BITS,
+            )?;
         }
 
         // TODO: investigate is there some way we could use RangeProof::verify_multiple() instead?
@@ -143,7 +166,13 @@ impl ReissueTransaction {
         for output in self.outputs.iter() {
             let mut verifier_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
             let proof = RangeProof::from_bytes(&output.range_proof_bytes)?;
-            proof.verify_single(&bullet_gens, &ped_commits, &mut verifier_ts, &output.commitment, RANGE_PROOF_BITS)?;
+            proof.verify_single(
+                &bullet_gens,
+                &ped_commits,
+                &mut verifier_ts,
+                &output.commitment,
+                RANGE_PROOF_BITS,
+            )?;
         }
 
         if inputs != outputs {
