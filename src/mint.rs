@@ -14,13 +14,10 @@
 // Outputs <= input value
 
 use crate::{
-    dbc_content::{MERLIN_TRANSCRIPT_LABEL, RANGE_PROOF_BITS},
     Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, NodeSignature,
     PublicKeySet, Result,
 };
-use bulletproofs::{BulletproofGens, PedersenGens, RangeProof};
 use curve25519_dalek_ng::ristretto::RistrettoPoint;
-use merlin::Transcript;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -138,41 +135,14 @@ impl ReissueTransaction {
         // Verify the range proof for each output.  (bulletproof)
         // This validates that the committed amount is a positive value.
         // (somewhere in the range 0..u64::max)
-        let bullet_gens = BulletproofGens::new(64, 1);
-        let ped_commits = PedersenGens::default();
-
-        // TODO: Do we need to verify range proofs for inputs, or only outputs?
-        // Input range proofs were already verified (when created) in order to have
-        // our mint sig.  So I *think* we could skip it and speed things up a bit.
-        // But for now, it does no harm to leave it in. Better to error on side of
-        // paranoia.
-        for input in self.inputs.iter() {
-            let mut verifier_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
-            let proof = RangeProof::from_bytes(&input.content.range_proof_bytes)?;
-            proof.verify_single(
-                &bullet_gens,
-                &ped_commits,
-                &mut verifier_ts,
-                &input.content.commitment,
-                RANGE_PROOF_BITS,
-            )?;
-        }
-
+        //
         // TODO: investigate is there some way we could use RangeProof::verify_multiple() instead?
         // batched verifications should be faster.  It would seem to require that client call
         // RangeProof::prove_multiple() over all output DBC amounts. But then where to store the aggregated
         // RangeProof?  It corresponds to a set of outputs, not a single DBC. Would it make sense to store
         // a dup copy in each?  Unlike eg Monero we do not have a long-lived Transaction to store such data.
         for output in self.outputs.iter() {
-            let mut verifier_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
-            let proof = RangeProof::from_bytes(&output.range_proof_bytes)?;
-            proof.verify_single(
-                &bullet_gens,
-                &ped_commits,
-                &mut verifier_ts,
-                &output.commitment,
-                RANGE_PROOF_BITS,
-            )?;
+            output.verify_range_proof()?;
         }
 
         if inputs != outputs {

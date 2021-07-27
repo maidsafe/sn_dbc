@@ -16,7 +16,6 @@ use curve25519_dalek_ng::scalar::Scalar;
 use merlin::Transcript;
 use rand8::rngs::OsRng;
 use serde::{Deserialize, Serialize};
-use slice_as_array::*;
 use std::collections::BTreeMap;
 use tiny_keccak::{Hasher, Sha3};
 
@@ -24,10 +23,14 @@ use crate::{DbcContentHash, Error, Hash};
 
 pub(crate) const RANGE_PROOF_BITS: usize = 64; // note: Range Proof max-bits is 64. allowed are: 8, 16, 32, 64 (only)
                                                //       This limits our amount field to 64 bits also.
+pub(crate) const RANGE_PROOF_PARTIES: usize = 1; // The maximum number of parties that can produce an aggregated proof
 pub(crate) const MERLIN_TRANSCRIPT_LABEL: &[u8] = b"SN_DBC";
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct BlindedOwner(Hash);
+
+const AMT_SIZE: usize = 8; // Amount size: 8 bytes (u64)
+const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
 
 impl BlindedOwner {
     pub fn new(owner: &PublicKey, parents: &BTreeSet<DbcContentHash>, output_number: u32) -> Self {
@@ -55,21 +58,44 @@ pub struct AmountSecrets {
 }
 
 impl AmountSecrets {
-    fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend(&self.amount.to_le_bytes());
         v.extend(&self.blinding_factor.to_bytes());
         v
     }
 
-    #[allow(clippy::transmute_ptr_to_ref)]
-    fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let amount = u64::from_le_bytes(
-            *slice_as_array!(&bytes[0..8], [u8; 8]).ok_or(Error::AmountSecretsBytesInvalid)?,
-        );
-        let blinding_factor = Scalar::from_bytes_mod_order(
-            *slice_as_array!(&bytes[8..], [u8; 32]).ok_or(Error::AmountSecretsBytesInvalid)?,
-        );
+    pub fn from_bytes(bytes: [u8; AMT_SIZE + BF_SIZE]) -> Self {
+        let amount = u64::from_le_bytes({
+            let mut b = [0u8; AMT_SIZE];
+            b.copy_from_slice(&bytes[0..AMT_SIZE]);
+            b
+        });
+        let blinding_factor = Scalar::from_bytes_mod_order({
+            let mut b = [0u8; BF_SIZE];
+            b.copy_from_slice(&bytes[AMT_SIZE..]);
+            b
+        });
+        Self {
+            amount,
+            blinding_factor,
+        }
+    }
+
+    pub fn from_bytes_ref(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() != AMT_SIZE + BF_SIZE {
+            return Err(Error::AmountSecretsBytesInvalid);
+        }
+        let amount = u64::from_le_bytes({
+            let mut b = [0u8; AMT_SIZE];
+            b.copy_from_slice(&bytes[0..AMT_SIZE]);
+            b
+        });
+        let blinding_factor = Scalar::from_bytes_mod_order({
+            let mut b = [0u8; BF_SIZE];
+            b.copy_from_slice(&bytes[AMT_SIZE..]);
+            b
+        });
         Ok(Self {
             amount,
             blinding_factor,
@@ -99,12 +125,12 @@ impl DbcContent {
         let owner = BlindedOwner::new(&owner_key, &parents, output_number);
         let secret = amount;
 
-        let ped_commits = PedersenGens::default();
-        let bullet_gens = BulletproofGens::new(RANGE_PROOF_BITS, 1);
+        let pc_gens = PedersenGens::default();
+        let bullet_gens = BulletproofGens::new(RANGE_PROOF_BITS, RANGE_PROOF_PARTIES);
         let mut prover_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
         let (proof, commitment) = RangeProof::prove_single(
             &bullet_gens,
-            &ped_commits,
+            &pc_gens,
             &mut prover_ts,
             secret,
             &blinding_factor,
@@ -165,7 +191,7 @@ impl DbcContent {
         let bytes_vec = secret_key
             .decrypt(&self.amount_secrets_cipher)
             .ok_or(Error::DecryptionBySecretKeyFailed)?;
-        AmountSecrets::from_bytes(&bytes_vec)
+        AmountSecrets::from_bytes_ref(&bytes_vec)
     }
 
     /// Decrypt AmountSecrets using a SecretKeySet
@@ -209,6 +235,23 @@ impl DbcContent {
         decryption_shares: &BTreeMap<usize, DecryptionShare>,
     ) -> Result<AmountSecrets, Error> {
         let bytes_vec = public_key_set.decrypt(decryption_shares, &self.amount_secrets_cipher)?;
-        AmountSecrets::from_bytes(&bytes_vec)
+        AmountSecrets::from_bytes_ref(&bytes_vec)
+    }
+
+    /// Verifies range proof, ie that the committed amount is a non-negative u64.
+    pub fn verify_range_proof(&self) -> Result<(), Error> {
+        let bullet_gens = BulletproofGens::new(RANGE_PROOF_BITS, RANGE_PROOF_PARTIES);
+        let pc_gens = PedersenGens::default();
+
+        let mut verifier_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
+        let proof = RangeProof::from_bytes(&self.range_proof_bytes)?;
+
+        Ok(proof.verify_single(
+            &bullet_gens,
+            &pc_gens,
+            &mut verifier_ts,
+            &self.commitment,
+            RANGE_PROOF_BITS,
+        )?)
     }
 }
