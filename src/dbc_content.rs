@@ -199,14 +199,7 @@ impl DbcContent {
         &self,
         secret_key_set: &SecretKeySet,
     ) -> Result<AmountSecrets, Error> {
-        // todo: change impl to this once blsttc::SecretKeySet::secret_key() is made pub
-        // self.amount_secret_by_secret_key(&secret_key_set.secret_key())
-
-        let mut shares: BTreeMap<usize, SecretKeyShare> = Default::default();
-        for i in 0..secret_key_set.threshold() + 1 {
-            shares.insert(i, secret_key_set.secret_key_share(i));
-        }
-        self.amount_secrets_by_secret_key_shares(&secret_key_set.public_keys(), &shares)
+        self.amount_secret_by_secret_key(&secret_key_set.secret_key())
     }
 
     /// Decrypt AmountSecrets using threshold+1 SecretKeyShares
@@ -253,5 +246,21 @@ impl DbcContent {
             &self.commitment,
             RANGE_PROOF_BITS,
         )?)
+    }
+
+    /// Calculates the blinding factor for the next output, typically used inside a loop.
+    ///
+    /// is_last: must be true if this is the last output, else false.
+    /// inputs_bf_sum: sum of blinding factors for all transaction inputs.
+    /// outputs_bf_sum: sum of blinding factors for preceding transaction outputs.
+    pub fn calc_blinding_factor(
+        is_last: bool,
+        inputs_bf_sum: Scalar,
+        outputs_bf_sum: Scalar,
+    ) -> Scalar {
+        match is_last {
+            true => inputs_bf_sum - outputs_bf_sum,
+            false => DbcContent::random_blinding_factor(),
+        }
     }
 }

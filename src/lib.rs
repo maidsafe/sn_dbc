@@ -121,8 +121,11 @@ fn sha3_256(input: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dbc_content::AmountSecrets;
+    use bls_dkg::SecretKeyShare;
     use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
+    use std::collections::BTreeMap;
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyInt(u8);
@@ -189,6 +192,10 @@ mod tests {
         pub fn into_iter(self) -> impl Iterator<Item = T> {
             self.0.into_iter()
         }
+
+        pub fn is_empty(&self) -> bool {
+            self.0.is_empty()
+        }
     }
 
     impl<T: std::fmt::Debug> std::fmt::Debug for TinyVec<T> {
@@ -209,6 +216,27 @@ mod tests {
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
             Box::new(self.0.shrink().map(Self))
+        }
+    }
+
+    pub struct DbcHelper {}
+
+    impl DbcHelper {
+        pub fn decrypt_amount_secrets(
+            owner: &bls_dkg::outcome::Outcome,
+            dbcc: &DbcContent,
+        ) -> Result<AmountSecrets, Error> {
+            let mut shares: BTreeMap<usize, SecretKeyShare> = Default::default();
+            shares.insert(0, owner.secret_key_share.clone());
+
+            dbcc.amount_secrets_by_secret_key_shares(&owner.public_key_set, &shares)
+        }
+
+        pub fn decrypt_amount(
+            owner: &bls_dkg::outcome::Outcome,
+            dbcc: &DbcContent,
+        ) -> Result<u64, Error> {
+            Ok(Self::decrypt_amount_secrets(owner, dbcc)?.amount)
         }
     }
 

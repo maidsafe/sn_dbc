@@ -55,12 +55,13 @@ impl Dbc {
 mod tests {
     use super::*;
 
+    use curve25519_dalek_ng::scalar::Scalar;
     use std::collections::{BTreeSet, HashMap, HashSet};
     use std::iter::FromIterator;
 
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::{NonZeroTinyInt, TinyInt};
+    use crate::tests::{DbcHelper, NonZeroTinyInt, TinyInt};
     use crate::{
         KeyManager, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager, SimpleSigner,
         SimpleSpendBook,
@@ -81,20 +82,31 @@ mod tests {
         dbc: &Dbc,
         n_ways: u8,
         output_owner: &blsttc::PublicKeySet,
-    ) -> ReissueRequest {
+    ) -> Result<(ReissueRequest, Scalar), Error> {
         let inputs = HashSet::from_iter(vec![dbc.clone()]);
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
-        let outputs =
-            HashSet::from_iter(divide(dbc.amount(), n_ways).enumerate().map(|(i, amount)| {
-                DbcContent::new(
-                    input_hashes.clone(),
-                    amount,
-                    i as u32,
-                    output_owner.public_key(),
-                    None,
-                )
-            }));
+        let amount_secrets = DbcHelper::decrypt_amount_secrets(&dbc_owner, &dbc.content)?;
+
+        let mut outputs_bf_sum: Scalar = Default::default();
+        let output_amounts: Vec<u64> = divide(amount_secrets.amount, n_ways).collect();
+        let outputs = HashSet::from_iter(output_amounts.iter().enumerate().map(|(i, amount)| {
+            let blinding_factor = DbcContent::calc_blinding_factor(
+                i == output_amounts.len() - 1,
+                amount_secrets.blinding_factor,
+                outputs_bf_sum,
+            );
+            outputs_bf_sum += blinding_factor;
+
+            DbcContent::new(
+                input_hashes.clone(),
+                *amount,
+                i as u32,
+                output_owner.public_key(),
+                blinding_factor,
+            )
+            .unwrap()
+        }));
 
         let transaction = ReissueTransaction { inputs, outputs };
 
@@ -107,24 +119,27 @@ mod tests {
             .combine_signatures(vec![(0, &sig_share)])
             .unwrap();
 
-        ReissueRequest {
-            transaction,
-            input_ownership_proofs: HashMap::from_iter(vec![(
-                dbc.name(),
-                (dbc_owner.public_key_set.public_key(), sig),
-            )]),
-        }
+        Ok((
+            ReissueRequest {
+                transaction,
+                input_ownership_proofs: HashMap::from_iter(vec![(
+                    dbc.name(),
+                    (dbc_owner.public_key_set.public_key(), sig),
+                )]),
+            },
+            outputs_bf_sum,
+        ))
     }
 
     #[test]
-    fn test_dbc_without_inputs_is_invalid() {
+    fn test_dbc_without_inputs_is_invalid() -> Result<(), Error> {
         let input_content = DbcContent::new(
             BTreeSet::new(),
             100,
             0,
             crate::bls_dkg_id().public_key_set.public_key(),
-            None,
-        );
+            DbcContent::random_blinding_factor(),
+        )?;
 
         let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
 
@@ -147,6 +162,8 @@ mod tests {
             dbc.confirm_valid(&key_manager),
             Err(Error::TransactionMustHaveAnInput)
         ));
+
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -160,7 +177,7 @@ mod tests {
         extra_output_amount: TinyInt,  // Artifically increase output dbc value
         n_add_random_parents: TinyInt, // # of random parents to add to output DBC
         n_drop_parents: TinyInt,       // # of valid parents to drop from output DBC
-    ) {
+    ) -> Result<(), Error> {
         let amount = 100;
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
@@ -191,12 +208,12 @@ mod tests {
         };
 
         let input_owner = crate::bls_dkg_id();
-        let reissue_request = prepare_even_split(
+        let (reissue_request, inputs_bf_sum) = prepare_even_split(
             &genesis_owner,
             &genesis_dbc,
             n_inputs.coerce(),
             &input_owner.public_key_set,
-        );
+        )?;
         let input_hashes = reissue_request
             .transaction
             .inputs
@@ -235,8 +252,8 @@ mod tests {
             amount,
             0,
             crate::bls_dkg_id().public_key_set.public_key(),
-            None,
-        );
+            inputs_bf_sum,
+        )?;
         let outputs = HashSet::from_iter(vec![content]);
 
         let transaction = ReissueTransaction { inputs, outputs };
@@ -244,7 +261,7 @@ mod tests {
             .secret_key_share
             .sign(&transaction.blinded().hash());
 
-        let input_owner_key_set = input_owner.public_key_set;
+        let input_owner_key_set = input_owner.public_key_set.clone();
         let sig = input_owner_key_set
             .combine_signatures(vec![(0, &sig_share)])
             .unwrap();
@@ -288,8 +305,8 @@ mod tests {
             amount + extra_output_amount.coerce::<u64>(),
             0,
             crate::bls_dkg_id().public_key_set.public_key(),
-            None,
-        );
+            DbcContent::random_blinding_factor(),
+        )?;
 
         let mut fuzzed_transaction_sigs: BTreeMap<Hash, (PublicKey, Signature)> = BTreeMap::new();
 
@@ -359,13 +376,15 @@ mod tests {
         );
         let validation_res = dbc.confirm_valid(&key_manager);
 
+        let dbc_amount = DbcHelper::decrypt_amount(&input_owner, &dbc.content)?;
+
         println!("Validation Result: {:#?}", validation_res);
         match validation_res {
             Ok(()) => {
                 assert!(dbc.transaction.outputs.contains(&dbc.content.hash()));
                 assert!(n_inputs.coerce::<u8>() > 0);
                 assert!(n_valid_sigs.coerce::<u8>() >= n_inputs.coerce::<u8>());
-                assert_eq!(dbc.amount(), amount);
+                assert_eq!(dbc_amount, amount);
                 assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
                 assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
                 assert_eq!(n_wrong_msg_sigs.coerce::<u8>(), 0);
@@ -418,5 +437,6 @@ mod tests {
             }
             res => panic!("Unexpected verification result {:?}", res),
         }
+        Ok(())
     }
 }
