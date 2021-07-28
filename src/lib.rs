@@ -192,10 +192,6 @@ mod tests {
         pub fn into_iter(self) -> impl Iterator<Item = T> {
             self.0.into_iter()
         }
-
-        pub fn is_empty(&self) -> bool {
-            self.0.is_empty()
-        }
     }
 
     impl<T: std::fmt::Debug> std::fmt::Debug for TinyVec<T> {
