@@ -28,6 +28,12 @@ use sn_dbc::{
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
+#[cfg(unix)]
+use std::os::unix::{io::AsRawFd, prelude::RawFd};
+
+#[cfg(unix)]
+use termios::{tcsetattr, Termios, ICANON, TCSADRAIN};
+
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
 struct MintInfo {
@@ -82,6 +88,11 @@ struct SignatureSharesMap(HashMap<Hash, HashMap<usize, SignatureShare>>);
 
 /// program entry point and interactive command handler.
 fn main() -> Result<()> {
+    // Disable TTY ICANON.  So readline() can read more than 4096 bytes.
+    // termios_old has the previous settings so we can restore before exit.
+    #[cfg(unix)]
+    let (tty_fd, termios_old) = unset_tty_icanon()?;
+
     print_logo();
     println!("Type 'help' to get started.\n");
 
@@ -123,7 +134,7 @@ fn main() -> Result<()> {
                     _ => Err(anyhow!("Unknown command")),
                 };
                 if let Err(msg) = result {
-                    println!("\nError: {}\n", msg);
+                    println!("\nError: {:?}\n", msg);
                 }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => break,
@@ -132,6 +143,10 @@ fn main() -> Result<()> {
             }
         }
     }
+
+    // restore original TTY settings.
+    #[cfg(unix)]
+    tcsetattr(tty_fd, TCSADRAIN, &termios_old)?;
 
     Ok(())
 }
@@ -574,6 +589,7 @@ fn prepare_tx() -> Result<()> {
 
     // Get DBC inputs from user
     let mut inputs_total: u64 = 0;
+    let mut inputs_bf_total: Scalar = Default::default();
     loop {
         let dbc_input = readline_prompt_nl("\nInput DBC, or 'done': ")?;
         let dbc: DbcUnblinded = if dbc_input == "done" {
@@ -582,14 +598,47 @@ fn prepare_tx() -> Result<()> {
             from_be_hex(&dbc_input)?
         };
 
+        let mut secrets: BTreeMap<usize, SecretKeyShare> = Default::default();
+        println!(
+            "We need {} SecretKeyShare in order to decrypt the input amount.",
+            dbc.owner.threshold() + 1
+        );
+        loop {
+            println!(
+                "\nWe have {} of {} required SecretKeyShare",
+                secrets.len(),
+                dbc.owner.threshold() + 1
+            );
+
+            let key = readline_prompt_nl("\nSecretKeyShare, or 'done': ")?;
+            let secret: SecretKeyShare = if key == "done" {
+                break;
+            } else {
+                from_be_hex(&key)?
+            };
+            let idx_input = readline_prompt("\nSecretKeyShare Index: ")?;
+            let idx: usize = idx_input.parse()?;
+
+            secrets.insert(idx, secret);
+
+            if secrets.len() > dbc.owner.threshold() {
+                break;
+            }
+        }
+
+        let amount_secrets = dbc
+            .inner
+            .content
+            .amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
+
         inputs_owners.insert(dbc.inner.name(), dbc.owner);
 
-        inputs_total += 0; // fixme: dbc.inner.content.amount;
+        inputs_total += amount_secrets.amount;
+        inputs_bf_total += amount_secrets.blinding_factor;
         inputs.insert(dbc.inner);
     }
 
     let input_hashes = inputs.iter().map(|e| e.name()).collect::<BTreeSet<_>>();
-    let inputs_bf_sum: Scalar = Default::default(); // breaks it! inputs.iter().map(|e| e.content.blinding_factor).sum();
     let mut i = 0u32;
     let mut outputs: HashSet<DbcContent> = Default::default();
 
@@ -634,11 +683,11 @@ fn prepare_tx() -> Result<()> {
 
         // If this is the final output we need to calculate the final
         // blinding factor, else generate random.
-        let blinding_factor = if outputs_total + amount == inputs_total {
-            inputs_bf_sum - outputs_bf_sum
-        } else {
-            DbcContent::random_blinding_factor()
-        };
+        let blinding_factor = DbcContent::calc_blinding_factor(
+            outputs_total + amount == inputs_total,
+            inputs_bf_total,
+            outputs_bf_sum,
+        );
 
         let dbc_content = DbcContent::new(
             input_hashes.clone(),     // parents
@@ -681,10 +730,9 @@ fn sign_tx() -> Result<()> {
     for (i, dbc) in tx.inner.inputs.iter().enumerate() {
         println!("-----------------");
         println!(
-            "Input #{} [id: {}, amount: {}]",
+            "Input #{} [id: {}, amount: ???  (encrypted)]",
             i,
             encode(dbc.name()),
-            0 // fixme: dbc.content.amount
         );
         println!("-----------------");
 
@@ -866,7 +914,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         };
 
         println!(
-            "\nWe need {} SecretKeyShare for this input DBC.",
+            "We need {} SecretKeyShare in order to decrypt the input amount.",
             dbc.owner.threshold() + 1
         );
 
@@ -945,13 +993,11 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
         let pub_out_set: PublicKeySet = from_be_hex(&pub_out)?;
 
-        // If this is the final output we need to calculate the final
-        // blinding factor.
-        let blinding_factor = if outputs_total + amount == inputs_total {
-            inputs_bf_sum - outputs_bf_sum
-        } else {
-            DbcContent::random_blinding_factor()
-        };
+        let blinding_factor = DbcContent::calc_blinding_factor(
+            outputs_total + amount == inputs_total,
+            inputs_bf_sum,
+            outputs_bf_sum,
+        );
 
         let dbc_content = DbcContent::new(
             input_hashes.clone(),     // parents
@@ -1205,4 +1251,17 @@ fn big_endian_bytes_to_bincode_bytes(mut beb: Vec<u8>) -> Vec<u8> {
 fn bincode_bytes_to_big_endian_bytes(mut bb: Vec<u8>) -> Vec<u8> {
     bb.reverse();
     bb
+}
+
+/// Unsets TTY ICANON.  So readline() can read more than 4096 bytes.
+///
+/// returns FD of our input TTY and the previous settings
+#[cfg(unix)]
+fn unset_tty_icanon() -> Result<(RawFd, Termios)> {
+    let tty_fd = std::io::stdin().as_raw_fd();
+    let termios_old = Termios::from_fd(tty_fd).unwrap();
+    let mut termios_new = termios_old;
+    termios_new.c_lflag &= !ICANON;
+    tcsetattr(tty_fd, TCSADRAIN, &termios_new)?;
+    Ok((tty_fd, termios_old))
 }
