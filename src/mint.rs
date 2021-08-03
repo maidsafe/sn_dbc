@@ -906,7 +906,7 @@ mod tests {
 
         let output_amount: u64 = outputs
             .iter()
-            .map(|output| DbcHelper::decrypt_amount(&outputs_owner, &output))
+            .map(|output| DbcHelper::decrypt_amount(&outputs_owner, output))
             .sum::<Result<u64, _>>()?;
         let number_of_fuzzed_output_parents = BTreeSet::from_iter(extra_output_parents)
             .intersection(&BTreeSet::from_iter(output_amounts.iter().map(|(n, _)| *n)))
@@ -931,7 +931,7 @@ mod tests {
                     BTreeSet::from_iter(
                         outputs
                             .iter()
-                            .map(|o| { DbcHelper::decrypt_amount(&outputs_owner, &o) })
+                            .map(|o| { DbcHelper::decrypt_amount(&outputs_owner, o) })
                             .collect::<Result<Vec<_>, _>>()?
                     ),
                     BTreeSet::from_iter(output_amounts.into_iter().map(|(_, a)| a))

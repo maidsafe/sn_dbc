@@ -86,7 +86,7 @@ mod tests {
         let inputs = HashSet::from_iter(vec![dbc.clone()]);
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
-        let amount_secrets = DbcHelper::decrypt_amount_secrets(&dbc_owner, &dbc.content)?;
+        let amount_secrets = DbcHelper::decrypt_amount_secrets(dbc_owner, &dbc.content)?;
 
         let mut outputs_bf_sum: Scalar = Default::default();
         let output_amounts: Vec<u64> = divide(amount_secrets.amount, n_ways).collect();
