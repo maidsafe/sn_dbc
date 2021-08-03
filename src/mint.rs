@@ -289,7 +289,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
 
         for input_dbc in reissue_req.transaction.inputs.iter() {
             match reissue_req.input_ownership_proofs.get(&input_dbc.name()) {
-                Some((owner, sig)) if owner.verify(&sig, &transaction_hash) => {
+                Some((owner, sig)) if owner.verify(sig, &transaction_hash) => {
                     input_dbc.content.validate_unblinding(owner)?;
                 }
                 Some(_) => return Err(Error::FailedSignature),
@@ -305,7 +305,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
         for input in inputs_belonging_to_mint.iter() {
             if let Some(transaction) = self
                 .spendbook
-                .lookup(&input)
+                .lookup(input)
                 .map_err(|e| Error::SpendBook(e.to_string()))?
                 .cloned()
             {

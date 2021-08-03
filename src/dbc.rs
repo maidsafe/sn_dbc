@@ -34,7 +34,7 @@ impl Dbc {
             }
 
             verifier
-                .verify(&self.transaction.hash(), &mint_key, &mint_sig)
+                .verify(&self.transaction.hash(), mint_key, mint_sig)
                 .map_err(|e| Error::Signing(e.to_string()))?;
         }
         if self.transaction.inputs.is_empty() {

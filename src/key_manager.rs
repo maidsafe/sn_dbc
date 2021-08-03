@@ -128,7 +128,7 @@ impl Keys {
 
     fn verify(&self, msg: &Hash, key: &PublicKey, sig: &Signature) -> Result<()> {
         self.verify_known_key(key)?;
-        if key.verify(&sig, msg) {
+        if key.verify(sig, msg) {
             Ok(())
         } else {
             Err(Error::FailedSignature)
