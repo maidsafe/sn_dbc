@@ -48,8 +48,10 @@ serde = "1.0.126"
 rand = "0.7.1"
 xor_name = "1.2.0"
 rustyline = "8.0.0"
-termios = "0.3.3"
 bincode = "1.3.3"
+
+[target.'cfg(unix)'.dev-dependencies]
+termios = "0.3.3"
 
   [dev-dependencies.sn_dbc]
   path = "."
