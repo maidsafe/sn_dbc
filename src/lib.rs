@@ -25,17 +25,14 @@ mod mint;
 
 pub use crate::{
     dbc::Dbc,
-    dbc_content::{AmountSecrets, BlindedOwner, DbcContent},
+    dbc_content::{AmountSecrets, DbcContent},
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
         SimpleSigner,
     },
-    mint::{
-        Mint, MintSignatures, ReissueRequest, ReissueTransaction, SimpleSpendBook, SpendBook,
-        GENESIS_DBC_INPUT,
-    },
+    mint::{Mint, MintSignatures, ReissueRequest, ReissueTransaction, SimpleSpendBook, SpendBook},
 };
 
 impl From<[u8; 32]> for Hash {

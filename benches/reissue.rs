@@ -5,6 +5,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
 use curve25519_dalek_ng::scalar::Scalar;
+use core::time::Duration;
+
+
 use sn_dbc::{
     bls_dkg_id, AmountSecrets, Dbc, DbcContent, Error, Mint, ReissueRequest, ReissueTransaction,
     SimpleKeyManager, SimpleSigner, SimpleSpendBook,
@@ -234,5 +237,9 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     });
 }
 
-criterion_group!(reissue, bench_reissue_1_to_100, bench_reissue_100_to_1);
+criterion_group!{
+    name = reissue;
+    config = Criterion::default().measurement_time(Duration::new(20, 0));
+    targets = bench_reissue_1_to_100, bench_reissue_100_to_1
+}
 criterion_main!(reissue);

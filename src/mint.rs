@@ -24,46 +24,44 @@ use std::{
     iter::FromIterator,
 };
 
-pub type MintSignatures = BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)>;
-
-pub const GENESIS_DBC_INPUT: Hash = Hash([0u8; 32]);
+pub type MintSignatures = BTreeMap<blsttc::PublicKey, (PublicKeySet, NodeSignature)>;
 
 pub trait SpendBook: std::fmt::Debug + Clone {
     type Error: std::error::Error;
 
-    fn lookup(&self, dbc_hash: &DbcContentHash) -> Result<Option<&DbcTransaction>, Self::Error>;
+    fn lookup(&self, owner: &blsttc::PublicKey) -> Result<Option<&DbcTransaction>, Self::Error>;
     fn log(
         &mut self,
-        dbc_hash: DbcContentHash,
+        owner: blsttc::PublicKey,
         transaction: DbcTransaction,
     ) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SimpleSpendBook {
-    pub transactions: BTreeMap<DbcContentHash, DbcTransaction>,
+    pub transactions: BTreeMap<blsttc::PublicKey, DbcTransaction>,
 }
 
 impl SpendBook for SimpleSpendBook {
     type Error = std::convert::Infallible;
 
-    fn lookup(&self, dbc_hash: &DbcContentHash) -> Result<Option<&DbcTransaction>, Self::Error> {
-        Ok(self.transactions.get(dbc_hash))
+    fn lookup(&self, owner: &blsttc::PublicKey) -> Result<Option<&DbcTransaction>, Self::Error> {
+        Ok(self.transactions.get(owner))
     }
 
     fn log(
         &mut self,
-        dbc_hash: DbcContentHash,
+        owner: blsttc::PublicKey,
         transaction: DbcTransaction,
     ) -> Result<(), Self::Error> {
-        self.transactions.insert(dbc_hash, transaction);
+        self.transactions.insert(owner, transaction);
         Ok(())
     }
 }
 
 impl<'a> IntoIterator for &'a SimpleSpendBook {
-    type Item = (&'a DbcContentHash, &'a DbcTransaction);
-    type IntoIter = std::collections::btree_map::Iter<'a, DbcContentHash, DbcTransaction>;
+    type Item = (&'a blsttc::PublicKey, &'a DbcTransaction);
+    type IntoIter = std::collections::btree_map::Iter<'a, blsttc::PublicKey, DbcTransaction>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.transactions.iter()
@@ -71,8 +69,8 @@ impl<'a> IntoIterator for &'a SimpleSpendBook {
 }
 
 impl IntoIterator for SimpleSpendBook {
-    type Item = (DbcContentHash, DbcTransaction);
-    type IntoIter = std::collections::btree_map::IntoIter<DbcContentHash, DbcTransaction>;
+    type Item = (blsttc::PublicKey, DbcTransaction);
+    type IntoIter = std::collections::btree_map::IntoIter<blsttc::PublicKey, DbcTransaction>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.transactions.into_iter()
@@ -96,8 +94,8 @@ pub struct ReissueTransaction {
 impl ReissueTransaction {
     pub fn blinded(&self) -> DbcTransaction {
         DbcTransaction {
-            inputs: BTreeSet::from_iter(self.inputs.iter().map(|i| i.name())),
-            outputs: BTreeSet::from_iter(self.outputs.iter().map(|i| i.hash())),
+            inputs: BTreeSet::from_iter(self.inputs.iter().map(|i| i.owner())),
+            outputs: BTreeSet::from_iter(self.outputs.iter().map(|i| i.owner)),
         }
     }
 
@@ -196,7 +194,7 @@ impl ReissueTransaction {
 pub struct ReissueRequest {
     pub transaction: ReissueTransaction,
     // Signatures from the owners of each input, signing `self.transaction.blinded().hash()`
-    pub input_ownership_proofs: HashMap<DbcContentHash, (blsttc::PublicKey, blsttc::Signature)>,
+    pub input_ownership_proofs: HashMap<blsttc::PublicKey, blsttc::Signature>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -219,9 +217,10 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
 
     pub fn issue_genesis_dbc(
         &mut self,
+        genesis_owner: blsttc::PublicKey,
         amount: u64,
     ) -> Result<(DbcContent, DbcTransaction, (PublicKeySet, NodeSignature))> {
-        let parents = BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]);
+        let parents = BTreeSet::from_iter([genesis_owner]);
         let content = DbcContent::new(
             parents,
             amount,
@@ -233,13 +232,13 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
             DbcContent::random_blinding_factor(),
         )?;
         let transaction = DbcTransaction {
-            inputs: BTreeSet::from_iter(vec![GENESIS_DBC_INPUT]),
-            outputs: BTreeSet::from_iter(vec![content.hash()]),
+            inputs: BTreeSet::from_iter([genesis_owner]),
+            outputs: BTreeSet::from_iter([content.owner]),
         };
 
         match self
             .spendbook
-            .lookup(&GENESIS_DBC_INPUT)
+            .lookup(&genesis_owner)
             .map_err(|e| Error::SpendBook(e.to_string()))?
         {
             Some(tx) if tx != &transaction => return Err(Error::GenesisInputAlreadySpent),
@@ -247,7 +246,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
         }
 
         self.spendbook
-            .log(GENESIS_DBC_INPUT, transaction.clone())
+            .log(genesis_owner, transaction.clone())
             .map_err(|e| Error::SpendBook(e.to_string()))?;
         let transaction_sig = self
             .key_manager
@@ -266,10 +265,10 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
         ))
     }
 
-    pub fn is_spent(&self, dbc_hash: DbcContentHash) -> Result<bool> {
+    pub fn is_spent(&self, owner: blsttc::PublicKey) -> Result<bool> {
         Ok(self
             .spendbook
-            .lookup(&dbc_hash)
+            .lookup(&owner)
             .map_err(|e| Error::SpendBook(e.to_string()))?
             .is_some())
     }
@@ -281,18 +280,18 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
     pub fn reissue(
         &mut self,
         reissue_req: ReissueRequest,
-        inputs_belonging_to_mint: BTreeSet<DbcContentHash>,
+        inputs_belonging_to_mint: BTreeSet<blsttc::PublicKey>,
     ) -> Result<(DbcTransaction, MintSignatures)> {
         reissue_req.transaction.validate(self.key_manager())?;
         let transaction = reissue_req.transaction.blinded();
         let transaction_hash = transaction.hash();
 
         for input_dbc in reissue_req.transaction.inputs.iter() {
-            match reissue_req.input_ownership_proofs.get(&input_dbc.name()) {
-                Some((owner, sig)) if owner.verify(sig, &transaction_hash) => {
-                    input_dbc.content.validate_unblinding(owner)?;
+            match reissue_req.input_ownership_proofs.get(&input_dbc.owner()) {
+                Some(sig) if !input_dbc.owner().verify(sig, &transaction_hash) => {
+                    return Err(Error::FailedSignature)
                 }
-                Some(_) => return Err(Error::FailedSignature),
+                Some(_) => (),
                 None => return Err(Error::MissingInputOwnerProof),
             }
         }
@@ -324,10 +323,10 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
             .transaction
             .inputs
             .iter()
-            .filter(|&i| inputs_belonging_to_mint.contains(&i.name()))
+            .filter(|&i| inputs_belonging_to_mint.contains(&i.owner()))
         {
             self.spendbook
-                .log(input.name(), transaction.clone())
+                .log(input.owner(), transaction.clone())
                 .map_err(|e| Error::SpendBook(e.to_string()))?;
         }
 
@@ -337,7 +336,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
     fn sign_transaction(
         &self,
         transaction: &DbcTransaction,
-    ) -> Result<BTreeMap<DbcContentHash, (PublicKeySet, NodeSignature)>> {
+    ) -> Result<BTreeMap<blsttc::PublicKey, (PublicKeySet, NodeSignature)>> {
         let sig = self
             .key_manager
             .sign(&transaction.hash())
@@ -392,8 +391,9 @@ mod tests {
         );
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
-        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(1000).unwrap();
+        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) = genesis_node
+            .issue_genesis_dbc(crate::bls_dkg_id().public_key_set.public_key(), 1000)
+            .unwrap();
 
         let genesis_sig = gen_key_set
             .combine_signatures(vec![gen_node_sig.threshold_crypto()])
@@ -403,7 +403,7 @@ mod tests {
             content: gen_dbc_content,
             transaction: gen_dbc_trans,
             transaction_sigs: BTreeMap::from_iter(vec![(
-                GENESIS_DBC_INPUT,
+                crate::bls_dkg_id().public_key_set.public_key(),
                 (genesis_key, genesis_sig),
             )]),
         };
@@ -411,8 +411,7 @@ mod tests {
         let genesis_amount = DbcHelper::decrypt_amount(&genesis_owner, &genesis_dbc.content)?;
 
         assert_eq!(genesis_amount, 1000);
-        let validation = genesis_dbc.confirm_valid(genesis_node.key_manager());
-        assert!(validation.is_ok());
+        genesis_dbc.confirm_valid(genesis_node.key_manager())?;
 
         Ok(())
     }
@@ -433,21 +432,24 @@ mod tests {
         );
         let mut genesis_node = Mint::new(key_manager.clone(), SimpleSpendBook::new());
 
-        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(output_amount)?;
+        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) = genesis_node
+            .issue_genesis_dbc(
+                crate::bls_dkg_id().public_key_set.public_key(),
+                output_amount,
+            )?;
         let genesis_sig = gen_key_set.combine_signatures(vec![gen_node_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
             transaction: gen_dbc_trans,
             transaction_sigs: BTreeMap::from_iter(vec![(
-                GENESIS_DBC_INPUT,
+                crate::bls_dkg_id().public_key_set.public_key(),
                 (genesis_key, genesis_sig),
             )]),
         };
 
         let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
-        let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
+        let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.owner()));
 
         let genesis_amount_secrets =
             DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
@@ -489,10 +491,7 @@ mod tests {
 
         let reissue_req = ReissueRequest {
             transaction,
-            input_ownership_proofs: HashMap::from_iter(vec![(
-                genesis_dbc.name(),
-                (genesis_owner.public_key_set.public_key(), sig),
-            )]),
+            input_ownership_proofs: HashMap::from_iter([(genesis_dbc.owner(), sig)]),
         };
 
         let (transaction, transaction_sigs) =
@@ -517,7 +516,7 @@ mod tests {
         let (pub_key_set, sig) = transaction_sigs.values().cloned().next().unwrap();
         for input in reissue_req.transaction.inputs.iter() {
             assert_eq!(
-                transaction_sigs.get(&input.name()),
+                transaction_sigs.get(&input.owner()),
                 Some(&(pub_key_set.clone(), sig.clone()))
             );
         }
@@ -571,21 +570,21 @@ mod tests {
         );
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
-        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(1000)?;
+        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) = genesis_node
+            .issue_genesis_dbc(crate::bls_dkg_id().public_key_set.public_key(), 1000)?;
         let genesis_sig = gen_key_set.combine_signatures(vec![gen_node_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
             transaction: gen_dbc_trans,
             transaction_sigs: BTreeMap::from_iter(vec![(
-                GENESIS_DBC_INPUT,
+                crate::bls_dkg_id().public_key_set.public_key(),
                 (genesis_key, genesis_sig),
             )]),
         };
 
         let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
-        let input_hashes = BTreeSet::from_iter(vec![genesis_dbc.name()]);
+        let input_hashes = BTreeSet::from_iter(vec![genesis_dbc.owner()]);
 
         let genesis_secrets =
             DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
@@ -614,10 +613,7 @@ mod tests {
 
         let reissue_req = ReissueRequest {
             transaction,
-            input_ownership_proofs: HashMap::from_iter(vec![(
-                genesis_dbc.name(),
-                (genesis_node.key_manager.public_key_set()?.public_key(), sig),
-            )]),
+            input_ownership_proofs: HashMap::from_iter([(genesis_dbc.owner(), sig)]),
         };
 
         let (t, s) = genesis_node.reissue(reissue_req, input_hashes.clone())?;
@@ -645,10 +641,7 @@ mod tests {
 
         let double_spend_reissue_req = ReissueRequest {
             transaction: double_spend_transaction,
-            input_ownership_proofs: HashMap::from_iter(vec![(
-                genesis_dbc.name(),
-                (genesis_node.key_manager.public_key_set()?.public_key(), sig),
-            )]),
+            input_ownership_proofs: HashMap::from_iter([(genesis_dbc.owner(), sig)]),
         };
 
         let res = genesis_node.reissue(double_spend_reissue_req, input_hashes);
@@ -708,8 +701,11 @@ mod tests {
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
         let genesis_amount: u64 = input_amounts.iter().sum();
-        let (gen_dbc_content, gen_dbc_trans, (_gen_key, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(genesis_amount)?;
+        let (gen_dbc_content, gen_dbc_trans, (_gen_key, gen_node_sig)) = genesis_node
+            .issue_genesis_dbc(
+                crate::bls_dkg_id().public_key_set.public_key(),
+                genesis_amount,
+            )?;
 
         let genesis_sig = genesis_node
             .key_manager
@@ -720,7 +716,7 @@ mod tests {
             content: gen_dbc_content,
             transaction: gen_dbc_trans,
             transaction_sigs: BTreeMap::from_iter(vec![(
-                GENESIS_DBC_INPUT,
+                crate::bls_dkg_id().public_key_set.public_key(),
                 (genesis_key, genesis_sig),
             )]),
         };
@@ -728,7 +724,7 @@ mod tests {
         let mut owners: BTreeMap<u32, bls_dkg::outcome::Outcome> = Default::default();
 
         let gen_inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
-        let gen_input_hashes = BTreeSet::from_iter(gen_inputs.iter().map(Dbc::name));
+        let gen_input_owners = BTreeSet::from_iter(gen_inputs.iter().map(Dbc::owner));
         let mut inputs_bf_sum: Scalar = Default::default();
         let genesis_amount_secrets =
             DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
@@ -747,7 +743,7 @@ mod tests {
                     );
                     inputs_bf_sum += blinding_factor;
                     DbcContent::new(
-                        gen_input_hashes.clone(),
+                        gen_input_owners.clone(),
                         *amount,
                         i as u32,
                         owner_public_key,
@@ -771,13 +767,12 @@ mod tests {
             .key_manager
             .public_key_set()?
             .combine_signatures(vec![sig_share.threshold_crypto()])?;
-        reissue_req.input_ownership_proofs.insert(
-            genesis_dbc.name(),
-            (genesis_node.key_manager.public_key_set()?.public_key(), sig),
-        );
+        reissue_req
+            .input_ownership_proofs
+            .insert(genesis_dbc.owner(), sig);
 
         let (transaction, transaction_sigs) =
-            match genesis_node.reissue(reissue_req, gen_input_hashes) {
+            match genesis_node.reissue(reissue_req, gen_input_owners) {
                 Ok((tx, sigs)) => {
                     // Verify that at least one input (output in this tx) was present.
                     assert!(!input_amounts.is_empty());
@@ -807,7 +802,7 @@ mod tests {
             }
         }));
 
-        let input_hashes = BTreeSet::from_iter(input_dbcs.iter().map(Dbc::name));
+        let input_owners = BTreeSet::from_iter(input_dbcs.iter().map(Dbc::owner));
 
         let outputs_owner = crate::bls_dkg_id();
         let mut outputs_bf_sum: Scalar = Default::default();
@@ -816,13 +811,13 @@ mod tests {
             output_amounts
                 .iter()
                 .map(|(output_number, amount)| {
-                    let mut fuzzed_parents = input_hashes.clone();
+                    let mut fuzzed_parents = input_owners.clone();
 
                     for _ in extra_output_parents
                         .iter()
                         .filter(|idx| idx == &output_number)
                     {
-                        fuzzed_parents.insert(rand::random());
+                        fuzzed_parents.insert(crate::bls_dkg_id().public_key_set.public_key());
                     }
 
                     let blinding_factor = DbcContent::calc_blinding_factor(
@@ -851,10 +846,9 @@ mod tests {
 
         let transaction_hash = transaction.blinded().hash();
 
-        let mut input_ownership_proofs: HashMap<
-            crate::Hash,
-            (blsttc::PublicKey, blsttc::Signature),
-        > = Default::default();
+        let mut input_ownership_proofs: HashMap<blsttc::PublicKey, blsttc::Signature> =
+            Default::default();
+
         input_ownership_proofs.extend(
             inputs_to_create_owner_proofs
                 .iter()
@@ -872,7 +866,7 @@ mod tests {
                         .combine_signatures(vec![(0, &sig_share)])
                         .unwrap();
 
-                    (dbc.name(), (owner_key_set.public_key(), sig))
+                    (dbc.owner(), sig)
                 }),
         );
 
@@ -893,7 +887,7 @@ mod tests {
                         .combine_signatures(vec![(0, &sig_share)])
                         .unwrap();
 
-                    (dbc.name(), (owner_key_set.public_key(), sig))
+                    (dbc.owner(), sig)
                 }),
         );
 
@@ -902,7 +896,7 @@ mod tests {
             input_ownership_proofs,
         };
 
-        let many_to_many_result = genesis_node.reissue(reissue_req, input_hashes);
+        let many_to_many_result = genesis_node.reissue(reissue_req, input_owners);
 
         let output_amount: u64 = outputs
             .iter()
@@ -1049,21 +1043,21 @@ mod tests {
             input_owner.public_key_set.public_key(),
             DbcContent::random_blinding_factor(),
         )?;
-        let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
+        let input_content_owners = BTreeSet::from_iter([input_content.owner]);
 
         let fraudulant_reissue_result = genesis_node.reissue(
             ReissueRequest {
                 transaction: ReissueTransaction {
-                    inputs: HashSet::from_iter(vec![Dbc {
+                    inputs: HashSet::from_iter([Dbc {
                         content: input_content,
                         transaction: DbcTransaction {
                             inputs: Default::default(),
-                            outputs: input_content_hashes.clone(),
+                            outputs: input_content_owners.clone(),
                         },
                         transaction_sigs: Default::default(),
                     }]),
-                    outputs: HashSet::from_iter(vec![DbcContent::new(
-                        input_content_hashes.clone(),
+                    outputs: HashSet::from_iter([DbcContent::new(
+                        input_content_owners.clone(),
                         100,
                         0,
                         crate::bls_dkg_id().public_key_set.public_key(),
@@ -1072,7 +1066,7 @@ mod tests {
                 },
                 input_ownership_proofs: HashMap::default(),
             },
-            input_content_hashes,
+            input_content_owners,
         );
         assert!(fraudulant_reissue_result.is_err());
 

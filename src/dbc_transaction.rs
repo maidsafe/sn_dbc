@@ -16,23 +16,23 @@ use tiny_keccak::{Hasher, Sha3};
 /// i.e. a Dbc can be stored anywhere, even offline.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct DbcTransaction {
-    pub inputs: BTreeSet<DbcContentHash>,
-    pub outputs: BTreeSet<DbcContentHash>,
+    pub inputs: BTreeSet<blsttc::PublicKey>,
+    pub outputs: BTreeSet<blsttc::PublicKey>,
 }
 
 impl DbcTransaction {
-    pub fn new(inputs: BTreeSet<DbcContentHash>, outputs: BTreeSet<DbcContentHash>) -> Self {
+    pub fn new(inputs: BTreeSet<blsttc::PublicKey>, outputs: BTreeSet<blsttc::PublicKey>) -> Self {
         Self { inputs, outputs }
     }
 
     pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
         for input in self.inputs.iter() {
-            sha3.update(input);
+            sha3.update(&input.to_bytes());
         }
 
         for output in self.outputs.iter() {
-            sha3.update(output);
+            sha3.update(&output.to_bytes());
         }
 
         let mut hash = [0; 32];
@@ -53,13 +53,13 @@ mod tests {
     #[quickcheck]
     fn prop_hash_is_independent_of_order(inputs: Vec<u64>, outputs: Vec<u64>) {
         // This test is here to protect us in the case that someone swaps out the BTreeSet for inputs/outputs for something else
-        let input_hashes: Vec<DbcContentHash> = inputs
+        let input_hashes: Vec<blsttc::PublicKey> = inputs
             .iter()
-            .map(|i| Hash(sha3_256(&i.to_be_bytes())))
+            .map(|_| crate::bls_dkg_id().public_key_set.public_key())
             .collect();
-        let output_hashes: Vec<DbcContentHash> = outputs
+        let output_hashes: Vec<blsttc::PublicKey> = outputs
             .iter()
-            .map(|i| Hash(sha3_256(&i.to_be_bytes())))
+            .map(|i| crate::bls_dkg_id().public_key_set.public_key())
             .collect();
 
         let forward_hash = DbcTransaction::new(
