@@ -252,6 +252,26 @@ impl DbcContent {
         )?)
     }
 
+    /// Checks if the secret (encrypted) amount matches the amount commitment.
+    /// returns true if they match, false if not, or an error if decryption fails.
+    pub fn confirm_amount_matches_commitment(
+        &self,
+        public_key_set: &PublicKeySet,
+        decryption_shares: &BTreeMap<usize, DecryptionShare>,
+    ) -> Result<bool, Error> {
+        let secrets =
+            self.amount_secrets_by_decryption_shares(public_key_set, decryption_shares)?;
+        Ok(self.confirm_provided_amount_matches_commitment(&secrets))
+    }
+
+    /// Checks if the provided AmountSecrets matches the amount commitment.
+    /// note that both the amount and blinding_factor must be correct.
+    pub fn confirm_provided_amount_matches_commitment(&self, amount: &AmountSecrets) -> bool {
+        let commitment =
+            PedersenGens::default().commit(Scalar::from(amount.amount), amount.blinding_factor);
+        self.commitment == commitment.compress()
+    }
+
     /// Calculates the blinding factor for the next output, typically used inside a loop.
     ///
     /// is_last: must be true if this is the last output, else false.
@@ -266,5 +286,50 @@ impl DbcContent {
             true => inputs_bf_sum - outputs_bf_sum,
             false => DbcContent::random_blinding_factor(),
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    /// Generates a DbcContent where the committed amount may be different
+    /// from the secret (encrypted) amount.  for testing only.
+    pub(crate) fn dbc_new_mismatched(
+        parents: BTreeSet<DbcContentHash>,
+        amount_committed: u64,
+        amount_secret: u64,
+        output_number: u32,
+        owner_key: PublicKey,
+        blinding_factor: Scalar,
+    ) -> Result<DbcContent, Error> {
+        let owner = BlindedOwner::new(&owner_key, &parents, output_number);
+
+        let pc_gens = PedersenGens::default();
+        let bullet_gens = BulletproofGens::new(RANGE_PROOF_BITS, RANGE_PROOF_PARTIES);
+        let mut prover_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
+        let (proof, commitment) = RangeProof::prove_single(
+            &bullet_gens,
+            &pc_gens,
+            &mut prover_ts,
+            amount_committed,
+            &blinding_factor,
+            RANGE_PROOF_BITS,
+        )?;
+
+        let amount_secrets = AmountSecrets {
+            amount: amount_secret,
+            blinding_factor,
+        };
+        let amount_secrets_cipher = owner_key.encrypt(amount_secrets.to_bytes().as_slice());
+
+        Ok(DbcContent {
+            parents,
+            amount_secrets_cipher,
+            output_number,
+            owner,
+            commitment,
+            range_proof_bytes: proof.to_bytes(),
+        })
     }
 }
