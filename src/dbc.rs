@@ -176,38 +176,35 @@ mod tests {
         n_drop_parents: TinyInt,       // # of valid parents to drop from output DBC
     ) -> Result<(), Error> {
         let amount = 100;
-        let genesis_owner = crate::bls_dkg_id();
-        let genesis_key = genesis_owner.public_key_set.public_key();
+        let mint_owner = crate::bls_dkg_id();
+        let mint_key = mint_owner.public_key_set.public_key();
 
         let key_manager = SimpleKeyManager::new(
             SimpleSigner::new(
-                genesis_owner.public_key_set.clone(),
-                (0, genesis_owner.secret_key_share.clone()),
+                mint_owner.public_key_set.clone(),
+                (0, mint_owner.secret_key_share.clone()),
             ),
-            genesis_owner.public_key_set.public_key(),
+            mint_key,
         );
-        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
+        let mut mint_node = Mint::new(key_manager, SimpleSpendBook::new());
 
-        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) = genesis_node
-            .issue_genesis_dbc(crate::bls_dkg_id().public_key_set.public_key(), amount)
-            .unwrap();
+        let genesis_key = crate::bls_dkg_id().public_key_set.public_key();
+        let (gen_dbc_content, gen_dbc_trans, (mint_key_set, mint_node_sig)) =
+            mint_node.issue_genesis_dbc(genesis_key, amount).unwrap();
 
-        let genesis_sig = gen_key_set
-            .combine_signatures(vec![gen_node_sig.threshold_crypto()])
+        let mint_sig = mint_key_set
+            .combine_signatures(vec![mint_node_sig.threshold_crypto()])
             .unwrap();
 
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
             transaction: gen_dbc_trans,
-            transaction_sigs: BTreeMap::from_iter(vec![(
-                crate::bls_dkg_id().public_key_set.public_key(),
-                (genesis_key, genesis_sig),
-            )]),
+            transaction_sigs: BTreeMap::from_iter(vec![(genesis_key, (mint_key, mint_sig))]),
         };
 
         let input_owner = crate::bls_dkg_id();
         let (reissue_request, inputs_bf_sum) = prepare_even_split(
-            &genesis_owner,
+            &mint_owner,
             &genesis_dbc,
             n_inputs.coerce(),
             &input_owner.public_key_set,
@@ -218,7 +215,7 @@ mod tests {
             .iter()
             .map(|i| i.owner())
             .collect();
-        let (split_transaction, split_transaction_sigs) = genesis_node
+        let (split_transaction, split_transaction_sigs) = mint_node
             .reissue(reissue_request.clone(), input_owners)
             .unwrap();
 
@@ -237,7 +234,7 @@ mod tests {
                     transaction_sigs: BTreeMap::from_iter(
                         split_transaction_sigs
                             .iter()
-                            .map(|(input, _)| (*input, (genesis_key, mint_sig.clone()))),
+                            .map(|(input, _)| (*input, (mint_key, mint_sig.clone()))),
                     ),
                 }
             },
@@ -276,7 +273,7 @@ mod tests {
             input_ownership_proofs,
         };
 
-        let (transaction, transaction_sigs) = genesis_node
+        let (transaction, transaction_sigs) = mint_node
             .reissue(reissue_request.clone(), input_owners.clone())
             .unwrap();
         assert_eq!(reissue_request.transaction.blinded(), transaction);
@@ -314,7 +311,7 @@ mod tests {
             transaction_sigs
                 .iter()
                 .take(n_valid_sigs.coerce())
-                .map(|(in_owner, _)| (*in_owner, (genesis_key, mint_sig.clone()))),
+                .map(|(in_owner, _)| (*in_owner, (mint_key, mint_sig.clone()))),
         );
         let mut repeating_inputs = reissue_request
             .transaction
@@ -330,7 +327,7 @@ mod tests {
                 let id = crate::bls_dkg_id();
                 let key_manager = SimpleKeyManager::new(
                     SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share.clone())),
-                    genesis_key,
+                    mint_key,
                 );
                 let trans_sig_share = key_manager.sign(&transaction.hash()).unwrap();
                 let trans_sig = id
@@ -345,15 +342,15 @@ mod tests {
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
-                let wrong_msg_sig = genesis_node.key_manager.sign(&Hash([0u8; 32])).unwrap();
-                let wrong_msg_mint_sig = genesis_node
+                let wrong_msg_sig = mint_node.key_manager.sign(&Hash([0u8; 32])).unwrap();
+                let wrong_msg_mint_sig = mint_node
                     .key_manager
                     .public_key_set()
                     .unwrap()
                     .combine_signatures(vec![wrong_msg_sig.threshold_crypto()])
                     .unwrap();
 
-                fuzzed_transaction_sigs.insert(input.owner(), (genesis_key, wrong_msg_mint_sig));
+                fuzzed_transaction_sigs.insert(input.owner(), (mint_key, wrong_msg_mint_sig));
             }
         }
 
@@ -361,7 +358,7 @@ mod tests {
         for _ in 0..n_extra_input_sigs.coerce() {
             fuzzed_transaction_sigs.insert(
                 crate::bls_dkg_id().public_key_set.public_key(),
-                (genesis_key, mint_sig.clone()),
+                (mint_key, mint_sig.clone()),
             );
         }
 
@@ -374,7 +371,7 @@ mod tests {
         let id = crate::bls_dkg_id();
         let key_manager = SimpleKeyManager::new(
             SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share)),
-            genesis_key,
+            mint_key,
         );
         let validation_res = dbc.confirm_valid(&key_manager);
 
