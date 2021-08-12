@@ -6,10 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{
-    DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, PublicKey, Result,
-    Signature,
-};
+use crate::{DbcContent, DbcTransaction, Error, KeyManager, PublicKey, Result, Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -63,7 +60,7 @@ mod tests {
 
     use crate::tests::{DbcHelper, NonZeroTinyInt, TinyInt};
     use crate::{
-        KeyManager, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager, SimpleSigner,
+        Hash, KeyManager, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager, SimpleSigner,
         SimpleSpendBook,
     };
 
@@ -83,7 +80,7 @@ mod tests {
         n_ways: u8,
         output_owner: &blsttc::PublicKeySet,
     ) -> Result<(ReissueRequest, Scalar), Error> {
-        let inputs = HashSet::from_iter(vec![dbc.clone()]);
+        let inputs = HashSet::from_iter([dbc.clone()]);
         let input_owners = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.owner()));
 
         let amount_secrets = DbcHelper::decrypt_amount_secrets(dbc_owner, &dbc.content)?;
@@ -122,7 +119,7 @@ mod tests {
         Ok((
             ReissueRequest {
                 transaction,
-                input_ownership_proofs: HashMap::from_iter(vec![(dbc.owner(), sig)]),
+                input_ownership_proofs: HashMap::from_iter([(dbc.owner(), sig)]),
             },
             outputs_bf_sum,
         ))
@@ -138,7 +135,7 @@ mod tests {
             DbcContent::random_blinding_factor(),
         )?;
 
-        let input_content_owners = BTreeSet::from_iter(vec![input_content.owner]);
+        let input_content_owners = BTreeSet::from_iter([input_content.owner]);
 
         let dbc = Dbc {
             content: input_content,
@@ -199,7 +196,7 @@ mod tests {
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
             transaction: gen_dbc_trans,
-            transaction_sigs: BTreeMap::from_iter(vec![(genesis_key, (mint_key, mint_sig))]),
+            transaction_sigs: BTreeMap::from_iter([(genesis_key, (mint_key, mint_sig))]),
         };
 
         let input_owner = crate::bls_dkg_id();
@@ -249,7 +246,7 @@ mod tests {
             crate::bls_dkg_id().public_key_set.public_key(),
             inputs_bf_sum,
         )?;
-        let outputs = HashSet::from_iter(vec![content]);
+        let outputs = HashSet::from_iter([content]);
 
         let transaction = ReissueTransaction { inputs, outputs };
         let sig_share = input_owner

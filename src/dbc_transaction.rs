@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{DbcContentHash, Hash};
+use crate::Hash;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use tiny_keccak::{Hasher, Sha3};
@@ -48,8 +48,6 @@ mod tests {
     use super::*;
     use quickcheck_macros::quickcheck;
 
-    use crate::sha3_256;
-
     #[quickcheck]
     fn prop_hash_is_independent_of_order(inputs: Vec<u64>, outputs: Vec<u64>) {
         // This test is here to protect us in the case that someone swaps out the BTreeSet for inputs/outputs for something else
@@ -59,7 +57,7 @@ mod tests {
             .collect();
         let output_hashes: Vec<blsttc::PublicKey> = outputs
             .iter()
-            .map(|i| crate::bls_dkg_id().public_key_set.public_key())
+            .map(|_| crate::bls_dkg_id().public_key_set.public_key())
             .collect();
 
         let forward_hash = DbcTransaction::new(

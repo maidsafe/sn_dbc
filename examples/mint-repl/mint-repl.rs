@@ -247,7 +247,7 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: u64) -> Result<
     let genesis_dbc = Dbc {
         content: genesis_set[0].0.clone(),
         transaction: genesis_set[0].1.clone(),
-        transaction_sigs: BTreeMap::from_iter(vec![(
+        transaction_sigs: BTreeMap::from_iter([(
             sn_dbc::GENESIS_DBC_INPUT,
             (genesis_pubkey, genesis_sig),
         )]),
@@ -1040,7 +1040,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
     let reissue_request = ReissueRequest {
         transaction,
-        //        input_ownership_proofs: HashMap::from_iter(vec![(mintinfo.genesis.name(), sig)]),
+        //        input_ownership_proofs: HashMap::from_iter([(mintinfo.genesis.name(), sig)]),
         input_ownership_proofs: proofs,
     };
 

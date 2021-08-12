@@ -14,8 +14,7 @@
 // Outputs <= input value
 
 use crate::{
-    Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, NodeSignature,
-    PublicKeySet, Result,
+    Dbc, DbcContent, DbcTransaction, Error, KeyManager, NodeSignature, PublicKeySet, Result,
 };
 use curve25519_dalek_ng::ristretto::RistrettoPoint;
 use serde::{Deserialize, Serialize};
@@ -402,7 +401,7 @@ mod tests {
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
             transaction: gen_dbc_trans,
-            transaction_sigs: BTreeMap::from_iter(vec![(genesis_key, (mint_key, mint_sig))]),
+            transaction_sigs: BTreeMap::from_iter([(genesis_key, (mint_key, mint_sig))]),
         };
 
         let genesis_amount = DbcHelper::decrypt_amount(&mint_owner, &genesis_dbc.content)?;
@@ -432,7 +431,7 @@ mod tests {
         let genesis_key = crate::bls_dkg_id().public_key_set.public_key();
         let (gen_dbc_content, gen_dbc_trans, (mint_key_set, mint_node_sig)) =
             mint_node.issue_genesis_dbc(genesis_key, output_amount)?;
-        let mint_sig = mint_key_set.combine_signatures(vec![mint_node_sig.threshold_crypto()])?;
+        let mint_sig = mint_key_set.combine_signatures([mint_node_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
@@ -440,7 +439,7 @@ mod tests {
             transaction_sigs: BTreeMap::from_iter([(genesis_key, (mint_key, mint_sig))]),
         };
 
-        let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
+        let inputs = HashSet::from_iter([genesis_dbc.clone()]);
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.owner()));
 
         let genesis_amount_secrets =
@@ -479,7 +478,7 @@ mod tests {
 
         let sig = mint_owner
             .public_key_set
-            .combine_signatures(vec![(0, &sig_share)])?;
+            .combine_signatures([(0, &sig_share)])?;
 
         let reissue_req = ReissueRequest {
             transaction,
@@ -574,15 +573,15 @@ mod tests {
             transaction_sigs: BTreeMap::from_iter([(genesis_key, (mint_key, mint_sig))]),
         };
 
-        let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
-        let input_hashes = BTreeSet::from_iter(vec![genesis_dbc.owner()]);
+        let inputs = HashSet::from_iter([genesis_dbc.clone()]);
+        let input_hashes = BTreeSet::from_iter([genesis_dbc.owner()]);
 
         let genesis_secrets = DbcHelper::decrypt_amount_secrets(&mint_owner, &genesis_dbc.content)?;
         let outputs_owner = crate::bls_dkg_id();
 
         let transaction = ReissueTransaction {
             inputs: inputs.clone(),
-            outputs: HashSet::from_iter(vec![DbcContent::new(
+            outputs: HashSet::from_iter([DbcContent::new(
                 input_hashes.clone(),
                 1000,
                 0,
@@ -705,7 +704,7 @@ mod tests {
 
         let mut owners: BTreeMap<u32, bls_dkg::outcome::Outcome> = Default::default();
 
-        let gen_inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
+        let gen_inputs = HashSet::from_iter([genesis_dbc.clone()]);
         let gen_input_owners = BTreeSet::from_iter(gen_inputs.iter().map(Dbc::owner));
         let mut inputs_bf_sum: Scalar = Default::default();
         let genesis_amount_secrets =
@@ -904,12 +903,10 @@ mod tests {
 
                 // The output amounts should correspond to the output_amounts
                 assert_eq!(
-                    BTreeSet::from_iter(
-                        outputs
-                            .iter()
-                            .map(|o| { DbcHelper::decrypt_amount(&outputs_owner, o) })
-                            .collect::<Result<Vec<_>, _>>()?
-                    ),
+                    outputs
+                        .iter()
+                        .map(|o| { DbcHelper::decrypt_amount(&outputs_owner, o) })
+                        .collect::<Result<BTreeSet<_>, _>>()?,
                     BTreeSet::from_iter(output_amounts.into_iter().map(|(_, a)| a))
                 );
 
@@ -923,7 +920,7 @@ mod tests {
 
                 let (mint_key_set, mint_sig_share) = transaction_sigs.values().next().unwrap();
                 let mint_sig =
-                    mint_key_set.combine_signatures(vec![mint_sig_share.threshold_crypto()])?;
+                    mint_key_set.combine_signatures([mint_sig_share.threshold_crypto()])?;
 
                 let output_dbcs = Vec::from_iter(outputs.into_iter().map(|content| {
                     Dbc {
