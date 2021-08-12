@@ -37,10 +37,6 @@ hex = "0.4.3"
   version = "1.0.111"
   features = [ "derive", "rc" ]
 
-[patch.crates-io]
-# Use this branch until it is merged into bls_dkg master.
-bls_dkg = { git = "https://github.com/maidsafe/bls_dkg", branch="blsttc_2_3_0_pr" }
-
 [dev-dependencies]
 criterion = "0.3"
 anyhow = "1.0.40"
