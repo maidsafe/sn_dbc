@@ -996,12 +996,6 @@ mod tests {
         todo!()
     }
 
-    #[quickcheck]
-    #[ignore]
-    fn prop_reject_invalid_prefix() {
-        todo!();
-    }
-
     #[test]
     fn test_inputs_are_validated() -> Result<(), Error> {
         let mint_owner = crate::bls_dkg_id();
