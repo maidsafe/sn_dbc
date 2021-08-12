@@ -1,6 +1,5 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
-use bls_dkg::SecretKeyShare;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
@@ -16,8 +15,7 @@ fn decrypt_amount_secrets(
     owner: &bls_dkg::outcome::Outcome,
     dbcc: &DbcContent,
 ) -> Result<AmountSecrets, Error> {
-    let mut shares: BTreeMap<usize, SecretKeyShare> = Default::default();
-    shares.insert(0, owner.secret_key_share.clone());
+    let shares = BTreeMap::from_iter([(0, owner.secret_key_share.clone())]);
 
     dbcc.amount_secrets_by_secret_key_shares(&owner.public_key_set, &shares)
 }
