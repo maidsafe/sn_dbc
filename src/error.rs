@@ -35,8 +35,6 @@ pub enum Error {
     MissingInputOwnerProof,
     #[error("Mint request doesn't balance out sum(input) == sum(output)")]
     DbcReissueRequestDoesNotBalance,
-    #[error("Outputs must be numbered 0..N where N = # of outputs")]
-    OutputsAreNotNumberedCorrectly,
     #[error("Failed to unblind an input DBC")]
     FailedUnblinding,
     #[error("DBC already spent in transaction: {transaction:?}")]

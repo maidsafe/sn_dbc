@@ -82,7 +82,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
                 outputs_bf_sum,
             );
             outputs_bf_sum += blinding_factor;
-            DbcContent::new(input_hashes.clone(), 1, i, owner_pub_key, blinding_factor)
+            DbcContent::new(input_hashes.clone(), 1, owner_pub_key, blinding_factor)
         })
         .collect::<Result<HashSet<_>, _>>()
         .unwrap();
@@ -140,7 +140,6 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
             DbcContent::new(
                 input_hashes.clone(),
                 1,
-                i,
                 owners[i as usize].public_key_set.public_key(),
                 blinding_factor,
             )
@@ -190,7 +189,6 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let merged_output = DbcContent::new(
         BTreeSet::from_iter(dbcs.iter().map(Dbc::name)),
         n_outputs as u64,
-        0,
         bls_dkg_id().public_key_set.public_key(),
         outputs_bf_sum,
     )
