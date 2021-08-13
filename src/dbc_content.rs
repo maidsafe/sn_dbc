@@ -33,14 +33,13 @@ const AMT_SIZE: usize = 8; // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
 
 impl BlindedOwner {
-    pub fn new(owner: &PublicKey, parents: &BTreeSet<DbcContentHash>, output_number: u32) -> Self {
+    pub fn new(owner: &PublicKey, parents: &BTreeSet<DbcContentHash>) -> Self {
         let mut sha3 = Sha3::v256();
 
         for parent in parents.iter() {
             sha3.update(parent);
         }
 
-        sha3.update(&output_number.to_be_bytes());
         sha3.update(&owner.to_bytes());
 
         let mut hash = [0; 32];
@@ -112,7 +111,6 @@ pub struct DbcContent {
     pub amount_secrets_cipher: Ciphertext,
     pub commitment: CompressedRistretto,
     pub range_proof_bytes: Vec<u8>, // RangeProof::to_bytes() -> (2 lg n + 9) 32-byte elements, where n is # of secret bits, or 64 in our case. Gives 21 32-byte elements.
-    pub output_number: u32,
     pub owner: BlindedOwner,
 }
 
@@ -122,11 +120,10 @@ impl DbcContent {
     pub fn new(
         parents: BTreeSet<DbcContentHash>,
         amount: u64,
-        output_number: u32,
         owner_key: PublicKey,
         blinding_factor: Scalar,
     ) -> Result<Self, Error> {
-        let owner = BlindedOwner::new(&owner_key, &parents, output_number);
+        let owner = BlindedOwner::new(&owner_key, &parents);
         let secret = amount;
 
         let pc_gens = PedersenGens::default();
@@ -150,7 +147,6 @@ impl DbcContent {
         Ok(DbcContent {
             parents,
             amount_secrets_cipher,
-            output_number,
             owner,
             commitment,
             range_proof_bytes: proof.to_bytes(),
@@ -163,7 +159,7 @@ impl DbcContent {
     }
 
     pub fn validate_unblinding(&self, owner_key: &PublicKey) -> Result<(), Error> {
-        let blinded = BlindedOwner::new(owner_key, &self.parents, self.output_number);
+        let blinded = BlindedOwner::new(owner_key, &self.parents);
         if blinded == self.owner {
             Ok(())
         } else {
@@ -179,7 +175,6 @@ impl DbcContent {
         }
 
         sha3.update(&self.amount_secrets_cipher.to_bytes());
-        sha3.update(&self.output_number.to_be_bytes());
         sha3.update(&self.owner.0);
 
         let mut hash = [0; 32];
@@ -299,11 +294,10 @@ pub(crate) mod tests {
         parents: BTreeSet<DbcContentHash>,
         amount_committed: u64,
         amount_secret: u64,
-        output_number: u32,
         owner_key: PublicKey,
         blinding_factor: Scalar,
     ) -> Result<DbcContent, Error> {
-        let owner = BlindedOwner::new(&owner_key, &parents, output_number);
+        let owner = BlindedOwner::new(&owner_key, &parents);
 
         let pc_gens = PedersenGens::default();
         let bullet_gens = BulletproofGens::new(RANGE_PROOF_BITS, RANGE_PROOF_PARTIES);
@@ -326,7 +320,6 @@ pub(crate) mod tests {
         Ok(DbcContent {
             parents,
             amount_secrets_cipher,
-            output_number,
             owner,
             commitment,
             range_proof_bytes: proof.to_bytes(),

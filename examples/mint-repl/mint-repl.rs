@@ -431,7 +431,6 @@ fn print_dbc_human(
         None => println!("amount: unknown.  SecretKey not available\n"),
     }
 
-    println!("output_number: {}\n", dbc.inner.content.output_number);
     println!("owner: {}\n", to_be_hex(&dbc.owner)?);
 
     // dbc.content.parents and dbc.transaction.inputs are the same
@@ -692,7 +691,6 @@ fn prepare_tx() -> Result<()> {
         let dbc_content = DbcContent::new(
             input_hashes.clone(),     // parents
             amount,                   // amount
-            i,                        // output_number
             pub_out_set.public_key(), // public_key
             blinding_factor,
         )?;
@@ -798,8 +796,7 @@ fn prepare_reissue() -> Result<()> {
     for dbc in tx.inner.inputs.iter() {
         println!("-----------------");
         println!(
-            "Input #{} [id: {}, amount: {}]",
-            dbc.content.output_number,
+            "Input [id: {}, amount: {}]",
             encode(dbc.name()),
             0 // fixme: dbc.content.amount
         );
@@ -1002,7 +999,6 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         let dbc_content = DbcContent::new(
             input_hashes.clone(),     // parents
             amount,                   // amount
-            i,                        // output_number
             pub_out_set.public_key(), // owner
             blinding_factor,
         )?;
@@ -1132,7 +1128,7 @@ fn reissue_exec(
         .collect();
 
     // sort outputs by output_number
-    output_dbcs.sort_by_key(|d| d.content.output_number);
+    output_dbcs.sort_by_key(|d| d.name());
 
     // for each output, construct DbcUnblinded and display
     for dbc in output_dbcs.iter() {

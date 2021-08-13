@@ -101,7 +101,6 @@ mod tests {
             DbcContent::new(
                 input_hashes.clone(),
                 *amount,
-                i as u32,
                 output_owner.public_key(),
                 blinding_factor,
             )
@@ -134,7 +133,6 @@ mod tests {
         let input_content = DbcContent::new(
             BTreeSet::new(),
             100,
-            0,
             crate::bls_dkg_id().public_key_set.public_key(),
             DbcContent::random_blinding_factor(),
         )?;
@@ -248,7 +246,6 @@ mod tests {
         let content = DbcContent::new(
             input_hashes.clone(),
             amount,
-            0,
             crate::bls_dkg_id().public_key_set.public_key(),
             inputs_bf_sum,
         )?;
@@ -301,7 +298,6 @@ mod tests {
         let fuzzed_content = DbcContent::new(
             fuzzed_parents,
             amount + extra_output_amount.coerce::<u64>(),
-            0,
             crate::bls_dkg_id().public_key_set.public_key(),
             DbcContent::random_blinding_factor(),
         )?;
