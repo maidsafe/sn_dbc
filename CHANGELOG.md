@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.2.0](https://github.com/maidsafe/sn_dbc/compare/v2.1.0...v2.2.0) (2021-08-13)
+
+
+### Features
+
+* add APIs that enable recipient to verify AmountSecrets match committed amount ([54776ee](https://github.com/maidsafe/sn_dbc/commit/54776eef6edf5973f5a543700a76292ecb0475d5))
+* confidential transactions.  pedersen commitments + bulletproofs (range proofs) ([ee2623e](https://github.com/maidsafe/sn_dbc/commit/ee2623e9d30551bf731be0a3ead3969e39626376))
+
 ## [2.1.0](https://github.com/maidsafe/sn_dbc/compare/v2.0.0...v2.1.0) (2021-07-07)
 
 
