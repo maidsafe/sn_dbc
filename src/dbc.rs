@@ -83,7 +83,7 @@ mod tests {
         n_ways: u8,
         output_owner: &blsttc::PublicKeySet,
     ) -> Result<(ReissueRequest, Scalar), Error> {
-        let inputs = HashSet::from_iter(vec![dbc.clone()]);
+        let inputs = HashSet::from_iter([dbc.clone()]);
         let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
         let amount_secrets = DbcHelper::decrypt_amount_secrets(dbc_owner, &dbc.content)?;
@@ -119,16 +119,14 @@ mod tests {
             .combine_signatures(vec![(0, &sig_share)])
             .unwrap();
 
-        Ok((
-            ReissueRequest {
-                transaction,
-                input_ownership_proofs: HashMap::from_iter(vec![(
-                    dbc.name(),
-                    (dbc_owner.public_key_set.public_key(), sig),
-                )]),
-            },
-            outputs_bf_sum,
-        ))
+        let dbc_owner_key = dbc_owner.public_key_set.public_key();
+
+        let request = ReissueRequest {
+            transaction,
+            input_ownership_proofs: HashMap::from_iter([(dbc.name(), (dbc_owner_key, sig))]),
+        };
+
+        Ok((request, outputs_bf_sum))
     }
 
     #[test]
@@ -141,7 +139,7 @@ mod tests {
             DbcContent::random_blinding_factor(),
         )?;
 
-        let input_content_hashes = BTreeSet::from_iter(vec![input_content.hash()]);
+        let input_content_hashes = BTreeSet::from_iter([input_content.hash()]);
 
         let dbc = Dbc {
             content: input_content,
@@ -201,7 +199,7 @@ mod tests {
         let genesis_dbc = Dbc {
             content: gen_dbc_content,
             transaction: gen_dbc_trans,
-            transaction_sigs: BTreeMap::from_iter(vec![(
+            transaction_sigs: BTreeMap::from_iter([(
                 crate::mint::GENESIS_DBC_INPUT,
                 (genesis_key, genesis_sig),
             )]),
@@ -254,7 +252,7 @@ mod tests {
             crate::bls_dkg_id().public_key_set.public_key(),
             inputs_bf_sum,
         )?;
-        let outputs = HashSet::from_iter(vec![content]);
+        let outputs = HashSet::from_iter([content]);
 
         let transaction = ReissueTransaction { inputs, outputs };
         let sig_share = input_owner
