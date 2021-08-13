@@ -88,21 +88,17 @@ pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
 
     let owner_name = rand::random();
     let threshold = 0;
-    let (mut key_gen, proposal) = match bls_dkg::KeyGen::initialize(
-        owner_name,
-        threshold,
-        BTreeSet::from_iter(vec![owner_name]),
-    ) {
-        Ok(key_gen_init) => key_gen_init,
-        Err(e) => panic!("Failed to init key gen {:?}", e),
-    };
+    let (mut key_gen, proposal) =
+        bls_dkg::KeyGen::initialize(owner_name, threshold, BTreeSet::from_iter([owner_name]))
+            .expect("Failed to init key gen");
 
     let mut msgs = vec![proposal];
     while let Some(msg) = msgs.pop() {
-        match key_gen.handle_message(&mut rand::thread_rng(), msg) {
-            Ok(response_msgs) => msgs.extend(response_msgs),
-            Err(e) => panic!("Error while generating BLS key: {:?}", e),
-        }
+        let response_msgs = key_gen
+            .handle_message(&mut rand::thread_rng(), msg)
+            .expect("Error while generating BLS key");
+
+        msgs.extend(response_msgs);
     }
 
     let (_, outcome) = key_gen.generate_keys().unwrap();

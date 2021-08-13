@@ -65,7 +65,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
     let n_outputs: u32 = 100;
     let (mut genesis, genesis_owner, genesis_dbc) = genesis(n_outputs as u64);
 
-    let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
+    let inputs = HashSet::from_iter([genesis_dbc.clone()]);
     let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
     let genesis_secrets = decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content).unwrap();
@@ -84,7 +84,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
             outputs_bf_sum += blinding_factor;
             DbcContent::new(input_hashes.clone(), 1, i, owner_pub_key, blinding_factor)
         })
-        .collect::<Result<_, _>>()
+        .collect::<Result<HashSet<_>, _>>()
         .unwrap();
 
     let transaction = ReissueTransaction { inputs, outputs };
@@ -100,7 +100,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 
     let reissue = ReissueRequest {
         transaction,
-        input_ownership_proofs: HashMap::from_iter(vec![(
+        input_ownership_proofs: HashMap::from_iter([(
             genesis_dbc.name(),
             (genesis_owner.public_key_set.public_key(), sig),
         )]),
@@ -121,39 +121,34 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let n_outputs: u32 = 100;
     let (mut genesis, genesis_owner, genesis_dbc) = genesis(n_outputs as u64);
 
-    let inputs = HashSet::from_iter(vec![genesis_dbc.clone()]);
+    let inputs = HashSet::from_iter([genesis_dbc.clone()]);
     let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
 
     let genesis_secrets = decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content).unwrap();
     let mut outputs_bf_sum: Scalar = Default::default();
 
-    let owners: Vec<_> = (0..n_outputs).into_iter().map(|_| bls_dkg_id()).collect();
-    let outputs = Vec::from_iter(
-        (0..n_outputs)
-            .into_iter()
-            .map(|i| {
-                let blinding_factor = DbcContent::calc_blinding_factor(
-                    i == n_outputs - 1,
-                    genesis_secrets.blinding_factor,
-                    outputs_bf_sum,
-                );
-                outputs_bf_sum += blinding_factor;
-                DbcContent::new(
-                    input_hashes.clone(),
-                    1,
-                    i,
-                    owners[i as usize].public_key_set.public_key(),
-                    blinding_factor,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap(),
-    );
+    let owners = Vec::from_iter((0..n_outputs).into_iter().map(|_| bls_dkg_id()));
+    let outputs = (0..n_outputs)
+        .into_iter()
+        .map(|i| {
+            let blinding_factor = DbcContent::calc_blinding_factor(
+                i == n_outputs - 1,
+                genesis_secrets.blinding_factor,
+                outputs_bf_sum,
+            );
+            outputs_bf_sum += blinding_factor;
+            DbcContent::new(
+                input_hashes.clone(),
+                1,
+                i,
+                owners[i as usize].public_key_set.public_key(),
+                blinding_factor,
+            )
+        })
+        .collect::<Result<HashSet<_>, _>>()
+        .unwrap();
 
-    let transaction = ReissueTransaction {
-        inputs,
-        outputs: HashSet::from_iter(outputs.clone()),
-    };
+    let transaction = ReissueTransaction { inputs, outputs };
 
     let sig_share = genesis_owner
         .secret_key_share
@@ -164,15 +159,17 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .combine_signatures(vec![(0, &sig_share)])
         .unwrap();
 
+    let input_ownership_proofs = HashMap::from_iter([(
+        genesis_dbc.name(),
+        (genesis_owner.public_key_set.public_key(), sig),
+    )]);
+
     let reissue = ReissueRequest {
         transaction,
-        input_ownership_proofs: HashMap::from_iter(vec![(
-            genesis_dbc.name(),
-            (genesis_owner.public_key_set.public_key(), sig),
-        )]),
+        input_ownership_proofs,
     };
 
-    let (transaction, transaction_sigs) = genesis.reissue(reissue, input_hashes).unwrap();
+    let (transaction, transaction_sigs) = genesis.reissue(reissue.clone(), input_hashes).unwrap();
 
     let (mint_key_set, mint_sig_share) = transaction_sigs.values().cloned().next().unwrap();
 
@@ -181,10 +178,10 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .combine_signatures(vec![mint_sig_share.threshold_crypto()])
         .unwrap();
 
-    let dbcs = Vec::from_iter(outputs.into_iter().map(|content| Dbc {
+    let dbcs = Vec::from_iter(reissue.transaction.outputs.into_iter().map(|content| Dbc {
         content,
         transaction: transaction.clone(),
-        transaction_sigs: BTreeMap::from_iter(vec![(
+        transaction_sigs: BTreeMap::from_iter([(
             genesis_dbc.name(),
             (mint_key_set.public_key(), mint_sig.clone()),
         )]),
@@ -201,7 +198,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     let merge_transaction = ReissueTransaction {
         inputs: HashSet::from_iter(dbcs.clone()),
-        outputs: HashSet::from_iter(vec![merged_output]),
+        outputs: HashSet::from_iter([merged_output]),
     };
 
     let input_ownership_proofs = HashMap::from_iter(dbcs.iter().enumerate().map(|(i, dbc)| {
