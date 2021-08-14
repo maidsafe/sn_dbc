@@ -58,9 +58,7 @@ impl TransactionBuilder {
             })
             .collect::<Result<HashSet<_>>>()?;
 
-        Ok(ReissueTransaction {
-            inputs: HashSet::from_iter(self.inputs.into_keys()),
-            outputs,
-        })
+        let inputs = HashSet::from_iter(self.inputs.into_keys());
+        Ok(ReissueTransaction { inputs, outputs })
     }
 }
