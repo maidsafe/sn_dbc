@@ -16,6 +16,7 @@ use tiny_keccak::{Hasher, Sha3};
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Hash([u8; 32]);
 pub(crate) type DbcContentHash = Hash;
+mod builder;
 mod dbc;
 mod dbc_content;
 mod dbc_transaction;
@@ -24,6 +25,7 @@ mod key_manager;
 mod mint;
 
 pub use crate::{
+    builder::{Output, TransactionBuilder},
     dbc::Dbc,
     dbc_content::{AmountSecrets, BlindedOwner, DbcContent},
     dbc_transaction::DbcTransaction,
