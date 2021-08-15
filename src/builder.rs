@@ -23,12 +23,22 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn add_output(mut self, output_mat: Output) -> Self {
-        self.outputs.push(output_mat);
+    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = (Dbc, AmountSecrets)>) -> Self {
+        self.inputs.extend(inputs);
         self
     }
 
-    pub fn build(self) -> Result<ReissueTransaction> {
+    pub fn add_output(mut self, output: Output) -> Self {
+        self.outputs.push(output);
+        self
+    }
+
+    pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = Output>) -> Self {
+        self.outputs.extend(outputs);
+        self
+    }
+
+    pub fn build(self) -> Result<(ReissueTransaction, HashMap<crate::Hash, blsttc::PublicKey>)> {
         let parents = BTreeSet::from_iter(self.inputs.keys().map(Dbc::name));
         let inputs_bf_sum = self
             .inputs
@@ -37,7 +47,7 @@ impl TransactionBuilder {
             .sum();
 
         let mut outputs_bf_sum: Scalar = Default::default();
-        let outputs = self
+        let outputs_and_owners = self
             .outputs
             .iter()
             .enumerate()
@@ -49,16 +59,23 @@ impl TransactionBuilder {
                 );
                 outputs_bf_sum += blinding_factor;
 
-                DbcContent::new(
+                let dbc_content = DbcContent::new(
                     parents.clone(),
                     output.amount,
                     output.owner,
                     blinding_factor,
-                )
+                )?;
+                Ok((dbc_content, output.owner))
             })
-            .collect::<Result<HashSet<_>>>()?;
+            .collect::<Result<Vec<_>>>()?;
 
         let inputs = HashSet::from_iter(self.inputs.into_keys());
-        Ok(ReissueTransaction { inputs, outputs })
+        let output_owners = HashMap::from_iter(
+            outputs_and_owners
+                .iter()
+                .map(|(dbc_content, owner)| (dbc_content.hash(), *owner)),
+        );
+        let outputs = HashSet::from_iter(outputs_and_owners.into_iter().map(|(o, _)| o));
+        Ok((ReissueTransaction { inputs, outputs }, output_owners))
     }
 }
