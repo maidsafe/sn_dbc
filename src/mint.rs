@@ -1000,8 +1000,6 @@ mod tests {
     ///      Verify that this reissue succeeds.
     #[test]
     fn test_mismatched_amount_and_commitment() -> Result<(), Error> {
-        use crate::dbc_content::tests::dbc_new_mismatched;
-
         // ----------
         // Phase 1. Creation of Genesis DBC
         // ----------
@@ -1030,31 +1028,47 @@ mod tests {
             )]),
         };
 
-        let inputs = HashSet::from_iter([genesis_dbc.clone()]);
-        let input_hashes = BTreeSet::from_iter([genesis_dbc.name()]);
-
         let genesis_secrets =
             DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
+
         let outputs_owner = crate::bls_dkg_id();
+        let outputs_owner_pk = outputs_owner.public_key_set.public_key();
         let output_amount = 1000;
+
+        let (mut transaction, _) = crate::TransactionBuilder::default()
+            .add_input(genesis_dbc.clone(), genesis_secrets)
+            .add_output(crate::Output {
+                amount: output_amount,
+                owner: outputs_owner_pk,
+            })
+            .build()?;
 
         // ----------
         // Phase 2. Creation of mis-matched output
         // ----------
 
-        // Here we create an output that has a different committed amount than secret amount.
-        // DbcContent::new() does not allow this, so we use a replacement fn dbc_new_mismatched().
-        let transaction = ReissueTransaction {
-            inputs,
-            outputs: HashSet::from_iter([dbc_new_mismatched(
-                input_hashes.clone(),
-                output_amount,     // committed amount
-                output_amount * 2, // secret amount
-                outputs_owner.public_key_set.public_key(),
-                genesis_secrets.blinding_factor,
-            )
-            .unwrap()]),
+        // Here we modify the transaction output to have a different committed amount than the secret amount.
+        // The sn_dbc API does not allow this so we manually modify the reissue transaction.
+        let mut out_dbc_content = std::mem::take(&mut transaction.outputs)
+            .into_iter()
+            .next()
+            .expect("We should have a single output");
+
+        // obtain amount secrets
+        let secrets = DbcHelper::decrypt_amount_secrets(&outputs_owner, &out_dbc_content)?;
+
+        // Replace the encrypted secret amount with an encrypted secret claiming
+        // twice the committed value.
+        let fudged_amount_secrets = crate::AmountSecrets {
+            amount: secrets.amount * 2, // Claim we are paying twice the committed value
+            blinding_factor: secrets.blinding_factor, // Use the real blinding factor
         };
+
+        out_dbc_content.amount_secrets_cipher =
+            outputs_owner_pk.encrypt(fudged_amount_secrets.to_bytes().as_slice());
+
+        // Add the fudged output back into the reissue transaction.
+        transaction.outputs.insert(out_dbc_content);
 
         let sig_share = genesis_node
             .key_manager
@@ -1079,8 +1093,10 @@ mod tests {
         // or guess it.  And that's assuming the secret blinding_factor is correct, which it is in this
         // case, but might not be in the wild.  So the output DBC could be considered to be in a
         // semi-unspendable state.
-        let (transaction, transaction_sigs) =
-            genesis_node.reissue(reissue_req.clone(), input_hashes)?;
+        let (transaction, transaction_sigs) = genesis_node.reissue(
+            reissue_req.clone(),
+            BTreeSet::from_iter([genesis_dbc.name()]),
+        )?;
 
         // Verify transaction returned to us by the Mint matches our request
         assert_eq!(reissue_req.transaction.blinded(), transaction);
@@ -1152,21 +1168,15 @@ mod tests {
         //  b) with true committed amount (out of band for recipient).  (should succeeed)
 
         let input_dbc = output_dbc;
-        let inputs = HashSet::from_iter([input_dbc.clone()]);
-        let input_hashes = BTreeSet::from_iter([input_dbc.name()]);
-
         let input_secrets = DbcHelper::decrypt_amount_secrets(&outputs_owner, &input_dbc.content)?;
 
-        let transaction = ReissueTransaction {
-            inputs: inputs.clone(),
-            outputs: HashSet::from_iter([DbcContent::new(
-                input_hashes.clone(),
-                input_secrets.amount, // secret amount
-                outputs_owner.public_key_set.public_key(),
-                input_secrets.blinding_factor,
-            )
-            .unwrap()]),
-        };
+        let (transaction, _) = crate::TransactionBuilder::default()
+            .add_input(input_dbc.clone(), input_secrets.clone())
+            .add_output(crate::Output {
+                amount: input_secrets.amount,
+                owner: outputs_owner_pk,
+            })
+            .build()?;
 
         let sig_share = outputs_owner
             .secret_key_share
@@ -1185,7 +1195,7 @@ mod tests {
         };
 
         // The mint should give an error on reissue because the sum(inputs) does not equal sum(outputs)
-        let result = genesis_node.reissue(reissue_req, input_hashes.clone());
+        let result = genesis_node.reissue(reissue_req, BTreeSet::from_iter([input_dbc.name()]));
         match result {
             Err(Error::DbcReissueRequestDoesNotBalance) => {}
             _ => panic!("Expecting Error::DbcReissueRequestDoesNotBalance"),
@@ -1195,16 +1205,13 @@ mod tests {
         // Phase 4. Successful reissue of mis-matched DBC using true committed amount.
         // ----------
 
-        let transaction = ReissueTransaction {
-            inputs,
-            outputs: HashSet::from_iter([DbcContent::new(
-                input_hashes.clone(),
-                output_amount, // the true (committed) amount from previous reissue.
-                outputs_owner.public_key_set.public_key(),
-                input_secrets.blinding_factor,
-            )
-            .unwrap()]),
-        };
+        let (transaction, _) = crate::TransactionBuilder::default()
+            .add_input(input_dbc.clone(), input_secrets)
+            .add_output(crate::Output {
+                amount: output_amount,
+                owner: outputs_owner_pk,
+            })
+            .build()?;
 
         let sig_share = outputs_owner
             .secret_key_share
@@ -1223,7 +1230,7 @@ mod tests {
         };
 
         // The mint should reissue without error because the sum(inputs) does equal sum(outputs)
-        let result = genesis_node.reissue(reissue_req, input_hashes);
+        let result = genesis_node.reissue(reissue_req, BTreeSet::from_iter([input_dbc.name()]));
         assert!(result.is_ok());
 
         Ok(())
