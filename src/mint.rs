@@ -356,8 +356,8 @@ mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::{
-        tests::{DbcHelper, TinyInt, TinyVec},
-        SimpleKeyManager, SimpleSigner,
+        tests::{TinyInt, TinyVec},
+        DbcHelper, SimpleKeyManager, SimpleSigner,
     };
 
     #[quickcheck]

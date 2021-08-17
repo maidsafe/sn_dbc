@@ -120,38 +120,23 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 fn bench_reissue_100_to_1(c: &mut Criterion) {
     let n_outputs: u32 = 100;
     let (mut genesis, genesis_owner, genesis_dbc) = genesis(n_outputs as u64);
-
-    let inputs = HashSet::from_iter([genesis_dbc.clone()]);
-    let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
-
-    let genesis_secrets = decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content).unwrap();
-    let mut outputs_bf_sum: Scalar = Default::default();
+    let genesis_amount_secrets =
+        sn_dbc::DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content).unwrap();
 
     let owners = Vec::from_iter((0..n_outputs).into_iter().map(|_| bls_dkg_id()));
-    let outputs = (0..n_outputs)
-        .into_iter()
-        .map(|i| {
-            let blinding_factor = DbcContent::calc_blinding_factor(
-                i == n_outputs - 1,
-                genesis_secrets.blinding_factor,
-                outputs_bf_sum,
-            );
-            outputs_bf_sum += blinding_factor;
-            DbcContent::new(
-                input_hashes.clone(),
-                1,
-                owners[i as usize].public_key_set.public_key(),
-                blinding_factor,
-            )
-        })
-        .collect::<Result<HashSet<_>, _>>()
-        .unwrap();
 
-    let transaction = ReissueTransaction { inputs, outputs };
+    let (reissue_tx, dbc_owners) = sn_dbc::TransactionBuilder::default()
+        .add_input(genesis_dbc.clone(), genesis_amount_secrets)
+        .add_outputs(owners.iter().map(|owner| sn_dbc::Output {
+            amount: 1,
+            owner: owner.public_key_set.public_key(),
+        }))
+        .build()
+        .unwrap();
 
     let sig_share = genesis_owner
         .secret_key_share
-        .sign(&transaction.blinded().hash());
+        .sign(&reissue_tx.blinded().hash());
 
     let sig = genesis_owner
         .public_key_set
@@ -164,11 +149,13 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     )]);
 
     let reissue = ReissueRequest {
-        transaction,
+        transaction: reissue_tx,
         input_ownership_proofs,
     };
 
-    let (transaction, transaction_sigs) = genesis.reissue(reissue.clone(), input_hashes).unwrap();
+    let (transaction, transaction_sigs) = genesis
+        .reissue(reissue.clone(), BTreeSet::from_iter([genesis_dbc.name()]))
+        .unwrap();
 
     let (mint_key_set, mint_sig_share) = transaction_sigs.values().cloned().next().unwrap();
 
@@ -186,23 +173,26 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         )]),
     }));
 
-    let merged_output = DbcContent::new(
-        BTreeSet::from_iter(dbcs.iter().map(Dbc::name)),
-        n_outputs as u64,
-        bls_dkg_id().public_key_set.public_key(),
-        outputs_bf_sum,
-    )
-    .unwrap();
-
-    let merge_transaction = ReissueTransaction {
-        inputs: HashSet::from_iter(dbcs.clone()),
-        outputs: HashSet::from_iter([merged_output]),
-    };
+    let (merge_tx, _) = sn_dbc::TransactionBuilder::default()
+        .add_inputs(dbcs.iter().cloned().map(|dbc| {
+            let owner_pk = dbc_owners[&dbc.name()];
+            let owner = owners
+                .iter()
+                .find(|o| o.public_key_set.public_key() == owner_pk)
+                .unwrap();
+            let amount_secrets =
+                sn_dbc::DbcHelper::decrypt_amount_secrets(&owner, &dbc.content).unwrap();
+            (dbc, amount_secrets)
+        }))
+        .add_output(sn_dbc::Output {
+            amount: n_outputs as u64,
+            owner: bls_dkg_id().public_key_set.public_key(),
+        })
+        .build()
+        .unwrap();
 
     let input_ownership_proofs = HashMap::from_iter(dbcs.iter().enumerate().map(|(i, dbc)| {
-        let sig_share = owners[i]
-            .secret_key_share
-            .sign(merge_transaction.blinded().hash());
+        let sig_share = owners[i].secret_key_share.sign(merge_tx.blinded().hash());
         let sig = owners[i]
             .public_key_set
             .combine_signatures(vec![(0, &sig_share)])
@@ -211,7 +201,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     }));
 
     let merge_reissue = ReissueRequest {
-        transaction: merge_transaction,
+        transaction: merge_tx,
         input_ownership_proofs,
     };
     let inputs = merge_reissue.transaction.blinded().inputs;
