@@ -1,12 +1,11 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
 
-use curve25519_dalek_ng::scalar::Scalar;
 use sn_dbc::{
-    bls_dkg_id, AmountSecrets, Dbc, DbcContent, Error, Mint, ReissueRequest, ReissueTransaction,
-    SimpleKeyManager, SimpleSigner, SimpleSpendBook,
+    bls_dkg_id, AmountSecrets, Dbc, DbcContent, Error, Mint, ReissueRequest, SimpleKeyManager,
+    SimpleSigner, SimpleSpendBook,
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -64,34 +63,23 @@ fn genesis(
 fn bench_reissue_1_to_100(c: &mut Criterion) {
     let n_outputs: u32 = 100;
     let (mut genesis, genesis_owner, genesis_dbc) = genesis(n_outputs as u64);
-
-    let inputs = HashSet::from_iter([genesis_dbc.clone()]);
-    let input_hashes = BTreeSet::from_iter(inputs.iter().map(|in_dbc| in_dbc.name()));
-
     let genesis_secrets = decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content).unwrap();
 
     let output_owner = bls_dkg_id();
-    let owner_pub_key = output_owner.public_key_set.public_key();
-    let mut outputs_bf_sum: Scalar = Default::default();
-    let outputs = (0..n_outputs)
-        .into_iter()
-        .map(|i| {
-            let blinding_factor = DbcContent::calc_blinding_factor(
-                i == n_outputs - 1,
-                genesis_secrets.blinding_factor,
-                outputs_bf_sum,
-            );
-            outputs_bf_sum += blinding_factor;
-            DbcContent::new(input_hashes.clone(), 1, owner_pub_key, blinding_factor)
-        })
-        .collect::<Result<HashSet<_>, _>>()
-        .unwrap();
+    let output_owner_pk = output_owner.public_key_set.public_key();
 
-    let transaction = ReissueTransaction { inputs, outputs };
+    let (reissue_tx, _) = sn_dbc::TransactionBuilder::default()
+        .add_input(genesis_dbc.clone(), genesis_secrets)
+        .add_outputs((0..n_outputs).into_iter().map(|_| sn_dbc::Output {
+            amount: 1,
+            owner: output_owner_pk,
+        }))
+        .build()
+        .unwrap();
 
     let sig_share = genesis_owner
         .secret_key_share
-        .sign(&transaction.blinded().hash());
+        .sign(&reissue_tx.blinded().hash());
 
     let sig = genesis_owner
         .public_key_set
@@ -99,7 +87,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .unwrap();
 
     let reissue = ReissueRequest {
-        transaction,
+        transaction: reissue_tx,
         input_ownership_proofs: HashMap::from_iter([(
             genesis_dbc.name(),
             (genesis_owner.public_key_set.public_key(), sig),
@@ -111,7 +99,10 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         b.iter(|| {
             genesis.reset_spendbook(spendbook.clone());
             genesis
-                .reissue(black_box(reissue.clone()), black_box(input_hashes.clone()))
+                .reissue(
+                    black_box(reissue.clone()),
+                    black_box(BTreeSet::from_iter([genesis_dbc.name()])),
+                )
                 .unwrap();
         })
     });
