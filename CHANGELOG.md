@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.3.0](https://github.com/maidsafe/sn_dbc/compare/v2.2.0...v2.3.0) (2021-08-17)
+
+
+### Features
+
+* **tx_builder:** introduce transaction builder pattern ([d0539a7](https://github.com/maidsafe/sn_dbc/commit/d0539a7a929a1cfc7027553c6d99da508faefa9f))
+
+
+### Bug Fixes
+
+* address CR comments - fix naming and spelling ([e796cfe](https://github.com/maidsafe/sn_dbc/commit/e796cfe7c96a87a27c7f50f1e24244a9145919c9))
+
 ## [2.2.0](https://github.com/maidsafe/sn_dbc/compare/v2.1.0...v2.2.0) (2021-08-13)
 
 
