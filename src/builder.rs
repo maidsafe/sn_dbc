@@ -5,7 +5,7 @@ use curve25519_dalek_ng::scalar::Scalar;
 
 use crate::{AmountSecrets, Dbc, DbcContent, ReissueTransaction, Result};
 
-///! Unblinded data for creating to sn_dbc::DbcContent
+///! Unblinded data for creating sn_dbc::DbcContent
 pub struct Output {
     pub amount: u64,
     pub owner: blsttc::PublicKey,

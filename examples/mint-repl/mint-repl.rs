@@ -1127,7 +1127,7 @@ fn reissue_exec(
         })
         .collect();
 
-    // sort outputs by output_number
+    // sort outputs by name
     output_dbcs.sort_by_key(|d| d.name());
 
     // for each output, construct DbcUnblinded and display

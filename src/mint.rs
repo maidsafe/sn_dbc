@@ -546,12 +546,12 @@ mod tests {
         };
         let gen_dbc_name = genesis_dbc.name();
 
-        let genesis_secret_amounts =
+        let genesis_amount_secrets =
             DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
 
         let output_owner = crate::bls_dkg_id();
         let (reissue_tx, _output_owners) = crate::TransactionBuilder::default()
-            .add_input(genesis_dbc.clone(), genesis_secret_amounts.clone())
+            .add_input(genesis_dbc.clone(), genesis_amount_secrets.clone())
             .add_output(crate::Output {
                 amount: 1000,
                 owner: output_owner.public_key_set.public_key(),
@@ -575,7 +575,7 @@ mod tests {
         let (t, s) = genesis_node.reissue(reissue_req, BTreeSet::from_iter([gen_dbc_name]))?;
 
         let (double_spend_reissue_tx, _output_owners) = crate::TransactionBuilder::default()
-            .add_input(genesis_dbc, genesis_secret_amounts)
+            .add_input(genesis_dbc, genesis_amount_secrets)
             .add_output(crate::Output {
                 amount: 1000,
                 owner: output_owner.public_key_set.public_key(),
@@ -1165,7 +1165,7 @@ mod tests {
 
         // Next: attempt reissuing the output DBC:
         //  a) with provided secret amount (in band for recipient).     (should fail)
-        //  b) with true committed amount (out of band for recipient).  (should succeeed)
+        //  b) with true committed amount (out of band for recipient).  (should succeed)
 
         let input_dbc = output_dbc;
         let input_secrets = DbcHelper::decrypt_amount_secrets(&outputs_owner, &input_dbc.content)?;
