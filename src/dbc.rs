@@ -61,10 +61,10 @@ mod tests {
 
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::{DbcHelper, NonZeroTinyInt, TinyInt};
+    use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        KeyManager, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager, SimpleSigner,
-        SimpleSpendBook,
+        DbcHelper, KeyManager, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager,
+        SimpleSigner, SimpleSpendBook,
     };
 
     fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
