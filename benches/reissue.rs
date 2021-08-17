@@ -172,7 +172,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                 .find(|o| o.public_key_set.public_key() == owner_pk)
                 .unwrap();
             let amount_secrets =
-                sn_dbc::DbcHelper::decrypt_amount_secrets(&owner, &dbc.content).unwrap();
+                sn_dbc::DbcHelper::decrypt_amount_secrets(owner, &dbc.content).unwrap();
             (dbc, amount_secrets)
         }))
         .add_output(sn_dbc::Output {
