@@ -15,17 +15,16 @@ use blsttc::serde_impl::SerdeSecret;
 use blsttc::{
     PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, Signature, SignatureShare,
 };
-use curve25519_dalek_ng::scalar::Scalar;
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature, ReissueRequest,
-    ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
-    SimpleSpendBook as SpendBook,
+    Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature, Output,
+    ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
+    SimpleSpendBook as SpendBook, TransactionBuilder,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
 
 #[cfg(unix)]
@@ -582,13 +581,13 @@ fn validate(mintinfo: &MintInfo) -> Result<()> {
 
 /// Implements prepare_tx command.
 fn prepare_tx() -> Result<()> {
-    let mut inputs: HashSet<Dbc> = Default::default();
+    let mut tx_builder: TransactionBuilder = Default::default();
+
+    // let mut inputs: HashSet<Dbc> = Default::default();
     let mut inputs_owners: HashMap<Hash, PublicKeySet> = Default::default();
-    let mut outputs_owners: HashMap<Hash, PublicKeySet> = Default::default();
+    let mut pk_pks: HashMap<PublicKey, PublicKeySet> = Default::default();
 
     // Get DBC inputs from user
-    let mut inputs_total: u64 = 0;
-    let mut inputs_bf_total: Scalar = Default::default();
     loop {
         let dbc_input = readline_prompt_nl("\nInput DBC, or 'done': ")?;
         let dbc: DbcUnblinded = if dbc_input == "done" {
@@ -631,29 +630,27 @@ fn prepare_tx() -> Result<()> {
             .amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
 
         inputs_owners.insert(dbc.inner.name(), dbc.owner);
-
-        inputs_total += amount_secrets.amount;
-        inputs_bf_total += amount_secrets.blinding_factor;
-        inputs.insert(dbc.inner);
+        tx_builder = tx_builder.add_input(dbc.inner, amount_secrets);
     }
 
-    let input_hashes = inputs.iter().map(|e| e.name()).collect::<BTreeSet<_>>();
     let mut i = 0u32;
-    let mut outputs: HashSet<DbcContent> = Default::default();
 
     // Get outputs from user
-    let mut outputs_total = 0u64;
-    let mut outputs_bf_sum = Scalar::default();
     // note, we upcast to i128 to allow negative value.
     // This permits unbalanced inputs/outputs to reach sn_dbc layer for validation.
-    while inputs_total as i128 - outputs_total as i128 > 0 {
+    let inputs_amount_sum = tx_builder.inputs_amount_sum();
+    while inputs_amount_sum as i128 - tx_builder.outputs_amount_sum() as i128 > 0 {
         println!();
         println!("------------");
         println!("Output #{}", i);
         println!("------------\n");
 
-        let remaining = inputs_total - outputs_total;
-        println!("Inputs total: {}.  Remaining: {}", inputs_total, remaining);
+        let remaining = inputs_amount_sum - tx_builder.outputs_amount_sum();
+
+        println!(
+            "Inputs total: {}.  Remaining: {}",
+            inputs_amount_sum, remaining
+        );
         let line = readline_prompt("Amount, or 'cancel': ")?;
         let amount: u64 = if line == "cancel" {
             println!("\nprepare_tx cancelled\n");
@@ -680,32 +677,28 @@ fn prepare_tx() -> Result<()> {
 
         let pub_out_set: PublicKeySet = from_be_hex(&pub_out)?;
 
-        // If this is the final output we need to calculate the final
-        // blinding factor, else generate random.
-        let blinding_factor = DbcContent::calc_blinding_factor(
-            outputs_total + amount == inputs_total,
-            inputs_bf_total,
-            outputs_bf_sum,
-        );
+        tx_builder = tx_builder.add_output(Output {
+            amount,
+            owner: pub_out_set.public_key(),
+        });
 
-        let dbc_content = DbcContent::new(
-            input_hashes.clone(),     // parents
-            amount,                   // amount
-            pub_out_set.public_key(), // public_key
-            blinding_factor,
-        )?;
-        outputs_owners.insert(dbc_content.hash(), pub_out_set);
-
-        outputs_total += amount;
-        outputs_bf_sum += blinding_factor;
-        outputs.insert(dbc_content);
+        pk_pks.insert(pub_out_set.public_key(), pub_out_set);
         i += 1;
     }
 
     println!("\n\nThank-you.   Preparing ReissueTransaction...\n\n");
 
+    let (reissue_tx, output_owners) = tx_builder.build()?;
+
+    // generate output Hash -> PublicKeySet map
+    let mut outputs_owners: HashMap<Hash, PublicKeySet> = Default::default();
+    for (h, pk) in output_owners.iter() {
+        let pks = pk_pks.get(pk).ok_or_else(|| anyhow!("pubkey not found"))?;
+        outputs_owners.insert(*h, pks.clone());
+    }
+
     let transaction = ReissueTransactionUnblinded {
-        inner: ReissueTransaction { inputs, outputs },
+        inner: reissue_tx,
         inputs_owners,
         outputs_owners,
     };
@@ -795,11 +788,7 @@ fn prepare_reissue() -> Result<()> {
     //                until required # of SignatureShare obtained.
     for dbc in tx.inner.inputs.iter() {
         println!("-----------------");
-        println!(
-            "Input [id: {}, amount: {}]",
-            encode(dbc.name()),
-            0 // fixme: dbc.content.amount
-        );
+        println!("Input [id: {}]", encode(dbc.name()),);
         println!("-----------------");
 
         let pubkeyset = tx
@@ -893,14 +882,14 @@ fn reissue(mintinfo: &mut MintInfo) -> Result<()> {
 
 /// Implements reissue_ez command.
 fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
-    let mut inputs: HashMap<DbcUnblinded, BTreeMap<usize, SecretKeyShare>> = Default::default();
-    let mut inputs_total: u64 = 0;
-    let mut inputs_bf_sum: Scalar = Default::default();
+    let mut tx_builder: TransactionBuilder = Default::default();
+    let mut pk_pks: HashMap<PublicKey, PublicKeySet> = Default::default();
+    let mut inputs_sks: HashMap<DbcUnblinded, BTreeMap<usize, SecretKeyShare>> = Default::default();
 
     // Get from user: input DBC(s) and required # of SecretKeyShare+index for each.
     loop {
         println!("--------------");
-        println!("Input DBC #{}", inputs.len());
+        println!("Input DBC #{}", inputs_sks.len());
         println!("--------------\n");
 
         let dbc_input = readline_prompt_nl("\nDBC Data, or 'done': ")?;
@@ -933,37 +922,28 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
             .inner
             .content
             .amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
-        inputs_total += amount_secrets.amount;
-        inputs_bf_sum += amount_secrets.blinding_factor;
 
-        inputs.insert(dbc, secrets);
+        tx_builder = tx_builder.add_input(dbc.inner.clone(), amount_secrets);
+        inputs_sks.insert(dbc, secrets);
     }
 
-    let input_hashes = inputs
-        .iter()
-        .map(|(dbc, _)| dbc.inner.name())
-        .collect::<BTreeSet<_>>();
-
-    //    let inputs_total: u64 = inputs.iter().map(|(dbc, _)| dbc.inner.content.amount).sum();
-    //    let inputs_bf_sum: Scalar = inputs.iter().map(|(dbc, _)| dbc.inner.content.blinding_factor).sum();
     let mut i = 0u32;
-    let mut outputs: HashSet<DbcContent> = Default::default();
-
-    let mut outputs_pks: HashMap<Hash, PublicKeySet> = Default::default();
-    let mut outputs_total = 0u64;
-    let mut outputs_bf_sum = Scalar::default();
 
     // Get from user: Amount and PublicKeySet for each output DBC
     // note, we upcast to i128 to allow negative value.
     // This permits unbalanced inputs/outputs to reach sn_dbc layer for validation.
-    while inputs_total as i128 - outputs_total as i128 > 0 {
+    let inputs_amount_sum = tx_builder.inputs_amount_sum();
+    while inputs_amount_sum as i128 - tx_builder.outputs_amount_sum() as i128 > 0 {
         println!();
         println!("------------");
         println!("Output #{}", i);
         println!("------------\n");
 
-        let remaining = inputs_total - outputs_total;
-        println!("Inputs total: {}.  Remaining: {}", inputs_total, remaining);
+        let remaining = inputs_amount_sum - tx_builder.outputs_amount_sum();
+        println!(
+            "Inputs total: {}.  Remaining: {}",
+            inputs_amount_sum, remaining
+        );
         let line = readline_prompt("Amount, or 'cancel': ")?;
         let amount: u64 = if line == "cancel" {
             println!("\nreissue_ez cancelled\n");
@@ -982,46 +962,37 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         }
 
         let line = readline_prompt_nl("\nPublicKeySet, or 'cancel': ")?;
-        let pub_out = if line == "cancel" {
-            break;
-        } else {
-            line
+        let pub_out = match line.as_str() {
+            "cancel" => break,
+            _ => line,
         };
 
         let pub_out_set: PublicKeySet = from_be_hex(&pub_out)?;
 
-        let blinding_factor = DbcContent::calc_blinding_factor(
-            outputs_total + amount == inputs_total,
-            inputs_bf_sum,
-            outputs_bf_sum,
-        );
+        tx_builder = tx_builder.add_output(Output {
+            amount,
+            owner: pub_out_set.public_key(),
+        });
 
-        let dbc_content = DbcContent::new(
-            input_hashes.clone(),     // parents
-            amount,                   // amount
-            pub_out_set.public_key(), // owner
-            blinding_factor,
-        )?;
-
-        outputs_pks.insert(dbc_content.hash(), pub_out_set.clone());
-
-        outputs_total += amount;
-        outputs_bf_sum += blinding_factor;
-        outputs.insert(dbc_content);
+        pk_pks.insert(pub_out_set.public_key(), pub_out_set);
         i += 1;
     }
 
     println!("\n\nThank-you.   Generating DBC(s)...\n\n");
 
-    let tx_inputs: HashSet<Dbc> = inputs.keys().map(|d| d.inner.clone()).collect();
-    let transaction = ReissueTransaction {
-        inputs: tx_inputs,
-        outputs,
-    };
+    let input_hashes = tx_builder.inputs_hashes();
+    let (transaction, output_owners) = tx_builder.build()?;
+
+    // generate output Hash -> PublicKeySet map
+    let mut outputs_pks: HashMap<Hash, PublicKeySet> = Default::default();
+    for (h, pk) in output_owners.iter() {
+        let pks = pk_pks.get(pk).ok_or_else(|| anyhow!("pubkey not found"))?;
+        outputs_pks.insert(*h, pks.clone());
+    }
 
     // for each input Dbc, combine owner's SignatureShare(s) to obtain owner's Signature
     let mut proofs: HashMap<Hash, (PublicKey, Signature)> = Default::default();
-    for (dbc, secrets) in inputs.iter() {
+    for (dbc, secrets) in inputs_sks.iter() {
         let mut sig_shares: BTreeMap<usize, SignatureShare> = Default::default();
         for (idx, secret) in secrets.iter() {
             let sig_share = secret.sign(&transaction.blinded().hash());
@@ -1036,7 +1007,6 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
     let reissue_request = ReissueRequest {
         transaction,
-        //        input_ownership_proofs: HashMap::from_iter([(mintinfo.genesis.name(), sig)]),
         input_ownership_proofs: proofs,
     };
 
