@@ -118,7 +118,7 @@ impl DbcHelper {
     ) -> Result<AmountSecrets, Error> {
         let mut shares: std::collections::BTreeMap<usize, bls_dkg::SecretKeyShare> =
             Default::default();
-        shares.insert(0, owner.secret_key_share.clone());
+        shares.insert(owner.index, owner.secret_key_share.clone());
 
         dbcc.amount_secrets_by_secret_key_shares(&owner.public_key_set, &shares)
     }

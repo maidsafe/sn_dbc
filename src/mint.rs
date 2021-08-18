@@ -366,10 +366,7 @@ mod tests {
         let genesis_key = genesis_owner.public_key_set.public_key();
 
         let key_manager = SimpleKeyManager::new(
-            SimpleSigner::new(
-                genesis_owner.public_key_set.clone(),
-                (0, genesis_owner.secret_key_share.clone()),
-            ),
+            SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
@@ -408,13 +405,8 @@ mod tests {
 
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
-        let key_manager = SimpleKeyManager::new(
-            SimpleSigner::new(
-                genesis_owner.public_key_set.clone(),
-                (0, genesis_owner.secret_key_share.clone()),
-            ),
-            genesis_key,
-        );
+        let key_manager =
+            SimpleKeyManager::new(SimpleSigner::from(genesis_owner.clone()), genesis_key);
         let mut genesis_node = Mint::new(key_manager.clone(), SimpleSpendBook::new());
 
         let (gen_dbc_content, gen_dbc_tx, (gen_key_set, gen_node_sig)) =
@@ -451,7 +443,7 @@ mod tests {
 
         let sig = genesis_owner
             .public_key_set
-            .combine_signatures(vec![(0, &sig_share)])?;
+            .combine_signatures(vec![(genesis_owner.index, &sig_share)])?;
 
         let reissue_req = ReissueRequest {
             transaction: reissue_tx,
@@ -524,13 +516,8 @@ mod tests {
     fn test_double_spend_protection() -> Result<()> {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
-        let key_manager = SimpleKeyManager::new(
-            SimpleSigner::new(
-                genesis_owner.public_key_set.clone(),
-                (0, genesis_owner.secret_key_share.clone()),
-            ),
-            genesis_key,
-        );
+        let key_manager =
+            SimpleKeyManager::new(SimpleSigner::from(genesis_owner.clone()), genesis_key);
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
         let (gen_dbc_content, gen_dbc_tx, (gen_key_set, gen_node_sig)) =
@@ -648,10 +635,7 @@ mod tests {
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
         let key_manager = SimpleKeyManager::new(
-            SimpleSigner::new(
-                genesis_owner.public_key_set.clone(),
-                (0, genesis_owner.secret_key_share.clone()),
-            ),
+            SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
@@ -787,7 +771,7 @@ mod tests {
                 let owner = &owners[&dbc.name()];
                 let sig_share = owner.secret_key_share.sign(&reissue_tx.blinded().hash());
                 let owner_key_set = &owner.public_key_set;
-                let sig = owner_key_set.combine_signatures(vec![(0, &sig_share)])?;
+                let sig = owner_key_set.combine_signatures(vec![(owner.index, &sig_share)])?;
                 Ok((dbc.name(), (owner_key_set.public_key(), sig)))
             })
             .collect::<Result<HashMap<_, _>, Error>>()?;
@@ -801,7 +785,8 @@ mod tests {
                     .secret_key_share
                     .sign(&reissue_tx.blinded().hash());
                 let owner_key_set = random_owner.public_key_set;
-                let sig = owner_key_set.combine_signatures(vec![(0, &sig_share)])?;
+                let sig =
+                    owner_key_set.combine_signatures(vec![(random_owner.index, &sig_share)])?;
 
                 Ok((dbc.name(), (owner_key_set.public_key(), sig)))
             })
@@ -937,10 +922,7 @@ mod tests {
     fn test_inputs_are_validated() -> Result<(), Error> {
         let genesis_owner = crate::bls_dkg_id();
         let key_manager = SimpleKeyManager::new(
-            SimpleSigner::new(
-                genesis_owner.public_key_set.clone(),
-                (0, genesis_owner.secret_key_share.clone()),
-            ),
+            SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
@@ -1010,10 +992,7 @@ mod tests {
         let genesis_key = genesis_owner.public_key_set.public_key();
 
         let key_manager = SimpleKeyManager::new(
-            SimpleSigner::new(
-                genesis_owner.public_key_set.clone(),
-                (0, genesis_owner.secret_key_share.clone()),
-            ),
+            SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
         let mut genesis_node = Mint::new(key_manager.clone(), SimpleSpendBook::new());
@@ -1187,7 +1166,7 @@ mod tests {
 
         let sig = outputs_owner
             .public_key_set
-            .combine_signatures(vec![(0, &sig_share)])?;
+            .combine_signatures(vec![(outputs_owner.index, &sig_share)])?;
 
         let reissue_req = ReissueRequest {
             transaction,
@@ -1222,7 +1201,7 @@ mod tests {
 
         let sig = outputs_owner
             .public_key_set
-            .combine_signatures(vec![(0, &sig_share)])?;
+            .combine_signatures(vec![(outputs_owner.index, &sig_share)])?;
 
         let reissue_req = ReissueRequest {
             transaction,
