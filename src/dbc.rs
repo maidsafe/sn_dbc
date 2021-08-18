@@ -85,7 +85,7 @@ mod tests {
         let amount_secrets = DbcHelper::decrypt_amount_secrets(dbc_owner, &dbc.content)?;
 
         let (reissue_tx, _) = crate::TransactionBuilder::default()
-            .add_input(dbc.clone(), amount_secrets.clone())
+            .add_input(dbc.clone(), amount_secrets)
             .add_outputs(
                 divide(amount_secrets.amount, n_ways).map(|amount| crate::Output {
                     amount,
