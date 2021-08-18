@@ -100,7 +100,7 @@ mod tests {
 
         let sig = dbc_owner
             .public_key_set
-            .combine_signatures(vec![(0, &sig_share)])
+            .combine_signatures(vec![(dbc_owner.index, &sig_share)])
             .unwrap();
 
         let dbc_owner_key = dbc_owner.public_key_set.public_key();
@@ -135,7 +135,7 @@ mod tests {
 
         let id = crate::bls_dkg_id();
         let key_manager = SimpleKeyManager::new(
-            SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share.clone())),
+            SimpleSigner::from(id.clone()),
             id.public_key_set.public_key(),
         );
 
@@ -164,10 +164,7 @@ mod tests {
         let genesis_key = genesis_owner.public_key_set.public_key();
 
         let key_manager = SimpleKeyManager::new(
-            SimpleSigner::new(
-                genesis_owner.public_key_set.clone(),
-                (0, genesis_owner.secret_key_share.clone()),
-            ),
+            SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
@@ -243,7 +240,7 @@ mod tests {
 
         let input_owner_key_set = input_owner.public_key_set.clone();
         let sig = input_owner_key_set
-            .combine_signatures(vec![(0, &sig_share)])
+            .combine_signatures(vec![(input_owner.index, &sig_share)])
             .unwrap();
 
         let input_ownership_proofs = HashMap::from_iter(reissue_tx.inputs.iter().map(|input| {
@@ -313,10 +310,8 @@ mod tests {
         for _ in 0..n_wrong_signer_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id();
-                let key_manager = SimpleKeyManager::new(
-                    SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share.clone())),
-                    genesis_key,
-                );
+                let key_manager =
+                    SimpleKeyManager::new(SimpleSigner::from(id.clone()), genesis_key);
                 let trans_sig_share = key_manager.sign(&transaction.hash()).unwrap();
                 let trans_sig = id
                     .public_key_set
@@ -354,10 +349,7 @@ mod tests {
         };
 
         let id = crate::bls_dkg_id();
-        let key_manager = SimpleKeyManager::new(
-            SimpleSigner::new(id.public_key_set.clone(), (0, id.secret_key_share)),
-            genesis_key,
-        );
+        let key_manager = SimpleKeyManager::new(SimpleSigner::from(id), genesis_key);
         let validation_res = dbc.confirm_valid(&key_manager);
 
         let dbc_amount = DbcHelper::decrypt_amount(&input_owner, &dbc.content)?;

@@ -47,6 +47,16 @@ pub struct SimpleSigner {
     secret_key_share: (u64, SerdeSecret<SecretKeyShare>),
 }
 
+#[cfg(feature = "dkg")]
+impl From<bls_dkg::outcome::Outcome> for SimpleSigner {
+    fn from(outcome: bls_dkg::outcome::Outcome) -> Self {
+        Self {
+            public_key_set: outcome.public_key_set,
+            secret_key_share: (outcome.index as u64, SerdeSecret(outcome.secret_key_share)),
+        }
+    }
+}
+
 impl SimpleSigner {
     pub fn new(public_key_set: PublicKeySet, secret_key_share: (u64, SecretKeyShare)) -> Self {
         Self {
