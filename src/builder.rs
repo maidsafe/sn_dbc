@@ -3,7 +3,7 @@ use std::iter::FromIterator;
 
 use curve25519_dalek_ng::scalar::Scalar;
 
-use crate::{AmountSecrets, Dbc, DbcContent, ReissueTransaction, Result};
+use crate::{AmountSecrets, Dbc, DbcContent, Hash, ReissueTransaction, Result};
 
 ///! Unblinded data for creating sn_dbc::DbcContent
 pub struct Output {
@@ -36,6 +36,21 @@ impl TransactionBuilder {
     pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = Output>) -> Self {
         self.outputs.extend(outputs);
         self
+    }
+
+    pub fn inputs_hashes(&self) -> BTreeSet<Hash> {
+        self.inputs
+            .iter()
+            .map(|(dbc, _)| dbc.name())
+            .collect::<BTreeSet<_>>()
+    }
+
+    pub fn inputs_amount_sum(&self) -> u64 {
+        self.inputs.iter().map(|(_, s)| s.amount).sum()
+    }
+
+    pub fn outputs_amount_sum(&self) -> u64 {
+        self.outputs.iter().map(|o| o.amount).sum()
     }
 
     pub fn build(self) -> Result<(ReissueTransaction, HashMap<crate::Hash, blsttc::PublicKey>)> {
