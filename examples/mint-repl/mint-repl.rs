@@ -20,7 +20,7 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature, Output,
+    Amount, Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature, Output,
     ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
     SimpleSpendBook as SpendBook, TransactionBuilder,
 };
@@ -160,7 +160,7 @@ fn newmint() -> Result<MintInfo> {
     }
 
     let amount = loop {
-        let amount: u64 = readline_prompt("\nTotal Money Supply Amount: ")?.parse()?;
+        let amount: Amount = readline_prompt("\nTotal Money Supply Amount: ")?.parse()?;
 
         if amount == 0 {
             let answer = readline_prompt(
@@ -203,13 +203,13 @@ fn newmint() -> Result<MintInfo> {
 }
 
 /// creates a new mint using a random seed.
-fn mk_new_random_mint(threshold: usize, amount: u64) -> Result<MintInfo> {
+fn mk_new_random_mint(threshold: usize, amount: Amount) -> Result<MintInfo> {
     let (poly, secret_key_set) = mk_secret_key_set(threshold)?;
     mk_new_mint(secret_key_set, poly, amount)
 }
 
 /// creates a new mint from an existing SecretKeySet that was seeded by poly.
-fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: u64) -> Result<MintInfo> {
+fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Result<MintInfo> {
     let genesis_pubkey = secret_key_set.public_keys().public_key();
     let mut mints: Vec<Mint<KeyManager, SpendBook>> = Default::default();
 
@@ -652,7 +652,7 @@ fn prepare_tx() -> Result<()> {
             inputs_amount_sum, remaining
         );
         let line = readline_prompt("Amount, or 'cancel': ")?;
-        let amount: u64 = if line == "cancel" {
+        let amount: Amount = if line == "cancel" {
             println!("\nprepare_tx cancelled\n");
             break;
         } else {
@@ -945,7 +945,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
             inputs_amount_sum, remaining
         );
         let line = readline_prompt("Amount, or 'cancel': ")?;
-        let amount: u64 = if line == "cancel" {
+        let amount: Amount = if line == "cancel" {
             println!("\nreissue_ez cancelled\n");
             return Ok(());
         } else {

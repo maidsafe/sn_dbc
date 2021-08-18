@@ -32,6 +32,8 @@ pub struct BlindedOwner(Hash);
 const AMT_SIZE: usize = 8; // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
 
+pub type Amount = u64;
+
 impl BlindedOwner {
     pub fn new(owner: &PublicKey, parents: &BTreeSet<DbcContentHash>) -> Self {
         let mut sha3 = Sha3::v256();
@@ -52,7 +54,7 @@ impl BlindedOwner {
 /// must be kept secret (encrypted) in the DBC.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct AmountSecrets {
-    pub amount: u64,
+    pub amount: Amount,
     pub blinding_factor: Scalar,
 }
 
@@ -67,7 +69,7 @@ impl AmountSecrets {
 
     /// build AmountSecrets from fixed size byte array.
     pub fn from_bytes(bytes: [u8; AMT_SIZE + BF_SIZE]) -> Self {
-        let amount = u64::from_le_bytes({
+        let amount = Amount::from_le_bytes({
             let mut b = [0u8; AMT_SIZE];
             b.copy_from_slice(&bytes[0..AMT_SIZE]);
             b
@@ -88,7 +90,7 @@ impl AmountSecrets {
         if bytes.len() != AMT_SIZE + BF_SIZE {
             return Err(Error::AmountSecretsBytesInvalid);
         }
-        let amount = u64::from_le_bytes({
+        let amount = Amount::from_le_bytes({
             let mut b = [0u8; AMT_SIZE];
             b.copy_from_slice(&bytes[0..AMT_SIZE]);
             b
@@ -119,7 +121,7 @@ impl DbcContent {
     // Create a new DbcContent for signing.
     pub fn new(
         parents: BTreeSet<DbcContentHash>,
-        amount: u64,
+        amount: Amount,
         owner_key: PublicKey,
         blinding_factor: Scalar,
     ) -> Result<Self, Error> {

@@ -27,7 +27,7 @@ mod mint;
 pub use crate::{
     builder::{Output, TransactionBuilder},
     dbc::Dbc,
-    dbc_content::{AmountSecrets, BlindedOwner, DbcContent},
+    dbc_content::{Amount, AmountSecrets, BlindedOwner, DbcContent},
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
     key_manager::{
@@ -126,7 +126,7 @@ impl DbcHelper {
     pub fn decrypt_amount(
         owner: &bls_dkg::outcome::Outcome,
         dbcc: &DbcContent,
-    ) -> Result<u64, Error> {
+    ) -> Result<Amount, Error> {
         Ok(Self::decrypt_amount_secrets(owner, dbcc)?.amount)
     }
 }
