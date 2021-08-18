@@ -52,7 +52,7 @@ impl BlindedOwner {
 
 /// Contains amount and Pedersen Commitment blinding factor which
 /// must be kept secret (encrypted) in the DBC.
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct AmountSecrets {
     pub amount: Amount,
     pub blinding_factor: Scalar,

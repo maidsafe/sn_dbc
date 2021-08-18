@@ -552,7 +552,7 @@ mod tests {
 
         let output_owner = crate::bls_dkg_id();
         let (reissue_tx, _output_owners) = crate::TransactionBuilder::default()
-            .add_input(genesis_dbc.clone(), genesis_amount_secrets.clone())
+            .add_input(genesis_dbc.clone(), genesis_amount_secrets)
             .add_output(crate::Output {
                 amount: 1000,
                 owner: output_owner.public_key_set.public_key(),
@@ -1174,7 +1174,7 @@ mod tests {
         let input_secrets = DbcHelper::decrypt_amount_secrets(&outputs_owner, &input_dbc.content)?;
 
         let (transaction, _) = crate::TransactionBuilder::default()
-            .add_input(input_dbc.clone(), input_secrets.clone())
+            .add_input(input_dbc.clone(), input_secrets)
             .add_output(crate::Output {
                 amount: input_secrets.amount,
                 owner: outputs_owner_pk,
