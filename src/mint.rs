@@ -14,8 +14,8 @@
 // Outputs <= input value
 
 use crate::{
-    Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager, NodeSignature,
-    PublicKeySet, Result,
+    Amount, Dbc, DbcContent, DbcContentHash, DbcTransaction, Error, Hash, KeyManager,
+    NodeSignature, PublicKeySet, Result,
 };
 use curve25519_dalek_ng::ristretto::RistrettoPoint;
 use serde::{Deserialize, Serialize};
@@ -202,7 +202,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
 
     pub fn issue_genesis_dbc(
         &mut self,
-        amount: u64,
+        amount: Amount,
     ) -> Result<(DbcContent, DbcTransaction, (PublicKeySet, NodeSignature))> {
         let parents = BTreeSet::from_iter([GENESIS_DBC_INPUT]);
         let content = DbcContent::new(
@@ -401,7 +401,8 @@ mod tests {
 
     #[quickcheck]
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
-        let output_amounts = Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<u64>));
+        let output_amounts =
+            Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
 
@@ -512,7 +513,7 @@ mod tests {
             output_dbcs
                 .iter()
                 .map(|dbc| { DbcHelper::decrypt_amount(&output_owner, &dbc.content) })
-                .sum::<Result<u64, _>>()?,
+                .sum::<Result<Amount, _>>()?,
             output_amount
         );
 
@@ -623,9 +624,11 @@ mod tests {
         // Include an invalid ownership proof for the following inputs
         invalid_input_owner_proofs: TinyVec<TinyInt>,
     ) -> Result<(), Error> {
-        let input_amounts = Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<u64>));
+        let input_amounts =
+            Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<Amount>));
 
-        let output_amounts = Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<u64>));
+        let output_amounts =
+            Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
 
         let extra_output_parents = Vec::from_iter(
             extra_output_parents
@@ -653,7 +656,7 @@ mod tests {
         );
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
-        let genesis_amount: u64 = input_amounts.iter().sum();
+        let genesis_amount: Amount = input_amounts.iter().sum();
         let (gen_dbc_content, gen_dbc_tx, (_gen_key, gen_node_sig)) =
             genesis_node.issue_genesis_dbc(genesis_amount)?;
 
@@ -816,7 +819,7 @@ mod tests {
             .iter()
             .map(|o| DbcHelper::decrypt_amount(&outputs_owner, o))
             .collect::<Result<Vec<_>, _>>()?;
-        let output_total_amount: u64 = dbc_output_amounts.iter().sum();
+        let output_total_amount: Amount = dbc_output_amounts.iter().sum();
 
         let reissue_req = ReissueRequest {
             transaction: reissue_tx,
@@ -877,7 +880,7 @@ mod tests {
                     output_dbcs
                         .iter()
                         .map(|dbc| { DbcHelper::decrypt_amount(&outputs_owner, &dbc.content) })
-                        .sum::<Result<u64, _>>()?,
+                        .sum::<Result<Amount, _>>()?,
                     output_total_amount
                 );
             }
@@ -889,7 +892,7 @@ mod tests {
                     // to match against the input commitment, and also no way to
                     // know that the input amount is zero.
                     assert!(output_amounts.is_empty());
-                    assert_eq!(input_amounts.iter().sum::<u64>(), 0);
+                    assert_eq!(input_amounts.iter().sum::<Amount>(), 0);
                     assert!(!input_amounts.is_empty());
                 }
             }
@@ -1155,7 +1158,7 @@ mod tests {
             output_dbcs
                 .iter()
                 .map(|dbc| { DbcHelper::decrypt_amount(&outputs_owner, &dbc.content) })
-                .sum::<Result<u64, _>>()?,
+                .sum::<Result<Amount, _>>()?,
             output_amount
         );
 

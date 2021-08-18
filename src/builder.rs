@@ -3,11 +3,11 @@ use std::iter::FromIterator;
 
 use curve25519_dalek_ng::scalar::Scalar;
 
-use crate::{AmountSecrets, Dbc, DbcContent, Hash, ReissueTransaction, Result};
+use crate::{Amount, AmountSecrets, Dbc, DbcContent, Hash, ReissueTransaction, Result};
 
 ///! Unblinded data for creating sn_dbc::DbcContent
 pub struct Output {
-    pub amount: u64,
+    pub amount: Amount,
     pub owner: blsttc::PublicKey,
 }
 
@@ -45,11 +45,11 @@ impl TransactionBuilder {
             .collect::<BTreeSet<_>>()
     }
 
-    pub fn inputs_amount_sum(&self) -> u64 {
+    pub fn inputs_amount_sum(&self) -> Amount {
         self.inputs.iter().map(|(_, s)| s.amount).sum()
     }
 
-    pub fn outputs_amount_sum(&self) -> u64 {
+    pub fn outputs_amount_sum(&self) -> Amount {
         self.outputs.iter().map(|o| o.amount).sum()
     }
 

@@ -63,16 +63,16 @@ mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        DbcHelper, KeyManager, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager,
+        Amount, DbcHelper, KeyManager, Mint, ReissueRequest, ReissueTransaction, SimpleKeyManager,
         SimpleSigner, SimpleSpendBook,
     };
 
-    fn divide(amount: u64, n_ways: u8) -> impl Iterator<Item = u64> {
+    fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
         (0..n_ways).into_iter().map(move |i| {
-            let equal_parts = amount / (n_ways as u64);
-            let leftover = amount % (n_ways as u64);
+            let equal_parts = amount / (n_ways as Amount);
+            let leftover = amount % (n_ways as Amount);
 
-            let odd_compensation = if (i as u64) < leftover { 1 } else { 0 };
+            let odd_compensation = if (i as Amount) < leftover { 1 } else { 0 };
             equal_parts + odd_compensation
         })
     }
@@ -89,7 +89,7 @@ mod tests {
         let amount_secrets = DbcHelper::decrypt_amount_secrets(dbc_owner, &dbc.content)?;
 
         let mut outputs_bf_sum: Scalar = Default::default();
-        let output_amounts: Vec<u64> = divide(amount_secrets.amount, n_ways).collect();
+        let output_amounts: Vec<Amount> = divide(amount_secrets.amount, n_ways).collect();
         let outputs = HashSet::from_iter(output_amounts.iter().enumerate().map(|(i, amount)| {
             let blinding_factor = DbcContent::calc_blinding_factor(
                 i == output_amounts.len() - 1,
@@ -297,7 +297,7 @@ mod tests {
 
         let fuzzed_content = DbcContent::new(
             fuzzed_parents,
-            amount + extra_output_amount.coerce::<u64>(),
+            amount + extra_output_amount.coerce::<Amount>(),
             crate::bls_dkg_id().public_key_set.public_key(),
             DbcContent::random_blinding_factor(),
         )?;

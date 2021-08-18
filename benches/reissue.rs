@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
 
 use sn_dbc::{
-    bls_dkg_id, AmountSecrets, Dbc, DbcContent, Error, Mint, ReissueRequest, SimpleKeyManager,
-    SimpleSigner, SimpleSpendBook,
+    bls_dkg_id, Amount, AmountSecrets, Dbc, DbcContent, Error, Mint, ReissueRequest,
+    SimpleKeyManager, SimpleSigner, SimpleSpendBook,
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -20,7 +20,7 @@ fn decrypt_amount_secrets(
 }
 
 fn genesis(
-    amount: u64,
+    amount: Amount,
 ) -> (
     Mint<SimpleKeyManager, SimpleSpendBook>,
     bls_dkg::outcome::Outcome,
@@ -176,7 +176,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
             (dbc, amount_secrets)
         }))
         .add_output(sn_dbc::Output {
-            amount: n_outputs as u64,
+            amount: n_outputs as Amount,
             owner: bls_dkg_id().public_key_set.public_key(),
         })
         .build()
