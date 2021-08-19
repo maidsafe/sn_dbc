@@ -20,7 +20,7 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcContent, DbcTransaction, Hash, Mint, MintSignatures, NodeSignature, Output,
+    Amount, Dbc, DbcBuilder, DbcContent, DbcTransaction, Hash, Mint, NodeSignature, Output,
     ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
     SimpleSpendBook as SpendBook, TransactionBuilder,
 };
@@ -1020,8 +1020,8 @@ fn reissue_exec(
     input_hashes: &BTreeSet<Hash>,
     outputs_pks: &HashMap<Hash, PublicKeySet>,
 ) -> Result<()> {
-    let mut results: Vec<(DbcTransaction, MintSignatures)> = Default::default();
-    let mut mint_sig_shares: Vec<NodeSignature> = Default::default();
+    let mut dbc_builder: DbcBuilder = Default::default();
+    dbc_builder = dbc_builder.set_reissue_transaction(reissue_request.transaction.clone());
 
     // Mint is multi-node.  So each mint node must execute Mint::reissue() and
     // provide its SignatureShare, which the client must then combine together
@@ -1029,76 +1029,13 @@ fn reissue_exec(
     for mint in mintinfo.mintnodes.iter_mut() {
         // here we pretend the client has made a network request to a single mint node
         // so this mint.reissue() execs on the Mint node and returns data to client.
-        let (transaction, transaction_sigs) =
-            mint.reissue(reissue_request.clone(), input_hashes.clone())?;
+        let reissue_share = mint.reissue(reissue_request.clone(), input_hashes.clone())?;
 
         // and now we are back to client code.
-
-        // Verify transaction returned to us by the Mint matches our request
-        assert_eq!(reissue_request.transaction.blinded(), transaction);
-
-        // Make a list of NodeSignature (sigshare from each Mint Node)
-        let mut node_shares: Vec<NodeSignature> =
-            transaction_sigs.iter().map(|e| e.1 .1.clone()).collect();
-        mint_sig_shares.append(&mut node_shares);
-
-        // Verify signatures corespond to each input
-        let (pubkey, sig) = transaction_sigs
-            .values()
-            .cloned()
-            .next()
-            .ok_or_else(|| anyhow!("Signature not found"))?;
-        for input in reissue_request.transaction.inputs.iter() {
-            assert_eq!(
-                transaction_sigs.get(&input.name()),
-                Some(&(pubkey.clone(), sig.clone()))
-            );
-        }
-        assert_eq!(transaction_sigs.len(), transaction.inputs.len());
-
-        results.push((transaction, transaction_sigs));
+        dbc_builder = dbc_builder.add_reissue_share(reissue_share);
     }
 
-    // Transform Vec<NodeSignature> to Vec<u64, &SignatureShare>
-    let mint_sig_shares_ref: Vec<(u64, &SignatureShare)> = mint_sig_shares
-        .iter()
-        .map(|e| e.threshold_crypto())
-        .collect();
-
-    // Combine signatures from all the mint nodes to obtain Mint's Signature.
-    let mint_sig = mintinfo
-        .secret_key_set
-        .public_keys()
-        .combine_signatures(mint_sig_shares_ref)
-        .map_err(|e| anyhow!(e))?;
-
-    // Obtain a copy of the tx and sigs from the first MintNode results.
-    let (transaction, transaction_sigs) = results
-        .get(0)
-        .ok_or_else(|| anyhow!("Signature not found"))?;
-
-    // Form the final output DBCs, with Mint's Signature for each.
-    let mut output_dbcs: Vec<Dbc> = reissue_request
-        .transaction
-        .outputs
-        .iter()
-        .map(|content| Dbc {
-            content: content.clone(),
-            transaction: transaction.clone(),
-            transaction_sigs: transaction_sigs
-                .iter()
-                .map(|(input, _)| {
-                    (
-                        *input,
-                        (mintinfo.genesis.owner.public_key(), mint_sig.clone()),
-                    )
-                })
-                .collect(),
-        })
-        .collect();
-
-    // sort outputs by name
-    output_dbcs.sort_by_key(|d| d.name());
+    let output_dbcs = dbc_builder.build()?;
 
     // for each output, construct DbcUnblinded and display
     for dbc in output_dbcs.iter() {

@@ -25,7 +25,7 @@ mod key_manager;
 mod mint;
 
 pub use crate::{
-    builder::{Output, TransactionBuilder},
+    builder::{DbcBuilder, Output, TransactionBuilder},
     dbc::Dbc,
     dbc_content::{Amount, AmountSecrets, BlindedOwner, DbcContent},
     dbc_transaction::DbcTransaction,
@@ -35,8 +35,8 @@ pub use crate::{
         SimpleSigner,
     },
     mint::{
-        Mint, MintSignatures, ReissueRequest, ReissueTransaction, SimpleSpendBook, SpendBook,
-        GENESIS_DBC_INPUT,
+        Mint, MintNodeSignatures, ReissueRequest, ReissueShare, ReissueTransaction,
+        SimpleSpendBook, SpendBook, GENESIS_DBC_INPUT,
     },
 };
 

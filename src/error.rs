@@ -54,6 +54,18 @@ pub enum Error {
     #[error("Dbc Content parents is not the same transaction inputs")]
     DbcContentParentsDifferentFromTransactionInputs,
 
+    #[error("The PublicKeySet differs between ReissueShare entries")]
+    ReissueSharePublicKeySetMismatch,
+
+    #[error("The MintNodeSignature count in ReissueShare differs from input count in ReissueTransaction")]
+    ReissueShareMintNodeSignaturesLenMismatch,
+
+    #[error("MintNodeSignature not found for an input in ReissueTransaction")]
+    ReissueShareMintNodeSignatureNotFoundForInput,
+
+    #[error("The DbcTransaction in ReissueShare differs from that of ReissueTransaction")]
+    ReissueShareDbcTransactionMismatch,
+
     #[error("RangeProof error: {0}")]
     RangeProof(#[from] bulletproofs::ProofError),
 

@@ -153,11 +153,16 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         input_ownership_proofs,
     };
 
-    let (transaction, transaction_sigs) = genesis
+    let reissue_share = genesis
         .reissue(reissue.clone(), BTreeSet::from_iter([genesis_dbc.name()]))
         .unwrap();
 
-    let (mint_key_set, mint_sig_share) = transaction_sigs.values().cloned().next().unwrap();
+    let (mint_key_set, mint_sig_share) = reissue_share
+        .mint_node_signatures
+        .values()
+        .cloned()
+        .next()
+        .unwrap();
 
     let mint_sig = genesis_owner
         .public_key_set
@@ -166,7 +171,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     let dbcs = Vec::from_iter(reissue.transaction.outputs.into_iter().map(|content| Dbc {
         content,
-        transaction: transaction.clone(),
+        transaction: reissue_share.dbc_transaction.clone(),
         transaction_sigs: BTreeMap::from_iter([(
             genesis_dbc.name(),
             (mint_key_set.public_key(), mint_sig.clone()),
