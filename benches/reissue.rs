@@ -125,6 +125,15 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build()
         .unwrap();
 
+    let dbc_owners = BTreeMap::from_iter(dbc_owners.into_iter().map(|(dbc_hash, owner_pk)| {
+        let owner = owners
+            .iter()
+            .find(|o| o.public_key_set.public_key() == owner_pk)
+            .unwrap()
+            .clone();
+        (dbc_hash, owner)
+    }));
+
     let sig_share = genesis_owner
         .secret_key_share
         .sign(&reissue_tx.blinded().hash());
@@ -166,11 +175,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     let (merge_tx, _) = sn_dbc::TransactionBuilder::default()
         .add_inputs(dbcs.iter().cloned().map(|dbc| {
-            let owner_pk = dbc_owners[&dbc.name()];
-            let owner = owners
-                .iter()
-                .find(|o| o.public_key_set.public_key() == owner_pk)
-                .unwrap();
+            let owner = &dbc_owners[&dbc.name()];
             let amount_secrets =
                 sn_dbc::DbcHelper::decrypt_amount_secrets(owner, &dbc.content).unwrap();
             (dbc, amount_secrets)
@@ -182,13 +187,14 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    let input_ownership_proofs = HashMap::from_iter(dbcs.iter().enumerate().map(|(i, dbc)| {
-        let sig_share = owners[i].secret_key_share.sign(merge_tx.blinded().hash());
-        let sig = owners[i]
+    let input_ownership_proofs = HashMap::from_iter(dbcs.iter().map(|dbc| {
+        let owner = &dbc_owners[&dbc.name()];
+        let sig_share = owner.secret_key_share.sign(merge_tx.blinded().hash());
+        let sig = owner
             .public_key_set
             .combine_signatures(vec![(0, &sig_share)])
             .unwrap();
-        (dbc.name(), (owners[i].public_key_set.public_key(), sig))
+        (dbc.name(), (owner.public_key_set.public_key(), sig))
     }));
 
     let merge_reissue = ReissueRequest {
