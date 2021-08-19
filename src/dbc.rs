@@ -62,8 +62,8 @@ mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, DbcHelper, KeyManager, Mint, ReissueRequest, SimpleKeyManager, SimpleSigner,
-        SimpleSpendBook,
+        Amount, DbcBuilder, DbcHelper, KeyManager, Mint, ReissueRequest, SimpleKeyManager,
+        SimpleSigner, SimpleSpendBook,
     };
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
@@ -193,38 +193,23 @@ mod tests {
             &input_owner.public_key_set,
         )?;
 
-        let (split_transaction, split_transaction_sigs) = genesis_node
+        let split_reissue_share = genesis_node
             .reissue(
                 reissue_request.clone(),
                 reissue_request.transaction.blinded().inputs,
             )
             .unwrap();
 
-        assert_eq!(split_transaction, reissue_request.transaction.blinded());
+        let mut dbc_builder = DbcBuilder::new(reissue_request.transaction);
+        dbc_builder = dbc_builder.add_reissue_share(split_reissue_share);
+        let output_dbcs = dbc_builder.build()?;
 
-        let (mint_key_set, mint_sig_share) = split_transaction_sigs.values().next().unwrap();
-        let mint_sig = mint_key_set
-            .combine_signatures(vec![mint_sig_share.threshold_crypto()])
-            .unwrap();
-
-        let inputs = reissue_request
-            .transaction
-            .outputs
-            .into_iter()
-            .map(|content| Dbc {
-                content,
-                transaction: split_transaction.clone(),
-                transaction_sigs: BTreeMap::from_iter(
-                    split_transaction_sigs
-                        .iter()
-                        .map(|(input, _)| (*input, (genesis_key, mint_sig.clone()))),
-                ),
-            })
-            .map(|dbc| {
-                let amount_secrets =
-                    DbcHelper::decrypt_amount_secrets(&input_owner, &dbc.content).unwrap();
-                (dbc, amount_secrets)
-            });
+        // The outputs become inputs for next reissue.
+        let inputs = output_dbcs.into_iter().map(|dbc| {
+            let amount_secrets =
+                DbcHelper::decrypt_amount_secrets(&input_owner, &dbc.content).unwrap();
+            (dbc, amount_secrets)
+        });
 
         let (reissue_tx, _) = crate::TransactionBuilder::default()
             .add_inputs(inputs)
@@ -255,21 +240,26 @@ mod tests {
             input_ownership_proofs,
         };
 
-        let (transaction, transaction_sigs) = genesis_node
+        let reissue_share = genesis_node
             .reissue(
                 reissue_request.clone(),
                 reissue_request.transaction.blinded().inputs,
             )
             .unwrap();
-        assert_eq!(reissue_request.transaction.blinded(), transaction);
+        assert_eq!(
+            reissue_request.transaction.blinded(),
+            reissue_share.dbc_transaction
+        );
 
-        let (mint_key_set, mint_sig_share) = transaction_sigs.values().next().unwrap();
+        let (mint_key_set, mint_sig_share) =
+            reissue_share.mint_node_signatures.values().next().unwrap();
         let mint_sig = mint_key_set
             .combine_signatures(vec![mint_sig_share.threshold_crypto()])
             .unwrap();
 
         let fuzzed_parents = BTreeSet::from_iter(
-            transaction
+            reissue_share
+                .dbc_transaction
                 .inputs
                 .iter()
                 .copied()
@@ -293,7 +283,8 @@ mod tests {
 
         // Add valid sigs
         fuzzed_transaction_sigs.extend(
-            transaction_sigs
+            reissue_share
+                .mint_node_signatures
                 .iter()
                 .take(n_valid_sigs.coerce())
                 .map(|(in_hash, _)| (*in_hash, (genesis_key, mint_sig.clone()))),
@@ -312,7 +303,9 @@ mod tests {
                 let id = crate::bls_dkg_id();
                 let key_manager =
                     SimpleKeyManager::new(SimpleSigner::from(id.clone()), genesis_key);
-                let trans_sig_share = key_manager.sign(&transaction.hash()).unwrap();
+                let trans_sig_share = key_manager
+                    .sign(&reissue_share.dbc_transaction.hash())
+                    .unwrap();
                 let trans_sig = id
                     .public_key_set
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
@@ -344,7 +337,7 @@ mod tests {
 
         let dbc = Dbc {
             content: fuzzed_content,
-            transaction,
+            transaction: reissue_share.dbc_transaction,
             transaction_sigs: fuzzed_transaction_sigs,
         };
 
