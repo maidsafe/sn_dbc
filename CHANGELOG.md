@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [2.4.2](https://github.com/maidsafe/sn_dbc/compare/v2.4.1...v2.4.2) (2021-08-19)
+
+
+### Bug Fixes
+
+* **bench:** fixes [#79](https://github.com/maidsafe/sn_dbc/issues/79) - bug in code to generate ownership proofs ([082e4bb](https://github.com/maidsafe/sn_dbc/commit/082e4bb9f3fd56a68408dd0c6c445540d2203659))
+* **dkg:** use Outcome::index instead of hardcoding 0 ([0650b37](https://github.com/maidsafe/sn_dbc/commit/0650b378abed9e9c946c46db2013bc64aa6013e2))
+* make dbc_content::AmountSecrets impl Copy ([5b5ef05](https://github.com/maidsafe/sn_dbc/commit/5b5ef059f5272f6e9df1ff3786487954c71b2fb5))
+
 ### [2.4.1](https://github.com/maidsafe/sn_dbc/compare/v2.4.0...v2.4.1) (2021-08-19)
 
 ## [2.4.0](https://github.com/maidsafe/sn_dbc/compare/v2.3.0...v2.4.0) (2021-08-18)
