@@ -135,12 +135,12 @@ impl DbcBuilder {
     /// has not been set or no ReissueShare has been added.
     pub fn build(self) -> Result<Vec<Dbc>> {
         if self.reissue_shares.is_empty() {
-            return Ok(vec![]);
+            return Err(Error::NoReissueShares);
         }
 
         let reissue_transaction = match self.reissue_transaction {
             Some(rt) => rt,
-            None => return Ok(vec![]),
+            None => return Err(Error::NoReissueTransaction),
         };
 
         let mut mint_sig_shares: Vec<NodeSignature> = Default::default();
