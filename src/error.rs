@@ -66,6 +66,12 @@ pub enum Error {
     #[error("The DbcTransaction in ReissueShare differs from that of ReissueTransaction")]
     ReissueShareDbcTransactionMismatch,
 
+    #[error("No reissue shares")]
+    NoReissueShares,
+
+    #[error("No reissue transaction")]
+    NoReissueTransaction,
+
     #[error("RangeProof error: {0}")]
     RangeProof(#[from] bulletproofs::ProofError),
 
