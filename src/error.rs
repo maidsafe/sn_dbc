@@ -5,7 +5,6 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
-use std::collections::BTreeMap;
 use std::io;
 use thiserror::Error;
 
@@ -25,8 +24,10 @@ pub enum Error {
     UnknownInput,
     #[error("Filtered input doesn't appear in the transaction")]
     FilteredInputNotPresent,
-    #[error("Failed signature check.")]
-    FailedSignature,
+    #[error("Failed mint signature check.")]
+    FailedMintSignature,
+    #[error("Failed dbc owner signature check.")]
+    FailedOwnerSignature,
     #[error("Unrecognised authority.")]
     UnrecognisedAuthority,
     #[error("ReissueRequestBuilder is missing a reissue transaction")]
@@ -35,14 +36,16 @@ pub enum Error {
     MissingSignatureForInput,
     #[error("At least one input is missing an ownership proof")]
     MissingInputOwnerProof,
-    #[error("Mint request doesn't balance out sum(input) == sum(output)")]
+    #[error("Mint request doesn't balance out. sum(input) != sum(output)")]
     DbcReissueRequestDoesNotBalance,
     #[error("Failed to unblind an input DBC")]
     FailedUnblinding,
     #[error("DBC already spent in transaction: {transaction:?}")]
     DbcAlreadySpent {
         transaction: crate::DbcTransaction,
-        transaction_sigs: BTreeMap<crate::SpendKey, (crate::PublicKeySet, crate::NodeSignature)>,
+        public_key_set: crate::PublicKeySet,
+        // fixme: this should be full Signature(s) from Spendbook, ie SignedEnvelope
+        signed_envelope_shares: Vec<blsbs::SignedEnvelopeShare>,
     },
     #[error("Genesis Input has already been spent in a different transaction")]
     GenesisInputAlreadySpent,
@@ -70,23 +73,40 @@ pub enum Error {
     #[error("The DbcTransaction in ReissueShare differs from that of ReissueTransaction")]
     ReissueShareDbcTransactionMismatch,
 
+    #[error("No output envelope/content mappings")]
+    NoOutputSecrets,
+
     #[error("No reissue shares")]
     NoReissueShares,
 
-    #[error("RangeProof error: {0}")]
-    RangeProof(#[from] bulletproofs::ProofError),
+    #[error("Unknown denomination")]
+    DenominationUnknown,
 
-    #[error("Decryption error: {0}")]
-    DecryptionBySharesFailed(#[from] blsttc::error::Error),
+    #[error("Denomination could not be deserialized from bytes")]
+    DenominationFromBytes,
 
-    #[error("Decryption failed")]
-    DecryptionBySecretKeyFailed,
+    #[error("Incompatible denomination amounts")]
+    AmountIncompatible,
 
-    #[error("Invalid AmountSecret bytes")]
-    AmountSecretsBytesInvalid,
+    #[error("Invalid amount")]
+    AmountInvalid,
 
-    #[error("Invalid Amount Commitment")]
-    AmountCommitmentInvalid,
+    #[error("Operation would result in underflow")]
+    AmountUnderflow,
+
+    #[error("Amount could not be parsed")]
+    AmountUnparseable,
+
+    /// Blind Signature error
+    #[error("blind signature error: {0}")]
+    BlindSignature(#[from] blsbs::Error),
+
+    /// Bls error
+    #[error("Bls error: {0}")]
+    Bls(#[from] blsttc::error::Error),
+
+    #[error("deserialization from bytes failed")]
+    BlsttcFromBytes(#[from] blsttc::error::FromBytesError),
 
     /// I/O error.
     #[error("I/O error: {0}")]
