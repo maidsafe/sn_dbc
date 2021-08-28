@@ -22,8 +22,12 @@ pub enum Error {
     Signing(String),
     #[error("This input has a signature, but it doesn't appear in the transaction")]
     UnknownInput,
-    #[error("Failed signature check.")]
-    FailedSignature,
+    #[error("Filtered input doesn't appear in the transaction")]
+    FilteredInputNotPresent,
+    #[error("Failed mint signature check.")]
+    FailedMintSignature,
+    #[error("Failed dbc owner signature check.")]
+    FailedOwnerSignature,
     #[error("Unrecognised authority.")]
     UnrecognisedAuthority,
     #[error("ReissueRequestBuilder is missing a reissue transaction")]
@@ -34,8 +38,21 @@ pub enum Error {
     MissingSpentProof(SpendKey),
     #[error("Invalid SpentProof Signature for {0:?}")]
     InvalidSpentProofSignature(SpendKey),
-    #[error("Mint request doesn't balance out sum(input) == sum(output)")]
+    #[error("Mint request doesn't balance out. sum(input) != sum(output)")]
     DbcReissueRequestDoesNotBalance,
+    #[error("Failed to unblind an input DBC")]
+    FailedUnblinding,
+    #[error("DBC already spent in transaction: {transaction:?}")]
+    DbcAlreadySpent {
+        transaction: crate::DbcTransaction,
+        public_key_set: crate::PublicKeySet,
+        // fixme: this should be full Signature(s) from Spendbook, ie SignedEnvelope
+        signed_envelope_shares: Vec<blsbs::SignedEnvelopeShare>,
+    },
+    #[error("Genesis Input has already been spent in a different transaction")]
+    GenesisInputAlreadySpent,
+    #[error("This node is not a genesis node")]
+    NotGenesisNode,
     #[error("The DBC transaction must have at least one input")]
     TransactionMustHaveAnInput,
     #[error("Dbc Content is not a member of transaction outputs")]
@@ -60,23 +77,31 @@ pub enum Error {
     #[error("The DbcTransaction in ReissueShare differs from that of ReissueTransaction")]
     ReissueShareDbcTransactionMismatch,
 
+    #[error("No output envelope/content mappings")]
+    NoOutputSecrets,
+
     #[error("No reissue shares")]
     NoReissueShares,
 
-    #[error("RangeProof error: {0}")]
-    RangeProof(#[from] bulletproofs::ProofError),
+    #[error("Unknown denomination")]
+    UnknownDenomination,
 
-    #[error("Decryption error: {0}")]
-    DecryptionBySharesFailed(#[from] blsttc::error::Error),
+    #[error("Incompatible denomination amounts")]
+    AmountIncompatible,
 
-    #[error("Decryption failed")]
-    DecryptionBySecretKeyFailed,
+    #[error("Operation would result in underflow")]
+    AmountUnderflow,
 
-    #[error("Invalid AmountSecret bytes")]
-    AmountSecretsBytesInvalid,
+    /// Blind Signature error
+    #[error("blind signature error: {0}")]
+    BlindSignature(#[from] blsbs::Error),
 
-    #[error("Invalid Amount Commitment")]
-    AmountCommitmentInvalid,
+    /// Bls error
+    #[error("Bls error: {0}")]
+    Bls(#[from] blsttc::error::Error),
+
+    #[error("deserialization from bytes failed")]
+    BlsttcFromBytes(#[from] blsttc::error::FromBytesError),
 
     #[error("Double spend detected")]
     DoubleSpend,

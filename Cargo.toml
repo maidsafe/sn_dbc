@@ -18,11 +18,13 @@ thiserror = "1.0.24"
 quickcheck = "1"
 quickcheck_macros = "1"
 rand = "0.7.1"
-bulletproofs = "4.0.0"
 curve25519-dalek-ng = "4.0.1"
-merlin = "3.0.0"
+blsbs = {git="https://github.com/dan-da/blsbs"}
 blsttc = "3.3.0"
 hex = "0.4.3"
+bincode = "1.3.3"
+rug = "1.13.0"
+
 
   [dependencies.rand8]
   package = "rand"
@@ -46,7 +48,7 @@ anyhow = "1.0.40"
 serde = "1.0.126"
 rand = "0.7.1"
 rustyline = "8.0.0"
-bincode = "1.3.3"
+#bincode = "1.3.3"
 
   [dev-dependencies.sn_dbc]
   path = "."
@@ -60,6 +62,6 @@ name = "reissue"
 harness = false
 required-features = [ "dkg" ]
 
-[[example]]
-name = "mint-repl"
-path = "examples/mint-repl/mint-repl.rs"
+# [[example]]
+# name = "mint-repl"
+# path = "examples/mint-repl/mint-repl.rs"

@@ -83,7 +83,7 @@ pub struct SpentProof {
 impl SpentProof {
     pub fn validate<K: KeyManager>(&self, dbc: &Dbc, tx: Hash, verifier: &K) -> Result<()> {
         if !dbc.spend_key().0.verify(&self.spend_sig, tx) {
-            return Err(Error::FailedSignature);
+            return Err(Error::FailedOwnerSignature);
         }
         let msg = Self::proof_msg(&tx, &self.spend_sig);
         verifier
