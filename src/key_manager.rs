@@ -6,92 +6,137 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Error, Hash, Result};
-use blsttc::{serde_impl::SerdeSecret, SecretKeyShare, SignatureShare};
+use crate::{Denomination, Error, Hash, Result};
+use blsbs::{BlindSignerShare, Envelope, SignatureExaminer, SignedEnvelopeShare, Slip};
+use blsttc::{Fr, IntoFr, SecretKeyShare, SignatureShare};
 pub use blsttc::{PublicKey, PublicKeySet, Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeSignature {
-    index: u64,
+    index: Fr,
     sig: SignatureShare,
 }
 
+#[allow(clippy::derive_hash_xor_eq)]
+impl std::hash::Hash for NodeSignature {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        blsttc::FrRepr::from(self.index).0.hash(state);
+        self.sig.hash(state)
+    }
+}
+
 impl NodeSignature {
-    pub fn new(index: u64, sig: SignatureShare) -> Self {
+    pub fn new(index: Fr, sig: SignatureShare) -> Self {
         Self { index, sig }
     }
 
-    pub fn threshold_crypto(&self) -> (u64, &SignatureShare) {
+    pub fn threshold_crypto(&self) -> (Fr, &SignatureShare) {
         (self.index, &self.sig)
     }
 }
 
 pub trait KeyManager {
     type Error: std::error::Error;
-    fn sign_with_child_key(&self, idx: &[u8], tx_hash: &Hash)
-        -> Result<NodeSignature, Self::Error>;
+
     fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature, Self::Error>;
+
+    fn sign_envelope(
+        &self,
+        envelope: Envelope,
+        denomination: Denomination,
+    ) -> Result<SignedEnvelopeShare, Self::Error>;
+
     fn public_key_set(&self) -> Result<PublicKeySet, Self::Error>;
+
     fn verify(
         &self,
         msg_hash: &Hash,
         key: &PublicKey,
         signature: &Signature,
     ) -> Result<(), Self::Error>;
-    fn verify_known_key(&self, key: &PublicKey) -> Result<(), Self::Error>;
+
+    #[allow(clippy::ptr_arg)]
+    fn verify_slip(
+        &self,
+        slip: &Slip,
+        derive_idx: &[u8],
+        key: &PublicKey,
+        signature: &Signature,
+    ) -> Result<(), Self::Error>;
+
+    fn verify_envelope(
+        &self,
+        envelope: &Envelope,
+        derive_idx: &[u8],
+        key: &PublicKey,
+        signature: &Signature,
+    ) -> Result<(), Self::Error>;
+
+    fn verify_known_key(&self, key: &PublicKey, derive_idx: &[u8]) -> Result<(), Self::Error>;
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SimpleSigner {
-    public_key_set: PublicKeySet,
-    secret_key_share: (u64, SerdeSecret<SecretKeyShare>),
+    blind_signer_share: BlindSignerShare,
 }
 
 #[cfg(feature = "dkg")]
 impl From<bls_dkg::outcome::Outcome> for SimpleSigner {
     fn from(outcome: bls_dkg::outcome::Outcome) -> Self {
         Self {
-            public_key_set: outcome.public_key_set,
-            secret_key_share: (outcome.index as u64, SerdeSecret(outcome.secret_key_share)),
+            blind_signer_share: BlindSignerShare::new(
+                outcome.secret_key_share,
+                outcome.index,
+                outcome.public_key_set,
+            ),
         }
     }
 }
 
 impl SimpleSigner {
-    pub fn new(public_key_set: PublicKeySet, secret_key_share: (u64, SecretKeyShare)) -> Self {
+    pub fn new<T: IntoFr>(
+        public_key_set: PublicKeySet,
+        secret_key_share: (T, SecretKeyShare),
+    ) -> Self {
         Self {
-            public_key_set,
-            secret_key_share: (secret_key_share.0, SerdeSecret(secret_key_share.1)),
+            blind_signer_share: BlindSignerShare::new(
+                secret_key_share.1,
+                secret_key_share.0,
+                public_key_set,
+            ),
         }
     }
 
-    fn index(&self) -> u64 {
-        self.secret_key_share.0
+    fn index(&self) -> Fr {
+        self.blind_signer_share.secret_key_share_index()
     }
 
     fn public_key_set(&self) -> PublicKeySet {
-        self.public_key_set.clone()
+        self.blind_signer_share.public_key_set().clone()
     }
 
     fn sign<M: AsRef<[u8]>>(&self, msg: M) -> blsttc::SignatureShare {
-        self.secret_key_share.1.sign(msg)
+        self.blind_signer_share.secret_key_share().sign(msg)
     }
 
-    fn derive_child(&self, index: &[u8]) -> Self {
-        let child_pks = self.public_key_set.derive_child(index);
-        let child_secret_index = self.secret_key_share.0;
-        let child_secret_share = self.secret_key_share.1.derive_child(index);
-
-        Self::new(child_pks, (child_secret_index, child_secret_share))
+    fn sign_envelope(
+        &self,
+        envelope: Envelope,
+        denomination: Denomination,
+    ) -> Result<SignedEnvelopeShare> {
+        #[allow(clippy::redundant_closure)]
+        self.blind_signer_share
+            .derive_child(&denomination.to_bytes())
+            .sign_envelope(envelope)
+            .map_err(|e| Error::from(e))
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SimpleKeyManager {
     signer: SimpleSigner,
-    genesis_key: PublicKey,
     cache: Keys,
 }
 
@@ -101,11 +146,7 @@ impl SimpleKeyManager {
         let mut cache = Keys::default();
         cache.add_known_key(genesis_key);
         cache.add_known_key(public_key_set.public_key());
-        Self {
-            signer,
-            genesis_key,
-            cache,
-        }
+        Self { signer, cache }
     }
 }
 
@@ -116,12 +157,12 @@ impl KeyManager for SimpleKeyManager {
         Ok(self.signer.public_key_set())
     }
 
-    fn sign_with_child_key(&self, index: &[u8], tx_hash: &Hash) -> Result<NodeSignature> {
-        let child_signer = self.signer.derive_child(index);
-        Ok(NodeSignature::new(
-            child_signer.index(),
-            child_signer.sign(tx_hash),
-        ))
+    fn sign_envelope(
+        &self,
+        envelope: Envelope,
+        denomination: Denomination,
+    ) -> Result<SignedEnvelopeShare> {
+        self.signer.sign_envelope(envelope, denomination)
     }
 
     fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature> {
@@ -135,8 +176,29 @@ impl KeyManager for SimpleKeyManager {
         self.cache.verify(msg_hash, key, signature)
     }
 
-    fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
-        self.cache.verify_known_key(key)
+    fn verify_slip(
+        &self,
+        slip: &Slip,
+        derive_idx: &[u8],
+        key: &PublicKey,
+        signature: &Signature,
+    ) -> Result<()> {
+        self.cache.verify_slip(slip, derive_idx, key, signature)
+    }
+
+    fn verify_envelope(
+        &self,
+        envelope: &Envelope,
+        derive_idx: &[u8],
+        key: &PublicKey,
+        signature: &Signature,
+    ) -> Result<()> {
+        self.cache
+            .verify_envelope(envelope, derive_idx, key, signature)
+    }
+
+    fn verify_known_key(&self, key: &PublicKey, derive_idx: &[u8]) -> Result<()> {
+        self.cache.verify_known_key(key, derive_idx)
     }
 }
 
@@ -155,19 +217,59 @@ impl Keys {
     }
 
     fn verify(&self, msg: &Hash, key: &PublicKey, sig: &Signature) -> Result<()> {
-        self.verify_known_key(key)?;
+        // TODO(drusu): this needs to be implemented once we continue our rebase
+        // self.verify_known_key(key)?;
         if key.verify(sig, msg) {
             Ok(())
         } else {
-            Err(Error::FailedSignature)
+            Err(Error::FailedMintSignature)
         }
     }
 
-    fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
-        if self.0.contains(key) {
+    #[allow(clippy::ptr_arg)]
+    fn verify_slip(
+        &self,
+        slip: &Slip,
+        derive_idx: &[u8],
+        key: &PublicKey,
+        sig: &Signature,
+    ) -> Result<()> {
+        self.verify_known_key(key, derive_idx)?;
+        if SignatureExaminer::verify_signature_on_slip(slip, sig, key) {
             Ok(())
         } else {
-            Err(Error::UnrecognisedAuthority)
+            Err(Error::FailedMintSignature)
         }
+    }
+
+    fn verify_envelope(
+        &self,
+        envelope: &Envelope,
+        derive_idx: &[u8],
+        key: &PublicKey,
+        sig: &Signature,
+    ) -> Result<()> {
+        self.verify_known_key(key, derive_idx)?;
+        let is_verified = SignatureExaminer::verify_signature_on_envelope(envelope, sig, key);
+        if is_verified {
+            Ok(())
+        } else {
+            Err(Error::FailedMintSignature)
+        }
+    }
+
+    fn verify_known_key(&self, key: &PublicKey, derive_idx: &[u8]) -> Result<()> {
+        // note: if we are caching many keys (eg after many section churns), this could get slow.
+        // It would be faster to store/lookup denomination keys for each master key.
+        // Alternatively, if we included the mint's derivation root in the DBC, then we
+        // could just "know" it.  Though that increases DBC size and wire usage.
+
+        for pk in self.0.iter() {
+            if pk.derive_child(derive_idx) == *key {
+                return Ok(());
+            }
+        }
+
+        Err(Error::UnrecognisedAuthority)
     }
 }

@@ -42,7 +42,7 @@ impl Distribution<SpendKey> for Standard {
 
 /// A share of a SpentProof, combine enough of these to form a
 /// SpentProof.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SpentProofShare {
     /// Signature from dbc.spend_key() over the transaction
     pub spent_sig: Signature,
@@ -83,7 +83,7 @@ pub struct SpentProof {
 impl SpentProof {
     pub fn validate<K: KeyManager>(&self, dbc: &Dbc, tx: Hash, verifier: &K) -> Result<()> {
         if !dbc.spend_key().0.verify(&self.spent_sig, tx) {
-            return Err(Error::FailedSignature);
+            return Err(Error::FailedOwnerSignature);
         }
         let msg = Self::proof_msg(&tx, &self.spent_sig);
         verifier
