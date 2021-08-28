@@ -14,27 +14,38 @@ mod builder;
 mod dbc;
 mod dbc_content;
 mod dbc_transaction;
+//we skip because denomination.rs is auto-generated and we want to preserve whitespace.
+#[rustfmt::skip]
+mod denomination;
 mod error;
 mod key_manager;
 mod mint;
 mod spend_book;
 
 pub use crate::{
-    builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
+    builder::{DbcBuilder, Output, OutputSecret, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,
-    dbc_content::{Amount, AmountSecrets, DbcContent},
-    dbc_transaction::DbcTransaction,
+    dbc_content::DbcContent,
+    dbc_transaction::{DbcEnvelope, DbcTransaction},
+    denomination::Denomination,
     error::{Error, Result},
-    key_manager::{
-        KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
-        SimpleSigner,
-    },
+    key_manager::{KeyManager, PublicKey, PublicKeySet, Signature, SimpleKeyManager, SimpleSigner},
     mint::{
-        genesis_dbc_input, GenesisDbcShare, Mint, MintNodeSignatures, ReissueRequest, ReissueShare,
+        genesis_dbc_input, GenesisDbcShare, MintNode, ReissueRequest, ReissueShare,
         ReissueTransaction,
     },
     spend_book::{SimpleSpendBook, SpendBook, SpendKey},
 };
+
+// note: if Amount is changed to a different type,
+//       then you must also run denom-gen to regenerate
+//       denomination.rs.  eg:  (from crate root)
+//       $ cargo run --example denom-gen > /tmp/d.rs && mv /tmp/d.rs src/denomination.rs
+//
+//       If going to a smaller size you should regenerate it first by
+//       defining Amount locally to smaller size in denom-gen, then changing
+//       it here.  Else you will get compile errors.
+pub type Amount = u128;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Hash([u8; 32]);
@@ -83,44 +94,9 @@ pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
     outcome
 }
 
-#[cfg(feature = "dkg")]
-pub struct DbcHelper {}
-
-#[cfg(feature = "dkg")]
-impl DbcHelper {
-    pub fn decrypt_amount_secrets(
-        owner: &bls_dkg::outcome::Outcome,
-        dbcc: &DbcContent,
-    ) -> Result<AmountSecrets, Error> {
-        let mut shares: std::collections::BTreeMap<usize, bls_dkg::SecretKeyShare> =
-            Default::default();
-        shares.insert(owner.index, owner.secret_key_share.clone());
-
-        dbcc.amount_secrets_by_secret_key_shares(&owner.public_key_set, &shares)
-    }
-
-    pub fn decrypt_amount(
-        owner: &bls_dkg::outcome::Outcome,
-        dbcc: &DbcContent,
-    ) -> Result<Amount, Error> {
-        Ok(Self::decrypt_amount_secrets(owner, dbcc)?.amount)
-    }
-}
-
-#[cfg(test)]
-fn sha3_256(input: &[u8]) -> [u8; 32] {
-    use tiny_keccak::{Hasher, Sha3};
-
-    let mut sha3 = Sha3::v256();
-    let mut output = [0; 32];
-    sha3.update(input);
-    sha3.finalize(&mut output);
-    output
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    //    use super::*;
     use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
 
@@ -152,11 +128,11 @@ mod tests {
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct NonZeroTinyInt(NonZeroU8);
 
-    impl NonZeroTinyInt {
-        pub fn coerce<T: From<u8>>(self) -> T {
-            self.0.get().into()
-        }
-    }
+    // impl NonZeroTinyInt {
+    //     pub fn coerce<T: From<u8>>(self) -> T {
+    //         self.0.get().into()
+    //     }
+    // }
 
     impl std::fmt::Debug for NonZeroTinyInt {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -211,14 +187,15 @@ mod tests {
             Box::new(self.0.shrink().map(Self))
         }
     }
-
-    #[test]
-    fn hash() {
-        let data = b"hello world";
-        let expected = b"\
-    \x64\x4b\xcc\x7e\x56\x43\x73\x04\x09\x99\xaa\xc8\x9e\x76\x22\xf3\
-    \xca\x71\xfb\xa1\xd9\x72\xfd\x94\xa3\x1c\x3b\xfb\xf2\x4e\x39\x38\
-";
-        assert_eq!(sha3_256(data), *expected);
-    }
+    /*
+        #[test]
+        fn hash() {
+            let data = b"hello world";
+            let expected = b"\
+        \x64\x4b\xcc\x7e\x56\x43\x73\x04\x09\x99\xaa\xc8\x9e\x76\x22\xf3\
+        \xca\x71\xfb\xa1\xd9\x72\xfd\x94\xa3\x1c\x3b\xfb\xf2\x4e\x39\x38\
+    ";
+            assert_eq!(sha3_256(data), *expected);
+        }
+    */
 }
