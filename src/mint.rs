@@ -277,9 +277,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
 
         for input_dbc in reissue_req.transaction.inputs.iter() {
             match reissue_req.input_ownership_proofs.get(&input_dbc.name()) {
-                Some((owner, sig)) if owner.verify(sig, &transaction_hash) => {
-                    input_dbc.content.validate_unblinding(owner)?;
-                }
+                Some((owner, sig)) if owner.verify(sig, &transaction_hash) => (),
                 Some(_) => return Err(Error::FailedSignature),
                 None => return Err(Error::MissingInputOwnerProof),
             }

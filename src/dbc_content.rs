@@ -26,29 +26,10 @@ pub(crate) const RANGE_PROOF_BITS: usize = 64; // note: Range Proof max-bits is 
 pub(crate) const RANGE_PROOF_PARTIES: usize = 1; // The maximum number of parties that can produce an aggregated proof
 pub(crate) const MERLIN_TRANSCRIPT_LABEL: &[u8] = b"SN_DBC";
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
-pub struct BlindedOwner(Hash);
-
 const AMT_SIZE: usize = 8; // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
 
 pub type Amount = u64;
-
-impl BlindedOwner {
-    pub fn new(owner: &PublicKey, parents: &BTreeSet<DbcContentHash>) -> Self {
-        let mut sha3 = Sha3::v256();
-
-        for parent in parents.iter() {
-            sha3.update(parent);
-        }
-
-        sha3.update(&owner.to_bytes());
-
-        let mut hash = [0; 32];
-        sha3.finalize(&mut hash);
-        Self(Hash(hash))
-    }
-}
 
 /// Contains amount and Pedersen Commitment blinding factor which
 /// must be kept secret (encrypted) in the DBC.
@@ -113,7 +94,7 @@ pub struct DbcContent {
     pub amount_secrets_cipher: Ciphertext,
     pub commitment: CompressedRistretto,
     pub range_proof_bytes: Vec<u8>, // RangeProof::to_bytes() -> (2 lg n + 9) 32-byte elements, where n is # of secret bits, or 64 in our case. Gives 21 32-byte elements.
-    pub owner: BlindedOwner,
+    pub owner: PublicKey,
 }
 
 /// Represents the content of a DBC.
@@ -122,10 +103,9 @@ impl DbcContent {
     pub fn new(
         parents: BTreeSet<DbcContentHash>,
         amount: Amount,
-        owner_key: PublicKey,
+        owner: PublicKey,
         blinding_factor: Scalar,
     ) -> Result<Self, Error> {
-        let owner = BlindedOwner::new(&owner_key, &parents);
         let secret = amount;
 
         let pc_gens = PedersenGens::default();
@@ -144,7 +124,7 @@ impl DbcContent {
             amount,
             blinding_factor,
         };
-        let amount_secrets_cipher = owner_key.encrypt(amount_secrets.to_bytes().as_slice());
+        let amount_secrets_cipher = owner.encrypt(amount_secrets.to_bytes().as_slice());
 
         Ok(DbcContent {
             parents,
@@ -160,15 +140,6 @@ impl DbcContent {
         Scalar::random(&mut csprng)
     }
 
-    pub fn validate_unblinding(&self, owner_key: &PublicKey) -> Result<(), Error> {
-        let blinded = BlindedOwner::new(owner_key, &self.parents);
-        if blinded == self.owner {
-            Ok(())
-        } else {
-            Err(Error::FailedUnblinding)
-        }
-    }
-
     pub fn hash(&self) -> DbcContentHash {
         let mut sha3 = Sha3::v256();
 
@@ -177,7 +148,7 @@ impl DbcContent {
         }
 
         sha3.update(&self.amount_secrets_cipher.to_bytes());
-        sha3.update(&self.owner.0);
+        sha3.update(&self.owner.to_bytes());
 
         let mut hash = [0; 32];
         sha3.finalize(&mut hash);
