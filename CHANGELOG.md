@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.5.0](https://github.com/maidsafe/sn_dbc/compare/v2.4.2...v2.5.0) (2021-09-07)
+
+
+### Features
+
+* add DbcBuilder ([66fda04](https://github.com/maidsafe/sn_dbc/commit/66fda04e4589c4d97b105a1bb6d6ae25232f120b))
+* add errors NoReissueShares and NoReissueTransaction ([f6aa707](https://github.com/maidsafe/sn_dbc/commit/f6aa7070ccdea830ebd536c52c34b2697ff7fc56))
+
 ### [2.4.2](https://github.com/maidsafe/sn_dbc/compare/v2.4.1...v2.4.2) (2021-08-19)
 
 
