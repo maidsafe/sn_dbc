@@ -389,7 +389,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     println!("\n");
 
     println!("-- SpendBook --\n");
-    for (dbc_owner, _tx) in &mintinfo.mintnode()?.spendbook {
+    for (dbc_owner, _tx) in mintinfo.mintnode()?.spendbook.iter() {
         println!("  {}", encode(&dbc_owner.to_bytes()));
     }
 
