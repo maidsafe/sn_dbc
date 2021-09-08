@@ -309,7 +309,8 @@ mod tests {
 
     use crate::{
         tests::{TinyInt, TinyVec},
-        DbcBuilder, DbcHelper, SimpleKeyManager, SimpleSigner, SimpleSpendBook,
+        DbcBuilder, DbcHelper, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
+        SimpleSpendBook,
     };
 
     #[quickcheck]
@@ -389,34 +390,29 @@ mod tests {
             }))
             .build()?;
 
-        let sig_share = genesis_owner
-            .secret_key_share
-            .derive_child(&genesis_dbc.spend_key_index())
-            .sign(&reissue_tx.blinded().hash());
+        let rr = ReissueRequestBuilder::new(reissue_tx.clone())
+            .add_dbc_signer(
+                gen_dbc_spend_key,
+                genesis_owner.public_key_set,
+                genesis_owner.index,
+                genesis_owner.secret_key_share,
+            )
+            .build()?;
 
-        let sig = genesis_owner
-            .public_key_set
-            .combine_signatures(vec![(genesis_owner.index, &sig_share)])?;
-
-        let reissue_req = ReissueRequest {
-            transaction: reissue_tx.clone(),
-            input_ownership_proofs: HashMap::from_iter([(gen_dbc_spend_key, sig)]),
+        let reissue_share = match genesis_node.reissue(rr, BTreeSet::from_iter([gen_dbc_spend_key]))
+        {
+            Ok(rs) => {
+                // Verify that at least one output was present.
+                assert_ne!(n_outputs, 0);
+                rs
+            }
+            Err(Error::DbcReissueRequestDoesNotBalance) => {
+                // Verify that no outputs were present and we got correct validation error.
+                assert_eq!(n_outputs, 0);
+                return Ok(());
+            }
+            Err(e) => return Err(e),
         };
-
-        let reissue_share =
-            match genesis_node.reissue(reissue_req, BTreeSet::from_iter([gen_dbc_spend_key])) {
-                Ok(rs) => {
-                    // Verify that at least one output was present.
-                    assert_ne!(n_outputs, 0);
-                    rs
-                }
-                Err(Error::DbcReissueRequestDoesNotBalance) => {
-                    // Verify that no outputs were present and we got correct validation error.
-                    assert_eq!(n_outputs, 0);
-                    return Ok(());
-                }
-                Err(e) => return Err(e),
-            };
 
         // Aggregate ReissueShare to build output DBCs
         let mut dbc_builder = DbcBuilder::new(reissue_tx);
@@ -474,22 +470,16 @@ mod tests {
             })
             .build()?;
 
-        let sig_share = genesis_node
-            .key_manager
-            .sign_with_child_key(&genesis_dbc.spend_key_index(), &reissue_tx.blinded().hash())?;
+        let rr = ReissueRequestBuilder::new(reissue_tx)
+            .add_dbc_signer(
+                gen_dbc_spend_key,
+                genesis_owner.public_key_set,
+                genesis_owner.index,
+                genesis_owner.secret_key_share,
+            )
+            .build()?;
 
-        let sig = genesis_node
-            .key_manager
-            .public_key_set()?
-            .combine_signatures(vec![sig_share.threshold_crypto()])?;
-
-        let reissue_req = ReissueRequest {
-            transaction: reissue_tx,
-            input_ownership_proofs: HashMap::from_iter([(gen_dbc_spend_key, sig)]),
-        };
-
-        let reissue_share =
-            genesis_node.reissue(reissue_req, BTreeSet::from_iter([gen_dbc_spend_key]))?;
+        let reissue_share = genesis_node.reissue(rr, BTreeSet::from_iter([gen_dbc_spend_key]))?;
         let t = reissue_share.dbc_transaction;
         let s = reissue_share.mint_node_signatures;
 
