@@ -88,9 +88,10 @@ impl AmountSecrets {
     }
 }
 
+// TODO: delete DbcContentHash
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
-    pub parents: BTreeSet<DbcContentHash>, // Parent DBC's, acts as a nonce
+    pub parents: BTreeSet<PublicKey>, // Parent DBC's, acts as a nonce
     pub amount_secrets_cipher: Ciphertext,
     pub commitment: CompressedRistretto,
     pub range_proof_bytes: Vec<u8>, // RangeProof::to_bytes() -> (2 lg n + 9) 32-byte elements, where n is # of secret bits, or 64 in our case. Gives 21 32-byte elements.
@@ -101,7 +102,7 @@ pub struct DbcContent {
 impl DbcContent {
     // Create a new DbcContent for signing.
     pub fn new(
-        parents: BTreeSet<DbcContentHash>,
+        parents: BTreeSet<PublicKey>,
         amount: Amount,
         owner: PublicKey,
         blinding_factor: Scalar,
@@ -144,7 +145,7 @@ impl DbcContent {
         let mut sha3 = Sha3::v256();
 
         for parent in self.parents.iter() {
-            sha3.update(parent);
+            sha3.update(&parent.to_bytes());
         }
 
         sha3.update(&self.amount_secrets_cipher.to_bytes());

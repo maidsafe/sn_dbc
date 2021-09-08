@@ -5,14 +5,14 @@ use std::iter::FromIterator;
 use curve25519_dalek_ng::scalar::Scalar;
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, Error, Hash, NodeSignature, ReissueShare,
+    Amount, AmountSecrets, Dbc, DbcContent, Error, Hash, NodeSignature, PublicKey, ReissueShare,
     ReissueTransaction, Result,
 };
 
 ///! Unblinded data for creating sn_dbc::DbcContent
 pub struct Output {
     pub amount: Amount,
-    pub owner: blsttc::PublicKey,
+    pub owner: PublicKey,
 }
 
 #[derive(Default)]
@@ -42,11 +42,8 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn inputs_hashes(&self) -> BTreeSet<Hash> {
-        self.inputs
-            .iter()
-            .map(|(dbc, _)| dbc.name())
-            .collect::<BTreeSet<_>>()
+    pub fn input_owners(&self) -> BTreeSet<PublicKey> {
+        BTreeSet::from_iter(self.inputs.keys().map(Dbc::name))
     }
 
     pub fn inputs_amount_sum(&self) -> Amount {
@@ -57,7 +54,7 @@ impl TransactionBuilder {
         self.outputs.iter().map(|o| o.amount).sum()
     }
 
-    pub fn build(self) -> Result<(ReissueTransaction, HashMap<crate::Hash, blsttc::PublicKey>)> {
+    pub fn build(self) -> Result<ReissueTransaction> {
         let parents = BTreeSet::from_iter(self.inputs.keys().map(Dbc::name));
         let inputs_bf_sum = self
             .inputs
@@ -89,13 +86,8 @@ impl TransactionBuilder {
             .collect::<Result<Vec<_>>>()?;
 
         let inputs = HashSet::from_iter(self.inputs.into_keys());
-        let output_owners = HashMap::from_iter(
-            outputs_and_owners
-                .iter()
-                .map(|(dbc_content, owner)| (dbc_content.hash(), *owner)),
-        );
         let outputs = HashSet::from_iter(outputs_and_owners.into_iter().map(|(o, _)| o));
-        Ok((ReissueTransaction { inputs, outputs }, output_owners))
+        Ok(ReissueTransaction { inputs, outputs })
     }
 }
 

@@ -15,6 +15,7 @@ use tiny_keccak::{Hasher, Sha3};
 /// These typdefs are to simplify algorithm for now and will be removed for production.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Hash([u8; 32]);
+pub struct OwnerKey(PublicKey);
 pub(crate) type DbcContentHash = Hash;
 mod builder;
 mod dbc;
@@ -35,8 +36,8 @@ pub use crate::{
         SimpleSigner,
     },
     mint::{
-        Mint, MintNodeSignatures, ReissueRequest, ReissueShare, ReissueTransaction,
-        SimpleSpendBook, SpendBook, GENESIS_DBC_INPUT,
+        genesis_dbc_input, Mint, MintNodeSignatures, ReissueRequest, ReissueShare,
+        ReissueTransaction, SimpleSpendBook, SpendBook,
     },
 };
 
@@ -80,6 +81,14 @@ use rand::Rng;
 impl Distribution<Hash> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Hash {
         Hash(rng.gen())
+    }
+}
+
+/// used when fuzzing DBC's in testing.
+#[cfg(test)]
+impl Distribution<OwnerKey> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> OwnerKey {
+        OwnerKey(crate::genesis_dbc_input().derive_child(&rng.gen::<[u8; 32]>()))
     }
 }
 
