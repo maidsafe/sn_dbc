@@ -54,6 +54,9 @@ pub enum Error {
     #[error("Dbc Content parents is not the same transaction inputs")]
     DbcContentParentsDifferentFromTransactionInputs,
 
+    #[error("The PublicKeySet differs between ReissueRequest entries")]
+    ReissueRequestPublicKeySetMismatch,
+
     #[error("The PublicKeySet differs between ReissueShare entries")]
     ReissueSharePublicKeySetMismatch,
 
