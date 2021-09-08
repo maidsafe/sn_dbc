@@ -20,9 +20,9 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, DbcContent, DbcTransaction, Hash, Mint, NodeSignature, Output,
-    ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
-    SimpleSpendBook as SpendBook, TransactionBuilder,
+    Amount, Dbc, DbcBuilder, DbcContent, DbcTransaction, Mint, MintSignatures, NodeSignature,
+    Output, ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager,
+    SimpleSigner as Signer, SimpleSpendBook as SpendBook, TransactionBuilder,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
@@ -69,21 +69,21 @@ struct DbcUnblinded {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReissueTransactionUnblinded {
     inner: ReissueTransaction,
-    inputs_owners: HashMap<Hash, PublicKeySet>,
-    outputs_owners: HashMap<Hash, PublicKeySet>,
+    input_pk_pks: HashMap<PublicKey, PublicKeySet>,
+    output_pk_pks: HashMap<PublicKey, PublicKeySet>,
 }
 
 /// A ReissueRequest with pubkey set for all the input and output Dbcs
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReissueRequestUnblinded {
     inner: ReissueRequest,
-    inputs_owners: HashMap<Hash, PublicKeySet>,
-    outputs_owners: HashMap<Hash, PublicKeySet>,
+    input_pk_pks: HashMap<PublicKey, PublicKeySet>,
+    output_pk_pks: HashMap<PublicKey, PublicKeySet>,
 }
 
 /// This type is just for serializing HashMap<Hash, <HashMap<usize, SignatureShare>>
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct SignatureSharesMap(HashMap<Hash, HashMap<usize, SignatureShare>>);
+struct SignatureSharesMap(HashMap<PublicKey, HashMap<usize, SignatureShare>>);
 
 /// program entry point and interactive command handler.
 fn main() -> Result<()> {
@@ -247,7 +247,7 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Resu
         content: genesis_set[0].0.clone(),
         transaction: genesis_set[0].1.clone(),
         transaction_sigs: BTreeMap::from_iter([(
-            sn_dbc::GENESIS_DBC_INPUT,
+            sn_dbc::genesis_dbc_input(),
             (genesis_pubkey, genesis_sig),
         )]),
     };
@@ -389,8 +389,8 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     println!("\n");
 
     println!("-- SpendBook --\n");
-    for (dbchash, _tx) in &mintinfo.mintnode()?.spendbook {
-        println!("  {}", encode(&dbchash));
+    for (dbc_owner, _tx) in &mintinfo.mintnode()?.spendbook {
+        println!("  {}", encode(&dbc_owner.to_bytes()));
     }
 
     println!();
@@ -412,7 +412,7 @@ fn print_dbc_human(
     outputs: bool,
     keys: Option<(&PublicKeySet, &BTreeMap<usize, SecretKeyShare>)>,
 ) -> Result<()> {
-    println!("id: {}\n", encode(dbc.inner.name()));
+    println!("id: {}\n", encode(dbc.inner.name().to_bytes()));
 
     match keys {
         Some((public_key_set, secret_key_shares)) => {
@@ -441,13 +441,13 @@ fn print_dbc_human(
 
     println!("inputs:");
     for i in &dbc.inner.transaction.inputs {
-        println!("  {}", encode(i))
+        println!("  {}", encode(i.to_bytes()))
     }
 
     if outputs {
         println!("\noutputs:");
         for i in &dbc.inner.transaction.outputs {
-            println!("  {}", encode(i))
+            println!("  {}", encode(i.to_bytes()))
         }
     }
 
@@ -584,7 +584,7 @@ fn prepare_tx() -> Result<()> {
     let mut tx_builder: TransactionBuilder = Default::default();
 
     // let mut inputs: HashSet<Dbc> = Default::default();
-    let mut inputs_owners: HashMap<Hash, PublicKeySet> = Default::default();
+    let mut input_pk_pks: HashMap<PublicKey, PublicKeySet> = Default::default();
     let mut pk_pks: HashMap<PublicKey, PublicKeySet> = Default::default();
 
     // Get DBC inputs from user
@@ -629,7 +629,7 @@ fn prepare_tx() -> Result<()> {
             .content
             .amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
 
-        inputs_owners.insert(dbc.inner.name(), dbc.owner);
+        input_pk_pks.insert(dbc.owner.public_key(), dbc.owner);
         tx_builder = tx_builder.add_input(dbc.inner, amount_secrets);
     }
 
@@ -688,19 +688,21 @@ fn prepare_tx() -> Result<()> {
 
     println!("\n\nThank-you.   Preparing ReissueTransaction...\n\n");
 
-    let (reissue_tx, output_owners) = tx_builder.build()?;
+    let reissue_tx = tx_builder.build()?;
 
     // generate output Hash -> PublicKeySet map
-    let mut outputs_owners: HashMap<Hash, PublicKeySet> = Default::default();
-    for (h, pk) in output_owners.iter() {
-        let pks = pk_pks.get(pk).ok_or_else(|| anyhow!("pubkey not found"))?;
-        outputs_owners.insert(*h, pks.clone());
+    let mut output_pk_pks: HashMap<PublicKey, PublicKeySet> = Default::default();
+    for out_dbc in reissue_tx.outputs.iter() {
+        let pks = pk_pks
+            .get(&out_dbc.owner)
+            .ok_or_else(|| anyhow!("pubkey not found"))?;
+        output_pk_pks.insert(out_dbc.owner, pks.clone());
     }
 
     let transaction = ReissueTransactionUnblinded {
         inner: reissue_tx,
-        inputs_owners,
-        outputs_owners,
+        input_pk_pks,
+        output_pk_pks,
     };
 
     println!("\n-- ReissueTransaction --");
@@ -723,12 +725,12 @@ fn sign_tx() -> Result<()> {
         println!(
             "Input #{} [id: {}, amount: ???  (encrypted)]",
             i,
-            encode(dbc.name()),
+            encode(dbc.name().to_bytes()),
         );
         println!("-----------------");
 
         let pubkeyset = tx
-            .inputs_owners
+            .input_pk_pks
             .get(&dbc.name())
             .ok_or_else(|| anyhow!("PubKeySet not found"))?;
 
@@ -781,18 +783,18 @@ fn sign_tx() -> Result<()> {
 fn prepare_reissue() -> Result<()> {
     let tx_input = readline_prompt_nl("\nReissueTransaction: ")?;
     let tx: ReissueTransactionUnblinded = from_be_hex(&tx_input)?;
-    let mut sig_shares_by_input: HashMap<Hash, BTreeMap<usize, SignatureShare>> =
+    let mut sig_shares_by_input: HashMap<PublicKey, BTreeMap<usize, SignatureShare>> =
         Default::default();
 
     // Get from user: SignatureSharesMap(s) for each tx input
     //                until required # of SignatureShare obtained.
     for dbc in tx.inner.inputs.iter() {
         println!("-----------------");
-        println!("Input [id: {}]", encode(dbc.name()),);
+        println!("Input [id: {}]", encode(dbc.name().to_bytes()),);
         println!("-----------------");
 
         let pubkeyset = tx
-            .inputs_owners
+            .input_pk_pks
             .get(&dbc.name())
             .ok_or_else(|| anyhow!("PubKeySet not found"))?;
 
@@ -817,26 +819,26 @@ fn prepare_reissue() -> Result<()> {
         }
     }
 
-    let mut proofs: HashMap<Hash, (PublicKey, Signature)> = Default::default();
+    let mut proofs: HashMap<PublicKey, Signature> = Default::default();
     for dbc in tx.inner.inputs.iter() {
         let shares = match sig_shares_by_input.get(&dbc.name()) {
             Some(s) => s,
             None => {
                 return Err(anyhow!(
                     "Signature Shares not found for input Dbc {}",
-                    encode(&dbc.name())
+                    encode(&dbc.name().to_bytes())
                 ))
             }
         };
         let pubkeyset = tx
-            .inputs_owners
+            .input_pk_pks
             .get(&dbc.name())
             .ok_or_else(|| anyhow!("PubKeySet not found"))?;
 
         let sig = pubkeyset
             .combine_signatures(shares)
             .map_err(|e| Error::msg(format!("{}", e)))?;
-        proofs.insert(dbc.name(), (pubkeyset.public_key(), sig));
+        proofs.insert(dbc.name(), sig);
     }
 
     println!("\n\nThank-you.   Preparing ReissueRequest...\n\n");
@@ -846,8 +848,8 @@ fn prepare_reissue() -> Result<()> {
             transaction: tx.inner.clone(),
             input_ownership_proofs: proofs,
         },
-        inputs_owners: tx.inputs_owners.clone(),
-        outputs_owners: tx.outputs_owners,
+        input_pk_pks: tx.input_pk_pks,
+        output_pk_pks: tx.output_pk_pks,
     };
 
     println!("\n-- ReissueRequest --");
@@ -876,7 +878,7 @@ fn reissue(mintinfo: &mut MintInfo) -> Result<()> {
         mintinfo,
         &reissue_request.inner,
         &input_hashes,
-        &reissue_request.outputs_owners,
+        &reissue_request.output_pk_pks,
     )
 }
 
@@ -980,18 +982,11 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
     println!("\n\nThank-you.   Generating DBC(s)...\n\n");
 
-    let input_hashes = tx_builder.inputs_hashes();
-    let (transaction, output_owners) = tx_builder.build()?;
-
-    // generate output Hash -> PublicKeySet map
-    let mut outputs_pks: HashMap<Hash, PublicKeySet> = Default::default();
-    for (h, pk) in output_owners.iter() {
-        let pks = pk_pks.get(pk).ok_or_else(|| anyhow!("pubkey not found"))?;
-        outputs_pks.insert(*h, pks.clone());
-    }
+    let input_owners = tx_builder.input_owners();
+    let transaction = tx_builder.build()?;
 
     // for each input Dbc, combine owner's SignatureShare(s) to obtain owner's Signature
-    let mut proofs: HashMap<Hash, (PublicKey, Signature)> = Default::default();
+    let mut proofs: HashMap<PublicKey, Signature> = Default::default();
     for (dbc, secrets) in inputs_sks.iter() {
         let mut sig_shares: BTreeMap<usize, SignatureShare> = Default::default();
         for (idx, secret) in secrets.iter() {
@@ -1002,7 +997,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
             .owner
             .combine_signatures(&sig_shares)
             .map_err(|e| anyhow!(e))?;
-        proofs.insert(dbc.inner.name(), (dbc.owner.public_key(), sig));
+        proofs.insert(dbc.inner.name(), sig);
     }
 
     let reissue_request = ReissueRequest {
@@ -1010,15 +1005,15 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
         input_ownership_proofs: proofs,
     };
 
-    reissue_exec(mintinfo, &reissue_request, &input_hashes, &outputs_pks)
+    reissue_exec(mintinfo, &reissue_request, &input_owners, &pk_pks)
 }
 
 /// Performs reissue
 fn reissue_exec(
     mintinfo: &mut MintInfo,
     reissue_request: &ReissueRequest,
-    input_hashes: &BTreeSet<Hash>,
-    outputs_pks: &HashMap<Hash, PublicKeySet>,
+    input_owners: &BTreeSet<PublicKey>,
+    output_pk_pks: &HashMap<PublicKey, PublicKeySet>,
 ) -> Result<()> {
     let mut dbc_builder: DbcBuilder = Default::default();
     dbc_builder = dbc_builder.set_reissue_transaction(reissue_request.transaction.clone());
@@ -1029,7 +1024,7 @@ fn reissue_exec(
     for mint in mintinfo.mintnodes.iter_mut() {
         // here we pretend the client has made a network request to a single mint node
         // so this mint.reissue() execs on the Mint node and returns data to client.
-        let reissue_share = mint.reissue(reissue_request.clone(), input_hashes.clone())?;
+        let reissue_share = mint.reissue(reissue_request.clone(), input_owners.clone())?;
 
         // and now we are back to client code.
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
@@ -1039,8 +1034,8 @@ fn reissue_exec(
 
     // for each output, construct DbcUnblinded and display
     for dbc in output_dbcs.iter() {
-        let pubkeyset = outputs_pks
-            .get(&dbc.content.hash())
+        let pubkeyset = output_pk_pks
+            .get(&dbc.name())
             .ok_or_else(|| anyhow!("PubKeySet not found"))?;
         let dbc_owned = DbcUnblinded {
             inner: dbc.clone(),
