@@ -68,7 +68,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
     let output_owner = bls_dkg_id();
     let output_owner_pk = output_owner.public_key_set.public_key();
 
-    let (reissue_tx, _) = sn_dbc::TransactionBuilder::default()
+    let reissue_tx = sn_dbc::TransactionBuilder::default()
         .add_input(genesis_dbc.clone(), genesis_secrets)
         .add_outputs((0..n_outputs).into_iter().map(|_| sn_dbc::Output {
             amount: 1,
@@ -88,10 +88,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 
     let reissue = ReissueRequest {
         transaction: reissue_tx,
-        input_ownership_proofs: HashMap::from_iter([(
-            genesis_dbc.name(),
-            (genesis_owner.public_key_set.public_key(), sig),
-        )]),
+        input_ownership_proofs: HashMap::from_iter([(genesis_dbc.name(), sig)]),
     };
 
     let spendbook = genesis.snapshot_spendbook();
@@ -116,7 +113,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     let owners = Vec::from_iter((0..n_outputs).into_iter().map(|_| bls_dkg_id()));
 
-    let (reissue_tx, dbc_owners) = sn_dbc::TransactionBuilder::default()
+    let reissue_tx = sn_dbc::TransactionBuilder::default()
         .add_input(genesis_dbc.clone(), genesis_amount_secrets)
         .add_outputs(owners.iter().map(|owner| sn_dbc::Output {
             amount: 1,
@@ -125,13 +122,13 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    let dbc_owners = BTreeMap::from_iter(dbc_owners.into_iter().map(|(dbc_hash, owner_pk)| {
+    let dbc_owners = BTreeMap::from_iter(reissue_tx.outputs.iter().map(|out_dbc| {
         let owner = owners
             .iter()
-            .find(|o| o.public_key_set.public_key() == owner_pk)
+            .find(|o| o.public_key_set.public_key() == out_dbc.owner)
             .unwrap()
             .clone();
-        (dbc_hash, owner)
+        (out_dbc.owner, owner)
     }));
 
     let sig_share = genesis_owner
@@ -143,10 +140,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .combine_signatures(vec![(0, &sig_share)])
         .unwrap();
 
-    let input_ownership_proofs = HashMap::from_iter([(
-        genesis_dbc.name(),
-        (genesis_owner.public_key_set.public_key(), sig),
-    )]);
+    let input_ownership_proofs = HashMap::from_iter([(genesis_dbc.name(), sig)]);
 
     let reissue = ReissueRequest {
         transaction: reissue_tx,
@@ -178,7 +172,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         )]),
     }));
 
-    let (merge_tx, _) = sn_dbc::TransactionBuilder::default()
+    let merge_tx = sn_dbc::TransactionBuilder::default()
         .add_inputs(dbcs.iter().cloned().map(|dbc| {
             let owner = &dbc_owners[&dbc.name()];
             let amount_secrets =
@@ -199,7 +193,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
             .public_key_set
             .combine_signatures(vec![(0, &sig_share)])
             .unwrap();
-        (dbc.name(), (owner.public_key_set.public_key(), sig))
+        (dbc.name(), sig)
     }));
 
     let merge_reissue = ReissueRequest {
