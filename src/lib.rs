@@ -9,14 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::ops::Deref;
-#[cfg(test)]
-use tiny_keccak::{Hasher, Sha3};
-/// These typdefs are to simplify algorithm for now and will be removed for production.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Hash([u8; 32]);
-pub struct OwnerKey(PublicKey);
-pub(crate) type DbcContentHash = Hash;
+
 mod builder;
 mod dbc;
 mod dbc_content;
@@ -41,6 +34,10 @@ pub use crate::{
     },
 };
 
+/// These typdefs are to simplify algorithm for now and will be removed for production.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Hash([u8; 32]);
+
 impl From<[u8; 32]> for Hash {
     fn from(val: [u8; 32]) -> Hash {
         Hash(val)
@@ -55,14 +52,6 @@ impl fmt::Debug for Hash {
     }
 }
 
-impl Deref for Hash {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 impl AsRef<[u8]> for Hash {
     #[inline]
     fn as_ref(&self) -> &[u8] {
@@ -73,16 +62,11 @@ impl AsRef<[u8]> for Hash {
 #[cfg(test)]
 use rand::distributions::{Distribution, Standard};
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct OwnerKey(pub PublicKey);
+
 #[cfg(test)]
 use rand::Rng;
-
-/// used when fuzzing DBC's in testing.
-#[cfg(test)]
-impl Distribution<Hash> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Hash {
-        Hash(rng.gen())
-    }
-}
 
 /// used when fuzzing DBC's in testing.
 #[cfg(test)]
@@ -142,6 +126,8 @@ impl DbcHelper {
 
 #[cfg(test)]
 fn sha3_256(input: &[u8]) -> [u8; 32] {
+    use tiny_keccak::{Hasher, Sha3};
+
     let mut sha3 = Sha3::v256();
     let mut output = [0; 32];
     sha3.update(input);

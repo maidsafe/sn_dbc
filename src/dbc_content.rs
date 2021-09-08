@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tiny_keccak::{Hasher, Sha3};
 
-use crate::{DbcContentHash, Error, Hash};
+use crate::{Error, Hash};
 
 pub(crate) const RANGE_PROOF_BITS: usize = 64; // note: Range Proof max-bits is 64. allowed are: 8, 16, 32, 64 (only)
                                                //       This limits our amount field to 64 bits also.
@@ -88,7 +88,6 @@ impl AmountSecrets {
     }
 }
 
-// TODO: delete DbcContentHash
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
     pub parents: BTreeSet<PublicKey>, // Parent DBC's, acts as a nonce
@@ -141,7 +140,7 @@ impl DbcContent {
         Scalar::random(&mut csprng)
     }
 
-    pub fn hash(&self) -> DbcContentHash {
+    pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
 
         for parent in self.parents.iter() {

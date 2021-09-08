@@ -57,16 +57,6 @@ impl SpendBook for SimpleSpendBook {
     }
 }
 
-// TODO: add fn iter() as a replacement of the following impl block
-impl<'a> IntoIterator for &'a SimpleSpendBook {
-    type Item = (&'a PublicKey, &'a DbcTransaction);
-    type IntoIter = std::collections::btree_map::Iter<'a, PublicKey, DbcTransaction>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.transactions.iter()
-    }
-}
-
 impl IntoIterator for SimpleSpendBook {
     type Item = (PublicKey, DbcTransaction);
     type IntoIter = std::collections::btree_map::IntoIter<PublicKey, DbcTransaction>;
@@ -78,9 +68,11 @@ impl IntoIterator for SimpleSpendBook {
 
 impl SimpleSpendBook {
     pub fn new() -> Self {
-        Self {
-            transactions: Default::default(),
-        }
+        Self::default()
+    }
+
+    pub fn iter(&self) -> std::collections::btree_map::Iter<PublicKey, DbcTransaction> {
+        self.transactions.iter()
     }
 }
 
