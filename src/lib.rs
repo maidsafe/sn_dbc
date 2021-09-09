@@ -62,13 +62,13 @@ impl AsRef<[u8]> for Hash {
 use rand::distributions::{Distribution, Standard};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct SpendingKey(pub PublicKey);
+pub struct SpendKey(pub PublicKey);
 
 // Display Hash value as hex in Debug output.  consolidates 36 lines to 3 for pretty output
 // and the hex value is the same as sn_dbc_mint display of DBC IDs.
-impl fmt::Debug for SpendingKey {
+impl fmt::Debug for SpendKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("SpendingKey")
+        f.debug_tuple("SpendKey")
             .field(&hex::encode(self.0.to_bytes()))
             .finish()
     }
@@ -95,9 +95,9 @@ impl Distribution<OwnerKey> for Standard {
 
 /// used when fuzzing DBC's in testing.
 #[cfg(test)]
-impl Distribution<SpendingKey> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SpendingKey {
-        SpendingKey(
+impl Distribution<SpendKey> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SpendKey {
+        SpendKey(
             crate::genesis_dbc_input()
                 .0
                 .derive_child(&rng.gen::<[u8; 32]>()),

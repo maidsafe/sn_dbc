@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Hash, PublicKey, SpendingKey};
+use crate::{Hash, PublicKey, SpendKey};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use tiny_keccak::{Hasher, Sha3};
@@ -16,12 +16,12 @@ use tiny_keccak::{Hasher, Sha3};
 /// i.e. a Dbc can be stored anywhere, even offline.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct DbcTransaction {
-    pub inputs: BTreeSet<SpendingKey>,
+    pub inputs: BTreeSet<SpendKey>,
     pub outputs: BTreeSet<PublicKey>,
 }
 
 impl DbcTransaction {
-    pub fn new(inputs: BTreeSet<SpendingKey>, outputs: BTreeSet<PublicKey>) -> Self {
+    pub fn new(inputs: BTreeSet<SpendKey>, outputs: BTreeSet<PublicKey>) -> Self {
         Self { inputs, outputs }
     }
 
@@ -46,21 +46,15 @@ impl DbcTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quickcheck_macros::quickcheck;
-
     use crate::OwnerKey;
+    use quickcheck_macros::quickcheck;
+    use std::iter::FromIterator;
 
     #[quickcheck]
     fn prop_hash_is_independent_of_order(inputs: Vec<u64>, outputs: Vec<u64>) {
         // This test is here to protect us in the case that someone swaps out the BTreeSet for inputs/outputs for something else
-        let input_keys: Vec<SpendingKey> = inputs
-            .iter()
-            .map(|_| rand::random::<SpendingKey>())
-            .collect();
-        let output_keys: Vec<PublicKey> = outputs
-            .iter()
-            .map(|_| rand::random::<OwnerKey>().0)
-            .collect();
+        let input_keys = Vec::from_iter(inputs.iter().map(|_| rand::random::<SpendKey>()));
+        let output_keys = Vec::from_iter(outputs.iter().map(|_| rand::random::<OwnerKey>().0));
 
         let forward_hash = DbcTransaction::new(
             input_keys.iter().cloned().collect(),
