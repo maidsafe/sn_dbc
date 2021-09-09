@@ -74,24 +74,8 @@ impl fmt::Debug for SpendKey {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct OwnerKey(pub PublicKey);
-
 #[cfg(test)]
 use rand::Rng;
-
-// TODO: remove this
-/// used when fuzzing DBC's in testing.
-#[cfg(test)]
-impl Distribution<OwnerKey> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> OwnerKey {
-        OwnerKey(
-            crate::genesis_dbc_input()
-                .0
-                .derive_child(&rng.gen::<[u8; 32]>()),
-        )
-    }
-}
 
 /// used when fuzzing DBC's in testing.
 #[cfg(test)]

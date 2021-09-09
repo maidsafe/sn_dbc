@@ -46,7 +46,6 @@ impl DbcTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::OwnerKey;
     use quickcheck_macros::quickcheck;
     use std::iter::FromIterator;
 
@@ -54,7 +53,7 @@ mod tests {
     fn prop_hash_is_independent_of_order(inputs: Vec<u64>, outputs: Vec<u64>) {
         // This test is here to protect us in the case that someone swaps out the BTreeSet for inputs/outputs for something else
         let input_keys = Vec::from_iter(inputs.iter().map(|_| rand::random::<SpendKey>()));
-        let output_keys = Vec::from_iter(outputs.iter().map(|_| rand::random::<OwnerKey>().0));
+        let output_keys = Vec::from_iter(outputs.iter().map(|_| rand::random::<SpendKey>().0));
 
         let forward_hash = DbcTransaction::new(
             input_keys.iter().cloned().collect(),

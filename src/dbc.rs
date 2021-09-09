@@ -24,11 +24,10 @@ pub struct Dbc {
 impl Dbc {
     pub fn spend_key(&self) -> SpendKey {
         let index = self.spend_key_index();
-        SpendKey(self.content.owner.derive_child(&index))
+        SpendKey(self.owner().derive_child(&index))
     }
 
-    // TODO: rename to owner()
-    pub fn name(&self) -> PublicKey {
+    pub fn owner(&self) -> PublicKey {
         self.content.owner
     }
 
@@ -67,7 +66,7 @@ impl Dbc {
             Err(Error::MissingSignatureForInput)
         } else if self.transaction.inputs != self.content.parents {
             Err(Error::DbcContentParentsDifferentFromTransactionInputs)
-        } else if !self.transaction.outputs.contains(&self.content.owner) {
+        } else if !self.transaction.outputs.contains(&self.owner()) {
             Err(Error::DbcContentNotPresentInTransactionOutput)
         } else {
             Ok(())
@@ -375,7 +374,7 @@ mod tests {
 
         match validation_res {
             Ok(()) => {
-                assert!(dbc.transaction.outputs.contains(&dbc.content.owner));
+                assert!(dbc.transaction.outputs.contains(&dbc.owner()));
                 assert!(n_inputs.coerce::<u8>() > 0);
                 assert!(n_valid_sigs.coerce::<u8>() >= n_inputs.coerce::<u8>());
                 assert_eq!(dbc_amount, amount);
@@ -401,10 +400,10 @@ mod tests {
                     n_add_random_parents.coerce::<u8>() > 0 || n_drop_parents.coerce::<u8>() > 0
                 );
                 assert!(dbc.transaction.inputs != dbc.content.parents);
-                assert!(!dbc.transaction.outputs.contains(&dbc.content.owner));
+                assert!(!dbc.transaction.outputs.contains(&dbc.owner()));
             }
             Err(Error::DbcContentNotPresentInTransactionOutput) => {
-                assert!(!dbc.transaction.outputs.contains(&dbc.content.owner));
+                assert!(!dbc.transaction.outputs.contains(&dbc.owner()));
             }
             Err(Error::TransactionMustHaveAnInput) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);

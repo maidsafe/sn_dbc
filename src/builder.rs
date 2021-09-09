@@ -43,7 +43,7 @@ impl TransactionBuilder {
     }
 
     pub fn input_owners(&self) -> BTreeSet<PublicKey> {
-        BTreeSet::from_iter(self.inputs.keys().map(Dbc::name))
+        BTreeSet::from_iter(self.inputs.keys().map(Dbc::owner))
     }
 
     pub fn input_spend_keys(&self) -> BTreeSet<SpendKey> {
@@ -221,7 +221,7 @@ impl DbcBuilder {
             .collect();
 
         // sort outputs by name
-        output_dbcs.sort_by_key(|d| d.name());
+        output_dbcs.sort_by_key(Dbc::owner);
 
         Ok(output_dbcs)
     }

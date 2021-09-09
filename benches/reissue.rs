@@ -179,7 +179,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     let merge_tx = sn_dbc::TransactionBuilder::default()
         .add_inputs(dbcs.iter().cloned().map(|dbc| {
-            let owner = &dbc_owners[&dbc.name()];
+            let owner = &dbc_owners[&dbc.owner()];
             let amount_secrets =
                 sn_dbc::DbcHelper::decrypt_amount_secrets(owner, &dbc.content).unwrap();
             (dbc, amount_secrets)
@@ -192,7 +192,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .unwrap();
 
     let input_ownership_proofs = HashMap::from_iter(dbcs.iter().map(|dbc| {
-        let owner = &dbc_owners[&dbc.name()];
+        let owner = &dbc_owners[&dbc.owner()];
         let sig_share = owner
             .secret_key_share
             .derive_child(&dbc.spend_key_index())
