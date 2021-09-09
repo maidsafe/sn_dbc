@@ -20,9 +20,9 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, DbcContent, DbcTransaction, Mint, MintSignatures, NodeSignature,
-    Output, ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager,
-    SimpleSigner as Signer, SimpleSpendBook as SpendBook, TransactionBuilder,
+    Amount, Dbc, DbcBuilder, DbcContent, DbcTransaction, Mint, NodeSignature, Output,
+    ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
+    SimpleSpendBook as SpendBook, SpendingKey, TransactionBuilder,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
@@ -390,7 +390,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
 
     println!("-- SpendBook --\n");
     for (dbc_owner, _tx) in mintinfo.mintnode()?.spendbook.iter() {
-        println!("  {}", encode(&dbc_owner.to_bytes()));
+        println!("  {}", encode(&dbc_owner.0.to_bytes()));
     }
 
     println!();
@@ -441,7 +441,7 @@ fn print_dbc_human(
 
     println!("inputs:");
     for i in &dbc.inner.transaction.inputs {
-        println!("  {}", encode(i.to_bytes()))
+        println!("  {}", encode(i.0.to_bytes()))
     }
 
     if outputs {
@@ -569,7 +569,7 @@ fn validate(mintinfo: &MintInfo) -> Result<()> {
     };
 
     match dbc.confirm_valid(mintinfo.mintnode()?.key_manager()) {
-        Ok(_) => match mintinfo.mintnode()?.is_spent(dbc.name())? {
+        Ok(_) => match mintinfo.mintnode()?.is_spent(dbc.spending_key())? {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
         },
@@ -766,7 +766,9 @@ fn sign_tx() -> Result<()> {
     for (dbc, secrets) in inputs.iter() {
         let mut sigs: HashMap<usize, SignatureShare> = Default::default();
         for (idx, secret) in secrets.iter() {
-            let sig_share = secret.sign(&tx.inner.blinded().hash());
+            let sig_share = secret
+                .derive_child(&dbc.spending_key_index())
+                .sign(&tx.inner.blinded().hash());
             sigs.insert(*idx, sig_share);
         }
         sig_shares.0.insert(dbc.name(), sigs);
@@ -819,7 +821,7 @@ fn prepare_reissue() -> Result<()> {
         }
     }
 
-    let mut proofs: HashMap<PublicKey, Signature> = Default::default();
+    let mut proofs: HashMap<SpendingKey, Signature> = Default::default();
     for dbc in tx.inner.inputs.iter() {
         let shares = match sig_shares_by_input.get(&dbc.name()) {
             Some(s) => s,
@@ -838,7 +840,7 @@ fn prepare_reissue() -> Result<()> {
         let sig = pubkeyset
             .combine_signatures(shares)
             .map_err(|e| Error::msg(format!("{}", e)))?;
-        proofs.insert(dbc.name(), sig);
+        proofs.insert(dbc.spending_key(), sig);
     }
 
     println!("\n\nThank-you.   Preparing ReissueRequest...\n\n");
@@ -866,18 +868,19 @@ fn reissue(mintinfo: &mut MintInfo) -> Result<()> {
 
     println!("\n\nThank-you.   Generating DBC(s)...\n\n");
 
-    let input_hashes = reissue_request
-        .inner
-        .transaction
-        .inputs
-        .iter()
-        .map(|e| e.name())
-        .collect::<BTreeSet<_>>();
+    let input_keys = BTreeSet::from_iter(
+        reissue_request
+            .inner
+            .transaction
+            .inputs
+            .iter()
+            .map(Dbc::spending_key),
+    );
 
     reissue_exec(
         mintinfo,
         &reissue_request.inner,
-        &input_hashes,
+        &input_keys,
         &reissue_request.output_pk_pks,
     )
 }
@@ -982,22 +985,24 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
     println!("\n\nThank-you.   Generating DBC(s)...\n\n");
 
-    let input_owners = tx_builder.input_owners();
+    let input_owners = tx_builder.input_spending_keys();
     let transaction = tx_builder.build()?;
 
     // for each input Dbc, combine owner's SignatureShare(s) to obtain owner's Signature
-    let mut proofs: HashMap<PublicKey, Signature> = Default::default();
+    let mut proofs: HashMap<SpendingKey, Signature> = Default::default();
     for (dbc, secrets) in inputs_sks.iter() {
         let mut sig_shares: BTreeMap<usize, SignatureShare> = Default::default();
         for (idx, secret) in secrets.iter() {
-            let sig_share = secret.sign(&transaction.blinded().hash());
+            let sig_share = secret
+                .derive_child(&dbc.inner.spending_key_index())
+                .sign(&transaction.blinded().hash());
             sig_shares.insert(*idx, sig_share.clone());
         }
         let sig = dbc
             .owner
             .combine_signatures(&sig_shares)
             .map_err(|e| anyhow!(e))?;
-        proofs.insert(dbc.inner.name(), sig);
+        proofs.insert(dbc.inner.spending_key(), sig);
     }
 
     let reissue_request = ReissueRequest {
@@ -1012,7 +1017,7 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 fn reissue_exec(
     mintinfo: &mut MintInfo,
     reissue_request: &ReissueRequest,
-    input_owners: &BTreeSet<PublicKey>,
+    input_owners: &BTreeSet<SpendingKey>,
     output_pk_pks: &HashMap<PublicKey, PublicKeySet>,
 ) -> Result<()> {
     let mut dbc_builder: DbcBuilder = Default::default();

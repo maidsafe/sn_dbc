@@ -79,6 +79,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 
     let sig_share = genesis_owner
         .secret_key_share
+        .derive_child(&genesis_dbc.spending_key_index())
         .sign(&reissue_tx.blinded().hash());
 
     let sig = genesis_owner
@@ -88,7 +89,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 
     let reissue = ReissueRequest {
         transaction: reissue_tx,
-        input_ownership_proofs: HashMap::from_iter([(genesis_dbc.name(), sig)]),
+        input_ownership_proofs: HashMap::from_iter([(genesis_dbc.spending_key(), sig)]),
     };
 
     let spendbook = genesis.snapshot_spendbook();
@@ -98,7 +99,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
             genesis
                 .reissue(
                     black_box(reissue.clone()),
-                    black_box(BTreeSet::from_iter([genesis_dbc.name()])),
+                    black_box(BTreeSet::from_iter([genesis_dbc.spending_key()])),
                 )
                 .unwrap();
         })
@@ -133,6 +134,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     let sig_share = genesis_owner
         .secret_key_share
+        .derive_child(&genesis_dbc.spending_key_index())
         .sign(&reissue_tx.blinded().hash());
 
     let sig = genesis_owner
@@ -140,7 +142,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .combine_signatures(vec![(0, &sig_share)])
         .unwrap();
 
-    let input_ownership_proofs = HashMap::from_iter([(genesis_dbc.name(), sig)]);
+    let input_ownership_proofs = HashMap::from_iter([(genesis_dbc.spending_key(), sig)]);
 
     let reissue = ReissueRequest {
         transaction: reissue_tx,
@@ -148,7 +150,10 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     };
 
     let reissue_share = genesis
-        .reissue(reissue.clone(), BTreeSet::from_iter([genesis_dbc.name()]))
+        .reissue(
+            reissue.clone(),
+            BTreeSet::from_iter([genesis_dbc.spending_key()]),
+        )
         .unwrap();
 
     let (mint_key_set, mint_sig_share) = reissue_share
@@ -167,7 +172,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         content,
         transaction: reissue_share.dbc_transaction.clone(),
         transaction_sigs: BTreeMap::from_iter([(
-            genesis_dbc.name(),
+            genesis_dbc.spending_key(),
             (mint_key_set.public_key(), mint_sig.clone()),
         )]),
     }));
@@ -188,12 +193,15 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     let input_ownership_proofs = HashMap::from_iter(dbcs.iter().map(|dbc| {
         let owner = &dbc_owners[&dbc.name()];
-        let sig_share = owner.secret_key_share.sign(merge_tx.blinded().hash());
+        let sig_share = owner
+            .secret_key_share
+            .derive_child(&dbc.spending_key_index())
+            .sign(merge_tx.blinded().hash());
         let sig = owner
             .public_key_set
             .combine_signatures(vec![(0, &sig_share)])
             .unwrap();
-        (dbc.name(), sig)
+        (dbc.spending_key(), sig)
     }));
 
     let merge_reissue = ReissueRequest {
