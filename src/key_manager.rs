@@ -30,6 +30,8 @@ impl NodeSignature {
 
 pub trait KeyManager {
     type Error: std::error::Error;
+    fn sign_with_child_key(&self, idx: &[u8], tx_hash: &Hash)
+        -> Result<NodeSignature, Self::Error>;
     fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature, Self::Error>;
     fn public_key_set(&self) -> Result<PublicKeySet, Self::Error>;
     fn verify(
@@ -76,6 +78,14 @@ impl SimpleSigner {
     fn sign<M: AsRef<[u8]>>(&self, msg: M) -> blsttc::SignatureShare {
         self.secret_key_share.1.sign(msg)
     }
+
+    fn derive_child(&self, index: &[u8]) -> Self {
+        let child_pks = self.public_key_set.derive_child(index);
+        let child_secret_index = self.secret_key_share.0;
+        let child_secret_share = self.secret_key_share.1.derive_child(index);
+
+        Self::new(child_pks, (child_secret_index, child_secret_share))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +114,14 @@ impl KeyManager for SimpleKeyManager {
 
     fn public_key_set(&self) -> Result<PublicKeySet> {
         Ok(self.signer.public_key_set())
+    }
+
+    fn sign_with_child_key(&self, index: &[u8], tx_hash: &Hash) -> Result<NodeSignature> {
+        let child_signer = self.signer.derive_child(index);
+        Ok(NodeSignature::new(
+            child_signer.index(),
+            child_signer.sign(tx_hash),
+        ))
     }
 
     fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature> {

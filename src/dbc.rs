@@ -6,21 +6,47 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{DbcContent, DbcTransaction, Error, KeyManager, PublicKey, Result, Signature};
+use crate::{
+    DbcContent, DbcTransaction, Error, KeyManager, PublicKey, Result, Signature, SpendingKey,
+};
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use tiny_keccak::{Hasher, Sha3};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Dbc {
     pub content: DbcContent,
     pub transaction: DbcTransaction,
-    pub transaction_sigs: BTreeMap<PublicKey, (PublicKey, Signature)>,
+    pub transaction_sigs: BTreeMap<SpendingKey, (PublicKey, Signature)>,
 }
 
 impl Dbc {
-    // TODO: rename Dbc::name to Dbc::owner
+    pub fn spending_key(&self) -> SpendingKey {
+        let index = self.spending_key_index();
+        SpendingKey(self.content.owner.derive_child(&index))
+    }
+
+    // TODO: rename to owner()
     pub fn name(&self) -> PublicKey {
         self.content.owner
+    }
+
+    pub fn spending_key_index(&self) -> [u8; 32] {
+        let mut sha3 = Sha3::v256();
+
+        sha3.update(&self.content.hash().0);
+        sha3.update(&self.transaction.hash().0);
+
+        for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
+            sha3.update(&in_key.0.to_bytes());
+            sha3.update(&mint_key.to_bytes());
+            sha3.update(&mint_sig.to_bytes());
+        }
+
+        let mut hash = [0u8; 32];
+        sha3.finalize(&mut hash);
+        hash
     }
 
     // Check there exists a DbcTransaction with the output containing this Dbc
@@ -94,6 +120,7 @@ mod tests {
 
         let sig_share = dbc_owner
             .secret_key_share
+            .derive_child(&dbc.spending_key_index())
             .sign(&reissue_tx.blinded().hash());
 
         let sig = dbc_owner
@@ -103,7 +130,7 @@ mod tests {
 
         let request = ReissueRequest {
             transaction: reissue_tx,
-            input_ownership_proofs: HashMap::from_iter([(dbc.name(), sig)]),
+            input_ownership_proofs: HashMap::from_iter([(dbc.spending_key(), sig)]),
         };
 
         Ok(request)
@@ -215,21 +242,19 @@ mod tests {
             })
             .build()?;
 
-        let sig_share = input_owner
-            .secret_key_share
-            .sign(&reissue_tx.blinded().hash());
+        let input_ownership_proofs = HashMap::from_iter(reissue_tx.inputs.iter().map(|input| {
+            let sig_share = input_owner
+                .secret_key_share
+                .derive_child(&input.spending_key_index())
+                .sign(&reissue_tx.blinded().hash());
 
-        let input_owner_key_set = input_owner.public_key_set.clone();
-        let sig = input_owner_key_set
-            .combine_signatures(vec![(input_owner.index, &sig_share)])
-            .unwrap();
+            let sig = input_owner
+                .public_key_set
+                .combine_signatures(vec![(input_owner.index, &sig_share)])
+                .unwrap();
 
-        let input_ownership_proofs = HashMap::from_iter(
-            reissue_tx
-                .inputs
-                .iter()
-                .map(|input| (input.name(), sig.clone())),
-        );
+            (input.spending_key(), sig)
+        }));
 
         let reissue_request = ReissueRequest {
             transaction: reissue_tx,
@@ -264,7 +289,7 @@ mod tests {
                     // add some random parents
                     (0..n_add_random_parents.coerce())
                         .into_iter()
-                        .map(|_| rand::random::<OwnerKey>().0),
+                        .map(|_| rand::random::<SpendingKey>()),
                 ),
         );
 
@@ -275,7 +300,7 @@ mod tests {
             DbcContent::random_blinding_factor(),
         )?;
 
-        let mut fuzzed_transaction_sigs: BTreeMap<PublicKey, (PublicKey, Signature)> =
+        let mut fuzzed_transaction_sigs: BTreeMap<SpendingKey, (PublicKey, Signature)> =
             BTreeMap::new();
 
         // Add valid sigs
@@ -307,8 +332,10 @@ mod tests {
                     .public_key_set
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
                     .unwrap();
-                fuzzed_transaction_sigs
-                    .insert(input.name(), (id.public_key_set.public_key(), trans_sig));
+                fuzzed_transaction_sigs.insert(
+                    input.spending_key(),
+                    (id.public_key_set.public_key(), trans_sig),
+                );
             }
         }
 
@@ -323,14 +350,15 @@ mod tests {
                     .combine_signatures(vec![wrong_msg_sig.threshold_crypto()])
                     .unwrap();
 
-                fuzzed_transaction_sigs.insert(input.name(), (genesis_key, wrong_msg_mint_sig));
+                fuzzed_transaction_sigs
+                    .insert(input.spending_key(), (genesis_key, wrong_msg_mint_sig));
             }
         }
 
         // Valid mint signatures for inputs not present in the transaction
         for _ in 0..n_extra_input_sigs.coerce() {
             fuzzed_transaction_sigs.insert(
-                rand::random::<OwnerKey>().0,
+                rand::random::<SpendingKey>(),
                 (genesis_key, mint_sig.clone()),
             );
         }

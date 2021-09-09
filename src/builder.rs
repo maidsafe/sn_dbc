@@ -55,7 +55,7 @@ impl TransactionBuilder {
     }
 
     pub fn build(self) -> Result<ReissueTransaction> {
-        let parents = BTreeSet::from_iter(self.inputs.keys().map(Dbc::name));
+        let parents = BTreeSet::from_iter(self.inputs.keys().map(Dbc::spending_key));
         let inputs_bf_sum = self
             .inputs
             .values()
@@ -168,7 +168,7 @@ impl DbcBuilder {
 
             // Verify that each input has a NodeSignature
             for input in reissue_transaction.inputs.iter() {
-                if rs.mint_node_signatures.get(&input.name()).is_none() {
+                if rs.mint_node_signatures.get(&input.spending_key()).is_none() {
                     return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
                 }
             }
@@ -208,7 +208,7 @@ impl DbcBuilder {
                     .iter()
                     .map(|input| {
                         (
-                            input.name(),
+                            input.spending_key(),
                             (mint_public_key_set.public_key(), mint_sig.clone()),
                         )
                     })
