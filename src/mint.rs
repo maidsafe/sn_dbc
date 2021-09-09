@@ -447,22 +447,20 @@ mod tests {
             input_ownership_proofs: HashMap::from_iter([(gen_dbc_spend_key, sig)]),
         };
 
-        let reissue_share = match genesis_node.reissue(
-            reissue_req.clone(),
-            BTreeSet::from_iter([gen_dbc_spend_key]),
-        ) {
-            Ok(rs) => {
-                // Verify that at least one output was present.
-                assert_ne!(n_outputs, 0);
-                rs
-            }
-            Err(Error::DbcReissueRequestDoesNotBalance) => {
-                // Verify that no outputs were present and we got correct validation error.
-                assert_eq!(n_outputs, 0);
-                return Ok(());
-            }
-            Err(e) => return Err(e),
-        };
+        let reissue_share =
+            match genesis_node.reissue(reissue_req, BTreeSet::from_iter([gen_dbc_spend_key])) {
+                Ok(rs) => {
+                    // Verify that at least one output was present.
+                    assert_ne!(n_outputs, 0);
+                    rs
+                }
+                Err(Error::DbcReissueRequestDoesNotBalance) => {
+                    // Verify that no outputs were present and we got correct validation error.
+                    assert_eq!(n_outputs, 0);
+                    return Ok(());
+                }
+                Err(e) => return Err(e),
+            };
 
         // Aggregate ReissueShare to build output DBCs
         let mut dbc_builder = DbcBuilder::new(reissue_tx);
@@ -692,7 +690,7 @@ mod tests {
         let input_dbcs = output_dbcs
             .into_iter()
             .map(|dbc| {
-                let (_, owner) = &owner_amounts_and_keys[&dbc.name()];
+                let (_, owner) = &owner_amounts_and_keys[&dbc.owner()];
                 let amount_secrets = DbcHelper::decrypt_amount_secrets(owner, &dbc.content)?;
                 Ok((dbc, amount_secrets))
             })
@@ -731,7 +729,7 @@ mod tests {
             .into_iter()
             .filter_map(|input_num| reissue_tx.inputs.iter().nth(input_num))
             .map(|dbc| {
-                let (_, owner) = &owner_amounts_and_keys[&dbc.name()];
+                let (_, owner) = &owner_amounts_and_keys[&dbc.owner()];
                 let sig_share = owner
                     .secret_key_share
                     .derive_child(&dbc.spend_key_index())
@@ -795,7 +793,7 @@ mod tests {
                                         .transaction
                                         .inputs
                                         .iter()
-                                        .find(|dbc| dbc.name() == *pk)
+                                        .find(|dbc| dbc.owner() == *pk)
                                         .unwrap()
                                         .spend_key()
                                 }
@@ -809,7 +807,7 @@ mod tests {
                         .transaction
                         .inputs
                         .iter()
-                        .find(|dbc| dbc.name() == *pk)
+                        .find(|dbc| dbc.owner() == *pk)
                         .unwrap()
                         .spend_key()
                 }))
@@ -866,7 +864,7 @@ mod tests {
                             .transaction
                             .inputs
                             .iter()
-                            .find(|dbc| dbc.name() == *pk)
+                            .find(|dbc| dbc.owner() == *pk)
                             .unwrap()
                             .spend_key()
                     }))

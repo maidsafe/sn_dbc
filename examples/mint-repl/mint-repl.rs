@@ -412,7 +412,7 @@ fn print_dbc_human(
     outputs: bool,
     keys: Option<(&PublicKeySet, &BTreeMap<usize, SecretKeyShare>)>,
 ) -> Result<()> {
-    println!("id: {}\n", encode(dbc.inner.name().to_bytes()));
+    println!("id: {}\n", encode(dbc.inner.owner().to_bytes()));
 
     match keys {
         Some((public_key_set, secret_key_shares)) => {
@@ -725,13 +725,13 @@ fn sign_tx() -> Result<()> {
         println!(
             "Input #{} [id: {}, amount: ???  (encrypted)]",
             i,
-            encode(dbc.name().to_bytes()),
+            encode(dbc.owner().to_bytes()),
         );
         println!("-----------------");
 
         let pubkeyset = tx
             .input_pk_pks
-            .get(&dbc.name())
+            .get(&dbc.owner())
             .ok_or_else(|| anyhow!("PubKeySet not found"))?;
 
         let mut secrets: HashMap<usize, SecretKeyShare> = Default::default();
@@ -771,7 +771,7 @@ fn sign_tx() -> Result<()> {
                 .sign(&tx.inner.blinded().hash());
             sigs.insert(*idx, sig_share);
         }
-        sig_shares.0.insert(dbc.name(), sigs);
+        sig_shares.0.insert(dbc.owner(), sigs);
     }
 
     println!("\n-- SignatureSharesMap --");
@@ -792,12 +792,12 @@ fn prepare_reissue() -> Result<()> {
     //                until required # of SignatureShare obtained.
     for dbc in tx.inner.inputs.iter() {
         println!("-----------------");
-        println!("Input [id: {}]", encode(dbc.name().to_bytes()),);
+        println!("Input [id: {}]", encode(dbc.owner().to_bytes()),);
         println!("-----------------");
 
         let pubkeyset = tx
             .input_pk_pks
-            .get(&dbc.name())
+            .get(&dbc.owner())
             .ok_or_else(|| anyhow!("PubKeySet not found"))?;
 
         let mut num_shares = 0usize;
@@ -809,10 +809,10 @@ fn prepare_reissue() -> Result<()> {
             } else {
                 from_be_hex(&ssm_input)?
             };
-            for (name, shares) in shares_map.0.iter() {
+            for (owner, shares) in shares_map.0.iter() {
                 for (idx, share) in shares.iter() {
                     let list = sig_shares_by_input
-                        .entry(*name)
+                        .entry(*owner)
                         .or_insert_with(BTreeMap::default);
                     (*list).insert(*idx, share.clone());
                     num_shares += 1;
@@ -823,18 +823,18 @@ fn prepare_reissue() -> Result<()> {
 
     let mut proofs: HashMap<SpendKey, Signature> = Default::default();
     for dbc in tx.inner.inputs.iter() {
-        let shares = match sig_shares_by_input.get(&dbc.name()) {
+        let shares = match sig_shares_by_input.get(&dbc.owner()) {
             Some(s) => s,
             None => {
                 return Err(anyhow!(
                     "Signature Shares not found for input Dbc {}",
-                    encode(&dbc.name().to_bytes())
+                    encode(&dbc.owner().to_bytes())
                 ))
             }
         };
         let pubkeyset = tx
             .input_pk_pks
-            .get(&dbc.name())
+            .get(&dbc.owner())
             .ok_or_else(|| anyhow!("PubKeySet not found"))?;
 
         let sig = pubkeyset
@@ -1040,7 +1040,7 @@ fn reissue_exec(
     // for each output, construct DbcUnblinded and display
     for dbc in output_dbcs.iter() {
         let pubkeyset = output_pk_pks
-            .get(&dbc.name())
+            .get(&dbc.owner())
             .ok_or_else(|| anyhow!("PubKeySet not found"))?;
         let dbc_owned = DbcUnblinded {
             inner: dbc.clone(),
