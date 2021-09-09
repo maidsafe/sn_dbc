@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    DbcContent, DbcTransaction, Error, KeyManager, PublicKey, Result, Signature, SpendingKey,
+    DbcContent, DbcTransaction, Error, KeyManager, PublicKey, Result, Signature, SpendKey,
 };
 
 use serde::{Deserialize, Serialize};
@@ -18,13 +18,13 @@ use tiny_keccak::{Hasher, Sha3};
 pub struct Dbc {
     pub content: DbcContent,
     pub transaction: DbcTransaction,
-    pub transaction_sigs: BTreeMap<SpendingKey, (PublicKey, Signature)>,
+    pub transaction_sigs: BTreeMap<SpendKey, (PublicKey, Signature)>,
 }
 
 impl Dbc {
-    pub fn spending_key(&self) -> SpendingKey {
-        let index = self.spending_key_index();
-        SpendingKey(self.content.owner.derive_child(&index))
+    pub fn spend_key(&self) -> SpendKey {
+        let index = self.spend_key_index();
+        SpendKey(self.content.owner.derive_child(&index))
     }
 
     // TODO: rename to owner()
@@ -32,7 +32,7 @@ impl Dbc {
         self.content.owner
     }
 
-    pub fn spending_key_index(&self) -> [u8; 32] {
+    pub fn spend_key_index(&self) -> [u8; 32] {
         let mut sha3 = Sha3::v256();
 
         sha3.update(&self.content.hash().0);
@@ -120,7 +120,7 @@ mod tests {
 
         let sig_share = dbc_owner
             .secret_key_share
-            .derive_child(&dbc.spending_key_index())
+            .derive_child(&dbc.spend_key_index())
             .sign(&reissue_tx.blinded().hash());
 
         let sig = dbc_owner
@@ -130,7 +130,7 @@ mod tests {
 
         let request = ReissueRequest {
             transaction: reissue_tx,
-            input_ownership_proofs: HashMap::from_iter([(dbc.spending_key(), sig)]),
+            input_ownership_proofs: HashMap::from_iter([(dbc.spend_key(), sig)]),
         };
 
         Ok(request)
@@ -245,7 +245,7 @@ mod tests {
         let input_ownership_proofs = HashMap::from_iter(reissue_tx.inputs.iter().map(|input| {
             let sig_share = input_owner
                 .secret_key_share
-                .derive_child(&input.spending_key_index())
+                .derive_child(&input.spend_key_index())
                 .sign(&reissue_tx.blinded().hash());
 
             let sig = input_owner
@@ -253,7 +253,7 @@ mod tests {
                 .combine_signatures(vec![(input_owner.index, &sig_share)])
                 .unwrap();
 
-            (input.spending_key(), sig)
+            (input.spend_key(), sig)
         }));
 
         let reissue_request = ReissueRequest {
@@ -289,7 +289,7 @@ mod tests {
                     // add some random parents
                     (0..n_add_random_parents.coerce())
                         .into_iter()
-                        .map(|_| rand::random::<SpendingKey>()),
+                        .map(|_| rand::random::<SpendKey>()),
                 ),
         );
 
@@ -300,7 +300,7 @@ mod tests {
             DbcContent::random_blinding_factor(),
         )?;
 
-        let mut fuzzed_transaction_sigs: BTreeMap<SpendingKey, (PublicKey, Signature)> =
+        let mut fuzzed_transaction_sigs: BTreeMap<SpendKey, (PublicKey, Signature)> =
             BTreeMap::new();
 
         // Add valid sigs
@@ -333,7 +333,7 @@ mod tests {
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
                     .unwrap();
                 fuzzed_transaction_sigs.insert(
-                    input.spending_key(),
+                    input.spend_key(),
                     (id.public_key_set.public_key(), trans_sig),
                 );
             }
@@ -351,16 +351,14 @@ mod tests {
                     .unwrap();
 
                 fuzzed_transaction_sigs
-                    .insert(input.spending_key(), (genesis_key, wrong_msg_mint_sig));
+                    .insert(input.spend_key(), (genesis_key, wrong_msg_mint_sig));
             }
         }
 
         // Valid mint signatures for inputs not present in the transaction
         for _ in 0..n_extra_input_sigs.coerce() {
-            fuzzed_transaction_sigs.insert(
-                rand::random::<SpendingKey>(),
-                (genesis_key, mint_sig.clone()),
-            );
+            fuzzed_transaction_sigs
+                .insert(rand::random::<SpendKey>(), (genesis_key, mint_sig.clone()));
         }
 
         let dbc = Dbc {

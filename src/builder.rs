@@ -6,7 +6,7 @@ use curve25519_dalek_ng::scalar::Scalar;
 
 use crate::{
     Amount, AmountSecrets, Dbc, DbcContent, Error, NodeSignature, PublicKey, ReissueShare,
-    ReissueTransaction, Result, SpendingKey,
+    ReissueTransaction, Result, SpendKey,
 };
 
 ///! Unblinded data for creating sn_dbc::DbcContent
@@ -46,8 +46,8 @@ impl TransactionBuilder {
         BTreeSet::from_iter(self.inputs.keys().map(Dbc::name))
     }
 
-    pub fn input_spending_keys(&self) -> BTreeSet<SpendingKey> {
-        BTreeSet::from_iter(self.inputs.keys().map(Dbc::spending_key))
+    pub fn input_spend_keys(&self) -> BTreeSet<SpendKey> {
+        BTreeSet::from_iter(self.inputs.keys().map(Dbc::spend_key))
     }
 
     pub fn inputs_amount_sum(&self) -> Amount {
@@ -59,7 +59,7 @@ impl TransactionBuilder {
     }
 
     pub fn build(self) -> Result<ReissueTransaction> {
-        let parents = BTreeSet::from_iter(self.inputs.keys().map(Dbc::spending_key));
+        let parents = BTreeSet::from_iter(self.inputs.keys().map(Dbc::spend_key));
         let inputs_bf_sum = self
             .inputs
             .values()
@@ -172,7 +172,7 @@ impl DbcBuilder {
 
             // Verify that each input has a NodeSignature
             for input in reissue_transaction.inputs.iter() {
-                if rs.mint_node_signatures.get(&input.spending_key()).is_none() {
+                if rs.mint_node_signatures.get(&input.spend_key()).is_none() {
                     return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
                 }
             }
@@ -212,7 +212,7 @@ impl DbcBuilder {
                     .iter()
                     .map(|input| {
                         (
-                            input.spending_key(),
+                            input.spend_key(),
                             (mint_public_key_set.public_key(), mint_sig.clone()),
                         )
                     })
