@@ -86,8 +86,8 @@ mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, Mint, OwnerKey, ReissueRequest,
-        SimpleKeyManager, SimpleSigner, SimpleSpendBook,
+        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, Mint, ReissueRequest, SimpleKeyManager,
+        SimpleSigner, SimpleSpendBook,
     };
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {

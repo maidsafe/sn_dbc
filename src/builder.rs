@@ -5,8 +5,8 @@ use std::iter::FromIterator;
 use curve25519_dalek_ng::scalar::Scalar;
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, Error, Hash, NodeSignature, PublicKey, ReissueShare,
-    ReissueTransaction, Result,
+    Amount, AmountSecrets, Dbc, DbcContent, Error, NodeSignature, PublicKey, ReissueShare,
+    ReissueTransaction, Result, SpendingKey,
 };
 
 ///! Unblinded data for creating sn_dbc::DbcContent
@@ -44,6 +44,10 @@ impl TransactionBuilder {
 
     pub fn input_owners(&self) -> BTreeSet<PublicKey> {
         BTreeSet::from_iter(self.inputs.keys().map(Dbc::name))
+    }
+
+    pub fn input_spending_keys(&self) -> BTreeSet<SpendingKey> {
+        BTreeSet::from_iter(self.inputs.keys().map(Dbc::spending_key))
     }
 
     pub fn inputs_amount_sum(&self) -> Amount {
