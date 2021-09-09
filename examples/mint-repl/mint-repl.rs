@@ -8,6 +8,7 @@
 // Software.
 
 //! Safe Network DBC Mint CLI playground.
+#![allow(clippy::from_iter_instead_of_collect)]
 
 use anyhow::{anyhow, Error, Result};
 use blsttc::poly::Poly;
