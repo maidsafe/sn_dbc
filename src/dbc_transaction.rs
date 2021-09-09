@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Hash, PublicKey};
+use crate::{Hash, PublicKey, SpendingKey};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use tiny_keccak::{Hasher, Sha3};
@@ -16,19 +16,19 @@ use tiny_keccak::{Hasher, Sha3};
 /// i.e. a Dbc can be stored anywhere, even offline.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct DbcTransaction {
-    pub inputs: BTreeSet<PublicKey>,
+    pub inputs: BTreeSet<SpendingKey>,
     pub outputs: BTreeSet<PublicKey>,
 }
 
 impl DbcTransaction {
-    pub fn new(inputs: BTreeSet<PublicKey>, outputs: BTreeSet<PublicKey>) -> Self {
+    pub fn new(inputs: BTreeSet<SpendingKey>, outputs: BTreeSet<PublicKey>) -> Self {
         Self { inputs, outputs }
     }
 
     pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
         for input in self.inputs.iter() {
-            sha3.update(&input.to_bytes());
+            sha3.update(&input.0.to_bytes());
         }
 
         for output in self.outputs.iter() {
@@ -53,24 +53,24 @@ mod tests {
     #[quickcheck]
     fn prop_hash_is_independent_of_order(inputs: Vec<u64>, outputs: Vec<u64>) {
         // This test is here to protect us in the case that someone swaps out the BTreeSet for inputs/outputs for something else
-        let input_hashes: Vec<PublicKey> = inputs
+        let input_keys: Vec<SpendingKey> = inputs
             .iter()
-            .map(|_| rand::random::<OwnerKey>().0)
+            .map(|_| rand::random::<SpendingKey>())
             .collect();
-        let output_hashes: Vec<PublicKey> = outputs
+        let output_keys: Vec<PublicKey> = outputs
             .iter()
             .map(|_| rand::random::<OwnerKey>().0)
             .collect();
 
         let forward_hash = DbcTransaction::new(
-            input_hashes.iter().cloned().collect(),
-            output_hashes.iter().cloned().collect(),
+            input_keys.iter().cloned().collect(),
+            output_keys.iter().cloned().collect(),
         )
         .hash();
 
         let reverse_hash = DbcTransaction::new(
-            input_hashes.into_iter().rev().collect(),
-            output_hashes.into_iter().rev().collect(),
+            input_keys.into_iter().rev().collect(),
+            output_keys.into_iter().rev().collect(),
         )
         .hash();
 

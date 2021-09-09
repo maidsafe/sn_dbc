@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tiny_keccak::{Hasher, Sha3};
 
-use crate::{Error, Hash};
+use crate::{Error, Hash, SpendingKey};
 
 pub(crate) const RANGE_PROOF_BITS: usize = 64; // note: Range Proof max-bits is 64. allowed are: 8, 16, 32, 64 (only)
                                                //       This limits our amount field to 64 bits also.
@@ -90,7 +90,7 @@ impl AmountSecrets {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
-    pub parents: BTreeSet<PublicKey>, // Parent DBC's, acts as a nonce
+    pub parents: BTreeSet<SpendingKey>, // Parent DBC's, acts as a nonce
     pub amount_secrets_cipher: Ciphertext,
     pub commitment: CompressedRistretto,
     pub range_proof_bytes: Vec<u8>, // RangeProof::to_bytes() -> (2 lg n + 9) 32-byte elements, where n is # of secret bits, or 64 in our case. Gives 21 32-byte elements.
@@ -101,7 +101,7 @@ pub struct DbcContent {
 impl DbcContent {
     // Create a new DbcContent for signing.
     pub fn new(
-        parents: BTreeSet<PublicKey>,
+        parents: BTreeSet<SpendingKey>,
         amount: Amount,
         owner: PublicKey,
         blinding_factor: Scalar,
@@ -144,7 +144,7 @@ impl DbcContent {
         let mut sha3 = Sha3::v256();
 
         for parent in self.parents.iter() {
-            sha3.update(&parent.to_bytes());
+            sha3.update(&parent.0.to_bytes());
         }
 
         sha3.update(&self.amount_secrets_cipher.to_bytes());
