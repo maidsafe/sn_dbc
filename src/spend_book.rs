@@ -5,6 +5,30 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
+
+// # SpendBook and Forced One-Time-Keys
+//
+// The SpendBook logs each spent DBC along with the reissue transaction it was spent in.
+// To reissue a DBC, the reissue transaction must be signed with a one-time-key called
+// the `Spend Key`.
+//
+// The Spend Key is calculated from the DBC owner by deriving a child key using the DBC hash
+// as the derivation index.
+//
+// ```
+// spend_key = dbc_owner_key.derive_child(dbc.hash())
+// ```
+//
+// The SpendBook is a mapping from a DBC's Spend Key to the reissue transaction that this DBC
+// was spent in.
+//
+// The mint does not have direct control over the dbc's owner and so we can not enforce globally
+// unique owners for each DBC that is minted. Instead we enforce globally unique spend keys by
+// choosing an unpredictable but deterministic index: the dbc hash.
+// Thus, the spend key derivation algorithm gives us a globally unique one-time-key that we
+// use to uniquely reference a DBC, as well as giving DBC owners a mechanism to prove ownership
+// of the DBC by demonstrating control of the spend key.
+
 use std::collections::BTreeMap;
 use std::{error, fmt};
 
