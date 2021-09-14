@@ -17,6 +17,7 @@ mod dbc_transaction;
 mod error;
 mod key_manager;
 mod mint;
+mod spend_book;
 
 pub use crate::{
     builder::{DbcBuilder, Output, TransactionBuilder},
@@ -30,8 +31,9 @@ pub use crate::{
     },
     mint::{
         genesis_dbc_input, Mint, MintNodeSignatures, ReissueRequest, ReissueShare,
-        ReissueTransaction, SimpleSpendBook, SpendBook,
+        ReissueTransaction,
     },
+    spend_book::{SimpleSpendBook, SpendBook, SpendKey},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -54,37 +56,6 @@ impl fmt::Debug for Hash {
 impl AsRef<[u8]> for Hash {
     fn as_ref(&self) -> &[u8] {
         &self.0
-    }
-}
-
-#[cfg(test)]
-use rand::distributions::{Distribution, Standard};
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct SpendKey(pub PublicKey);
-
-// Display Hash value as hex in Debug output.  consolidates 36 lines to 3 for pretty output
-// and the hex value is the same as sn_dbc_mint display of DBC IDs.
-impl fmt::Debug for SpendKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("SpendKey")
-            .field(&hex::encode(self.0.to_bytes()))
-            .finish()
-    }
-}
-
-#[cfg(test)]
-use rand::Rng;
-
-/// used when fuzzing DBC's in testing.
-#[cfg(test)]
-impl Distribution<SpendKey> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SpendKey {
-        SpendKey(
-            crate::genesis_dbc_input()
-                .0
-                .derive_child(&rng.gen::<[u8; 32]>()),
-        )
     }
 }
 
