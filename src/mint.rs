@@ -15,7 +15,7 @@
 
 use crate::{
     Amount, Dbc, DbcContent, DbcTransaction, Error, KeyManager, NodeSignature, PublicKey,
-    PublicKeySet, Result, SpendKey,
+    PublicKeySet, Result, SpendBook, SpendKey,
 };
 use curve25519_dalek_ng::ristretto::RistrettoPoint;
 use serde::{Deserialize, Serialize};
@@ -30,51 +30,6 @@ pub fn genesis_dbc_input() -> SpendKey {
     use blsttc::group::CurveProjective;
     let gen_bytes = blsttc::convert::g1_to_be_bytes(blsttc::G1::one());
     SpendKey(PublicKey::from_bytes(gen_bytes).unwrap())
-}
-
-/// The SpendBook logs all spent DBC's.
-pub trait SpendBook: std::fmt::Debug + Clone {
-    type Error: std::error::Error;
-
-    fn lookup(&self, spend_key: &SpendKey) -> Result<Option<&DbcTransaction>, Self::Error>;
-    fn log(&mut self, spend_key: SpendKey, transaction: DbcTransaction) -> Result<(), Self::Error>;
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct SimpleSpendBook {
-    pub transactions: BTreeMap<SpendKey, DbcTransaction>,
-}
-
-impl SpendBook for SimpleSpendBook {
-    type Error = std::convert::Infallible;
-
-    fn lookup(&self, spend_key: &SpendKey) -> Result<Option<&DbcTransaction>, Self::Error> {
-        Ok(self.transactions.get(spend_key))
-    }
-
-    fn log(&mut self, spend_key: SpendKey, transaction: DbcTransaction) -> Result<(), Self::Error> {
-        self.transactions.insert(spend_key, transaction);
-        Ok(())
-    }
-}
-
-impl IntoIterator for SimpleSpendBook {
-    type Item = (SpendKey, DbcTransaction);
-    type IntoIter = std::collections::btree_map::IntoIter<SpendKey, DbcTransaction>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.transactions.into_iter()
-    }
-}
-
-impl SimpleSpendBook {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn iter(&self) -> std::collections::btree_map::Iter<SpendKey, DbcTransaction> {
-        self.transactions.iter()
-    }
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
@@ -354,7 +309,7 @@ mod tests {
 
     use crate::{
         tests::{TinyInt, TinyVec},
-        DbcBuilder, DbcHelper, SimpleKeyManager, SimpleSigner,
+        DbcBuilder, DbcHelper, SimpleKeyManager, SimpleSigner, SimpleSpendBook,
     };
 
     #[quickcheck]
