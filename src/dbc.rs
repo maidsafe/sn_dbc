@@ -22,15 +22,18 @@ pub struct Dbc {
 }
 
 impl Dbc {
+    /// Derive the (public) spend key for this DBC.
     pub fn spend_key(&self) -> SpendKey {
         let index = self.spend_key_index();
         SpendKey(self.owner().derive_child(&index))
     }
 
+    /// Read the DBC owner
     pub fn owner(&self) -> PublicKey {
         self.content.owner
     }
 
+    /// Calculate the spend key index, this index is used to derive the spend key.
     pub fn spend_key_index(&self) -> [u8; 32] {
         let mut sha3 = Sha3::v256();
 

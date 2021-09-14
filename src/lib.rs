@@ -34,7 +34,6 @@ pub use crate::{
     },
 };
 
-/// These typdefs are to simplify algorithm for now and will be removed for production.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Hash([u8; 32]);
 

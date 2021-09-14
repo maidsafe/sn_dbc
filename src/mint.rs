@@ -32,6 +32,7 @@ pub fn genesis_dbc_input() -> SpendKey {
     SpendKey(PublicKey::from_bytes(gen_bytes).unwrap())
 }
 
+/// The SpendBook logs all spent DBC's.
 pub trait SpendBook: std::fmt::Debug + Clone {
     type Error: std::error::Error;
 
