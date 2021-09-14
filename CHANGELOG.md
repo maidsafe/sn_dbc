@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.6.0](https://github.com/maidsafe/sn_dbc/compare/v2.5.0...v2.6.0) (2021-09-14)
+
+
+### Features
+
+* **forced-one-time-keys:** dbc name is the owner ([0b4e9ef](https://github.com/maidsafe/sn_dbc/commit/0b4e9efef238ad5014f66211d99136f9e9ff8356))
+* **forced-one-time-keys:** derive spending key from dbc hash ([1e1fbd1](https://github.com/maidsafe/sn_dbc/commit/1e1fbd168b57bed7515e5db93cc5148e2955dd3d))
+* **forced-one-time-keys:** mint-repl works with dbc name change ([6ba078b](https://github.com/maidsafe/sn_dbc/commit/6ba078bb87cfff95428d15a2a65ec1a87d2a449f))
+* **forced-one-time-keys:** remove blinded owner ([987b65e](https://github.com/maidsafe/sn_dbc/commit/987b65e8fb308d85c3d3c1e9430d6ede01af1313))
+* **forced-one-time-keys:** update benchmarks ([1ea8cd3](https://github.com/maidsafe/sn_dbc/commit/1ea8cd3a0d17ca60443d23af8372deefe52fc37b))
+* **forced-one-time-keys:** update mint-repl & benchmarks ([c8ae2e1](https://github.com/maidsafe/sn_dbc/commit/c8ae2e1edbd8d5a8d25657cfa3266e6774846ec0))
+* **mint-repl:** more robust input handling ([51e9e43](https://github.com/maidsafe/sn_dbc/commit/51e9e43cd3ba078c4b70742dd31eb27ea7e7fd4e))
+
 ## [2.5.0](https://github.com/maidsafe/sn_dbc/compare/v2.4.2...v2.5.0) (2021-09-07)
 
 
