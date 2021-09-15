@@ -81,15 +81,15 @@ impl Dbc {
 mod tests {
     use super::*;
 
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::BTreeSet;
     use std::iter::FromIterator;
 
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, Mint, ReissueRequest, SimpleKeyManager,
-        SimpleSigner, SimpleSpendBook,
+        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, Mint, ReissueRequest,
+        ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SimpleSpendBook,
     };
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
@@ -120,22 +120,15 @@ mod tests {
             )
             .build()?;
 
-        let sig_share = dbc_owner
-            .secret_key_share
-            .derive_child(&dbc.spend_key_index())
-            .sign(&reissue_tx.blinded().hash());
+        let rr = ReissueRequestBuilder::new(reissue_tx)
+            .add_dbc_signer(
+                dbc.spend_key(),
+                dbc_owner.public_key_set.clone(),
+                (dbc_owner.index, dbc_owner.secret_key_share.clone()),
+            )
+            .build()?;
 
-        let sig = dbc_owner
-            .public_key_set
-            .combine_signatures(vec![(dbc_owner.index, &sig_share)])
-            .unwrap();
-
-        let request = ReissueRequest {
-            transaction: reissue_tx,
-            input_ownership_proofs: HashMap::from_iter([(dbc.spend_key(), sig)]),
-        };
-
-        Ok(request)
+        Ok(rr)
     }
 
     #[test]
@@ -244,35 +237,21 @@ mod tests {
             })
             .build()?;
 
-        let input_ownership_proofs = HashMap::from_iter(reissue_tx.inputs.iter().map(|input| {
-            let sig_share = input_owner
-                .secret_key_share
-                .derive_child(&input.spend_key_index())
-                .sign(&reissue_tx.blinded().hash());
+        let mut rr_builder = ReissueRequestBuilder::new(reissue_tx.clone());
+        for input in reissue_tx.inputs.iter() {
+            rr_builder = rr_builder.add_dbc_signer(
+                input.spend_key(),
+                input_owner.public_key_set.clone(),
+                (input_owner.index, input_owner.secret_key_share.clone()),
+            );
+        }
 
-            let sig = input_owner
-                .public_key_set
-                .combine_signatures(vec![(input_owner.index, &sig_share)])
-                .unwrap();
-
-            (input.spend_key(), sig)
-        }));
-
-        let reissue_request = ReissueRequest {
-            transaction: reissue_tx,
-            input_ownership_proofs,
-        };
+        let rr = rr_builder.build()?;
 
         let reissue_share = genesis_node
-            .reissue(
-                reissue_request.clone(),
-                reissue_request.transaction.blinded().inputs,
-            )
+            .reissue(rr.clone(), rr.transaction.blinded().inputs)
             .unwrap();
-        assert_eq!(
-            reissue_request.transaction.blinded(),
-            reissue_share.dbc_transaction
-        );
+        assert_eq!(rr.transaction.blinded(), reissue_share.dbc_transaction);
 
         let (mint_key_set, mint_sig_share) =
             reissue_share.mint_node_signatures.values().next().unwrap();
@@ -313,7 +292,7 @@ mod tests {
                 .take(n_valid_sigs.coerce())
                 .map(|in_owner| (*in_owner, (genesis_key, mint_sig.clone()))),
         );
-        let mut repeating_inputs = reissue_request
+        let mut repeating_inputs = rr
             .transaction
             .inputs
             .iter()
