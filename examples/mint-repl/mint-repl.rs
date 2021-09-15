@@ -1070,8 +1070,7 @@ fn reissue_exec(
     input_owners: &BTreeSet<SpendKey>,
     output_pk_pks: &HashMap<PublicKey, PublicKeySet>,
 ) -> Result<()> {
-    let mut dbc_builder: DbcBuilder = Default::default();
-    dbc_builder = dbc_builder.set_reissue_transaction(reissue_request.transaction.clone());
+    let mut dbc_builder = DbcBuilder::new(reissue_request.transaction.clone());
 
     // Mint is multi-node.  So each mint node must execute Mint::reissue() and
     // provide its SignatureShare, which the client must then combine together

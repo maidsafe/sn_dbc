@@ -1,10 +1,10 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::iter::FromIterator;
 
 use sn_dbc::{
-    bls_dkg_id, Amount, AmountSecrets, Dbc, DbcContent, Error, Mint, ReissueRequest,
+    bls_dkg_id, Amount, AmountSecrets, Dbc, DbcContent, Error, Mint, ReissueRequestBuilder,
     SimpleKeyManager, SimpleSigner, SimpleSpendBook,
 };
 
@@ -77,20 +77,14 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    let sig_share = genesis_owner
-        .secret_key_share
-        .derive_child(&genesis_dbc.spend_key_index())
-        .sign(&reissue_tx.blinded().hash());
-
-    let sig = genesis_owner
-        .public_key_set
-        .combine_signatures(vec![(0, &sig_share)])
+    let rr = ReissueRequestBuilder::new(reissue_tx)
+        .add_dbc_signer(
+            genesis_dbc.spend_key(),
+            genesis_owner.public_key_set.clone(),
+            (genesis_owner.index, genesis_owner.secret_key_share),
+        )
+        .build()
         .unwrap();
-
-    let reissue = ReissueRequest {
-        transaction: reissue_tx,
-        input_ownership_proofs: HashMap::from_iter([(genesis_dbc.spend_key(), sig)]),
-    };
 
     let spendbook = genesis.snapshot_spendbook();
     c.bench_function(&format!("reissue split 1 to {}", n_outputs), |b| {
@@ -98,7 +92,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
             genesis.reset_spendbook(spendbook.clone());
             genesis
                 .reissue(
-                    black_box(reissue.clone()),
+                    black_box(rr.clone()),
                     black_box(BTreeSet::from_iter([genesis_dbc.spend_key()])),
                 )
                 .unwrap();
@@ -132,28 +126,17 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         (out_dbc.owner, owner)
     }));
 
-    let sig_share = genesis_owner
-        .secret_key_share
-        .derive_child(&genesis_dbc.spend_key_index())
-        .sign(&reissue_tx.blinded().hash());
-
-    let sig = genesis_owner
-        .public_key_set
-        .combine_signatures(vec![(0, &sig_share)])
+    let rr = ReissueRequestBuilder::new(reissue_tx)
+        .add_dbc_signer(
+            genesis_dbc.spend_key(),
+            genesis_owner.public_key_set.clone(),
+            (genesis_owner.index, genesis_owner.secret_key_share),
+        )
+        .build()
         .unwrap();
 
-    let input_ownership_proofs = HashMap::from_iter([(genesis_dbc.spend_key(), sig)]);
-
-    let reissue = ReissueRequest {
-        transaction: reissue_tx,
-        input_ownership_proofs,
-    };
-
     let reissue_share = genesis
-        .reissue(
-            reissue.clone(),
-            BTreeSet::from_iter([genesis_dbc.spend_key()]),
-        )
+        .reissue(rr.clone(), BTreeSet::from_iter([genesis_dbc.spend_key()]))
         .unwrap();
 
     let (mint_key_set, mint_sig_share) = reissue_share
@@ -168,7 +151,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .combine_signatures(vec![mint_sig_share.threshold_crypto()])
         .unwrap();
 
-    let dbcs = Vec::from_iter(reissue.transaction.outputs.into_iter().map(|content| Dbc {
+    let dbcs = Vec::from_iter(rr.transaction.outputs.into_iter().map(|content| Dbc {
         content,
         transaction: reissue_share.dbc_transaction.clone(),
         transaction_sigs: BTreeMap::from_iter([(
@@ -191,31 +174,26 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    let input_ownership_proofs = HashMap::from_iter(dbcs.iter().map(|dbc| {
-        let owner = &dbc_owners[&dbc.owner()];
-        let sig_share = owner
-            .secret_key_share
-            .derive_child(&dbc.spend_key_index())
-            .sign(merge_tx.blinded().hash());
-        let sig = owner
-            .public_key_set
-            .combine_signatures(vec![(0, &sig_share)])
-            .unwrap();
-        (dbc.spend_key(), sig)
-    }));
+    let mut rr_builder = ReissueRequestBuilder::new(merge_tx);
 
-    let merge_reissue = ReissueRequest {
-        transaction: merge_tx,
-        input_ownership_proofs,
-    };
-    let inputs = merge_reissue.transaction.blinded().inputs;
+    for dbc in dbcs.iter() {
+        let owner = &dbc_owners[&dbc.owner()];
+        rr_builder = rr_builder.add_dbc_signer(
+            dbc.spend_key(),
+            owner.public_key_set.clone(),
+            (owner.index, owner.secret_key_share.clone()),
+        );
+    }
+
+    let merge_rr = rr_builder.build().unwrap();
+    let inputs = merge_rr.transaction.blinded().inputs;
 
     let spendbook = genesis.snapshot_spendbook();
     c.bench_function(&format!("reissue merge {} to 1", n_outputs), |b| {
         b.iter(|| {
             genesis.reset_spendbook(spendbook.clone());
             genesis
-                .reissue(black_box(merge_reissue.clone()), black_box(inputs.clone()))
+                .reissue(black_box(merge_rr.clone()), black_box(inputs.clone()))
                 .unwrap();
         })
     });
