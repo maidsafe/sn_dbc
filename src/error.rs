@@ -40,9 +40,9 @@ pub enum Error {
     DbcReissueRequestDoesNotBalance,
     #[error("Failed to unblind an input DBC")]
     FailedUnblinding,
-    #[error("DBC already spent in transaction: {dbc_transaction:?}")]
+    #[error("DBC already spent in transaction: {transaction:?}")]
     DbcAlreadySpent {
-        dbc_transaction: crate::DbcTransaction,
+        transaction: crate::DbcTransaction,
         public_key_set: crate::PublicKeySet,
         // fixme: this should be full Signature(s) from Spendbook, ie SignedEnvelope
         signed_envelope_shares: Vec<blsbs::SignedEnvelopeShare>,

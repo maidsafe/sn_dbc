@@ -33,7 +33,7 @@ pub fn genesis_dbc_input() -> SpendKey {
 #[derive(Debug, Clone)]
 pub struct GenesisDbcShare {
     pub dbc_content: DbcContent,
-    pub dbc_transaction: DbcTransaction,
+    pub transaction: DbcTransaction,
     pub slip_preparer: SlipPreparer,
     pub public_key_set: PublicKeySet,
     pub signed_envelope_share: SignedEnvelopeShare,
@@ -110,7 +110,7 @@ pub struct ReissueRequest {
 
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct ReissueShare {
-    pub dbc_transaction: DbcTransaction,
+    pub transaction: DbcTransaction,
     pub signed_envelope_shares: Vec<SignedEnvelopeShare>, // fixme: Vec does not guarantee uniqueness.
     pub public_key_set: PublicKeySet,
 }
@@ -148,7 +148,7 @@ impl<K: KeyManager, S: SpendBook> MintNode<K, S> {
             denomination: dbc_content.denomination(),
         };
 
-        let dbc_transaction = DbcTransaction {
+        let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter([genesis_dbc_input()]),
             outputs: HashSet::from_iter([dbc_envelope.clone()]),
         };
@@ -158,12 +158,12 @@ impl<K: KeyManager, S: SpendBook> MintNode<K, S> {
             .lookup(&genesis_dbc_input())
             .map_err(|e| Error::SpendBook(e.to_string()))?
         {
-            Some(tx) if tx != &dbc_transaction => return Err(Error::GenesisInputAlreadySpent),
+            Some(tx) if tx != &transaction => return Err(Error::GenesisInputAlreadySpent),
             _ => (),
         }
 
         self.spendbook
-            .log(genesis_dbc_input(), dbc_transaction.clone())
+            .log(genesis_dbc_input(), transaction.clone())
             .map_err(|e| Error::SpendBook(e.to_string()))?;
 
         let signed_envelope_share = self.sign_output_envelope(dbc_envelope)?;
@@ -175,7 +175,7 @@ impl<K: KeyManager, S: SpendBook> MintNode<K, S> {
 
         Ok(GenesisDbcShare {
             dbc_content,
-            dbc_transaction,
+            transaction,
             slip_preparer,
             public_key_set,
             signed_envelope_share,
@@ -201,9 +201,9 @@ impl<K: KeyManager, S: SpendBook> MintNode<K, S> {
     ) -> Result<ReissueShare> {
         // See notes in ReissueTransaction::validate()
         reissue_req.transaction.validate(self.key_manager())?;
-        let dbc_transaction = reissue_req.transaction.blinded();
+        let transaction = reissue_req.transaction.blinded();
 
-        if !inputs_belonging_to_mint.is_subset(&dbc_transaction.inputs) {
+        if !inputs_belonging_to_mint.is_subset(&transaction.inputs) {
             // fixme:  better error name?
             return Err(Error::FilteredInputNotPresent);
         }
@@ -225,7 +225,7 @@ impl<K: KeyManager, S: SpendBook> MintNode<K, S> {
 
         // Validate that each input has not yet been spent.
         for input in inputs_belonging_to_mint.iter() {
-            if let Some(dbc_transaction) = self
+            if let Some(transaction) = self
                 .spendbook
                 .lookup(input)
                 .map_err(|e| Error::SpendBook(e.to_string()))?
@@ -235,16 +235,16 @@ impl<K: KeyManager, S: SpendBook> MintNode<K, S> {
                 // fixme:  shouldn't we already have full mint sig from the spendbook?
                 //         we shouldn't need to sign again with a sigshare.
                 let signed_envelope_shares =
-                    self.sign_output_envelopes(dbc_transaction.outputs.clone())?;
+                    self.sign_output_envelopes(transaction.outputs.clone())?;
                 return Err(Error::DbcAlreadySpent {
-                    dbc_transaction,
+                    transaction,
                     public_key_set,
                     signed_envelope_shares,
                 });
             }
         }
 
-        let signed_envelope_shares = self.sign_output_envelopes(dbc_transaction.outputs.clone())?;
+        let signed_envelope_shares = self.sign_output_envelopes(transaction.outputs.clone())?;
 
         for input in reissue_req
             .transaction
@@ -255,12 +255,12 @@ impl<K: KeyManager, S: SpendBook> MintNode<K, S> {
             // fixme: It seems wasteful to log entire tx for each DBC.  I think it should only
             // be recording that the DBC itself is spent.
             self.spendbook
-                .log(input.spend_key(), dbc_transaction.clone())
+                .log(input.spend_key(), transaction.clone())
                 .map_err(|e| Error::SpendBook(e.to_string()))?;
         }
 
         let reissue_share = ReissueShare {
-            dbc_transaction,
+            transaction,
             signed_envelope_shares,
             public_key_set,
         };
@@ -676,7 +676,7 @@ mod tests {
 
             let reissue_share =
                 genesis_node.reissue(reissue_req, BTreeSet::from_iter([gen_dbc_name]))?;
-            let t = reissue_share.dbc_transaction;
+            let t = reissue_share.transaction;
             let s = reissue_share.mint_node_signatures;
 
             let (double_spend_reissue_tx, _output_owners) = crate::TransactionBuilder::default()

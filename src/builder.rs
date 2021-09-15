@@ -326,7 +326,7 @@ impl DbcBuilder {
             pk_set = &pk_set | &pub_key_sets; // union the sets together.
 
             // Verify transaction returned to us by the Mint matches our request
-            if self.reissue_transaction.blinded() != rs.dbc_transaction {
+            if self.reissue_transaction.blinded() != rs.transaction {
                 return Err(Error::ReissueShareDbcTransactionMismatch);
             }
 
