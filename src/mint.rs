@@ -103,7 +103,7 @@ impl ReissueTransaction {
 
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct ReissueShare {
-    pub transaction: DbcTransaction,
+    pub dbc_transaction: DbcTransaction,
     pub signed_envelope_shares: Vec<SignedEnvelopeShare>, // fixme: Vec does not guarantee uniqueness.
     pub public_key_set: PublicKeySet,
 }
@@ -199,7 +199,7 @@ impl<K: KeyManager, S: SpendBookVerifier> MintNode<K, S> {
             .map_err(|e| Error::Signing(e.to_string()))?;
 
         let reissue_share = ReissueShare {
-            transaction: tx_blinded,
+            dbc_transaction: tx_blinded,
             signed_envelope_shares,
             public_key_set,
         };
