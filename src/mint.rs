@@ -383,7 +383,7 @@ mod tests {
         let output_owner_pk = output_owner.public_key_set.public_key();
 
         let reissue_tx = crate::TransactionBuilder::default()
-            .add_input(genesis_dbc.clone(), genesis_amount_secrets)
+            .add_input(genesis_dbc, genesis_amount_secrets)
             .add_outputs(output_amounts.iter().map(|a| crate::Output {
                 amount: *a,
                 owner: output_owner_pk,
@@ -394,8 +394,7 @@ mod tests {
             .add_dbc_signer(
                 gen_dbc_spend_key,
                 genesis_owner.public_key_set,
-                genesis_owner.index,
-                genesis_owner.secret_key_share,
+                (genesis_owner.index, genesis_owner.secret_key_share),
             )
             .build()?;
 
@@ -474,8 +473,7 @@ mod tests {
             .add_dbc_signer(
                 gen_dbc_spend_key,
                 genesis_owner.public_key_set,
-                genesis_owner.index,
-                genesis_owner.secret_key_share,
+                (genesis_owner.index, genesis_owner.secret_key_share),
             )
             .build()?;
 

@@ -71,9 +71,6 @@ pub enum Error {
     #[error("No reissue shares")]
     NoReissueShares,
 
-    #[error("No reissue transaction")]
-    NoReissueTransaction,
-
     #[error("RangeProof error: {0}")]
     RangeProof(#[from] bulletproofs::ProofError),
 

@@ -97,9 +97,9 @@ impl TransactionBuilder {
 
 /// Builds a ReissueRequest from a ReissueTransaction and
 /// any number of (input) DBC hashes with associated ownership share(s).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ReissueRequestBuilder {
-    pub reissue_transaction: Option<ReissueTransaction>,
+    pub reissue_transaction: ReissueTransaction,
     #[allow(clippy::type_complexity)]
     pub signers_by_dbc: HashMap<SpendKey, BTreeMap<PublicKeySet, (Fr, SecretKeyShare)>>,
 }
@@ -108,15 +108,9 @@ impl ReissueRequestBuilder {
     /// Create a new ReissueRequestBuilder from a ReissueTransaction
     pub fn new(reissue_transaction: ReissueTransaction) -> Self {
         Self {
-            reissue_transaction: Some(reissue_transaction),
+            reissue_transaction,
             signers_by_dbc: Default::default(),
         }
-    }
-
-    /// Set the ReissueTransaction
-    pub fn set_reissue_transaction(mut self, reissue_transaction: ReissueTransaction) -> Self {
-        self.reissue_transaction = Some(reissue_transaction);
-        self
     }
 
     /// Add a single signer share for a DBC hash
@@ -124,11 +118,13 @@ impl ReissueRequestBuilder {
         mut self,
         dbc_key: SpendKey,
         public_key_set: PublicKeySet,
-        share_index: FR,
-        secret_key_share: SecretKeyShare,
+        secret_key_share: (FR, SecretKeyShare),
     ) -> Self {
         let entry = self.signers_by_dbc.entry(dbc_key).or_default();
-        entry.insert(public_key_set, (share_index.into_fr(), secret_key_share));
+        entry.insert(
+            public_key_set,
+            (secret_key_share.0.into_fr(), secret_key_share.1),
+        );
         self
     }
 
@@ -158,15 +154,11 @@ impl ReissueRequestBuilder {
     /// creating the ownership proofs necessary to construct
     /// a ReissueRequest.
     pub fn build(self) -> Result<ReissueRequest> {
-        let transaction = match self.reissue_transaction {
-            Some(rt) => rt,
-            None => return Err(Error::NoReissueTransaction),
-        };
-
         let mut input_ownership_proofs: HashMap<SpendKey, Signature> = Default::default();
 
         for (dbc_key, signers) in self.signers_by_dbc.iter() {
-            let dbc = transaction
+            let dbc = self
+                .reissue_transaction
                 .inputs
                 .iter()
                 .find(|dbc| &dbc.spend_key() == dbc_key)
@@ -186,7 +178,7 @@ impl ReissueRequestBuilder {
                 .map(|s| {
                     let idx = s.1 .0;
                     let sks = &s.1 .1.derive_child(&dbc.spend_key_index());
-                    let sig_share = sks.sign(transaction.blinded().hash());
+                    let sig_share = sks.sign(self.reissue_transaction.blinded().hash());
                     (idx, sig_share)
                 })
                 .collect();
@@ -201,7 +193,7 @@ impl ReissueRequestBuilder {
         }
 
         let rr = ReissueRequest {
-            transaction,
+            transaction: self.reissue_transaction,
             input_ownership_proofs,
         };
         Ok(rr)
@@ -211,9 +203,9 @@ impl ReissueRequestBuilder {
 /// A Builder for aggregating ReissueShare (Mint::reissue() results)
 /// from multiple mint nodes and combining signatures to
 /// generate the final Dbc outputs.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct DbcBuilder {
-    pub reissue_transaction: Option<ReissueTransaction>,
+    pub reissue_transaction: ReissueTransaction,
     pub reissue_shares: Vec<ReissueShare>,
 }
 
@@ -221,7 +213,7 @@ impl DbcBuilder {
     /// Create a new DbcBuilder from a ReissueTransaction
     pub fn new(reissue_transaction: ReissueTransaction) -> Self {
         Self {
-            reissue_transaction: Some(reissue_transaction),
+            reissue_transaction,
             reissue_shares: Default::default(),
         }
     }
@@ -238,22 +230,11 @@ impl DbcBuilder {
         self
     }
 
-    /// Set the ReissueTransaction
-    pub fn set_reissue_transaction(mut self, reissue_transaction: ReissueTransaction) -> Self {
-        self.reissue_transaction = Some(reissue_transaction);
-        self
-    }
-
     /// Build the output DBCs
     pub fn build(self) -> Result<Vec<Dbc>> {
         if self.reissue_shares.is_empty() {
             return Err(Error::NoReissueShares);
         }
-
-        let reissue_transaction = match self.reissue_transaction {
-            Some(rt) => rt,
-            None => return Err(Error::NoReissueTransaction),
-        };
 
         let mut mint_sig_shares: Vec<NodeSignature> = Default::default();
         let mut pk_set: HashSet<PublicKeySet> = Default::default();
@@ -277,17 +258,17 @@ impl DbcBuilder {
             pk_set = &pk_set | &pub_key_sets; // union the sets together.
 
             // Verify transaction returned to us by the Mint matches our request
-            if reissue_transaction.blinded() != rs.dbc_transaction {
+            if self.reissue_transaction.blinded() != rs.dbc_transaction {
                 return Err(Error::ReissueShareDbcTransactionMismatch);
             }
 
             // Verify that mint sig count matches input count.
-            if rs.mint_node_signatures.len() != reissue_transaction.inputs.len() {
+            if rs.mint_node_signatures.len() != self.reissue_transaction.inputs.len() {
                 return Err(Error::ReissueShareMintNodeSignaturesLenMismatch);
             }
 
             // Verify that each input has a NodeSignature
-            for input in reissue_transaction.inputs.iter() {
+            for input in self.reissue_transaction.inputs.iter() {
                 if rs.mint_node_signatures.get(&input.spend_key()).is_none() {
                     return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
                 }
@@ -317,13 +298,15 @@ impl DbcBuilder {
         let mint_sig = mint_public_key_set.combine_signatures(mint_sig_shares_ref)?;
 
         // Form the final output DBCs, with Mint's Signature for each.
-        let mut output_dbcs: Vec<Dbc> = reissue_transaction
+        let mut output_dbcs: Vec<Dbc> = self
+            .reissue_transaction
             .outputs
             .iter()
             .map(|content| Dbc {
                 content: content.clone(),
                 transaction: dbc_transaction.clone(),
-                transaction_sigs: reissue_transaction
+                transaction_sigs: self
+                    .reissue_transaction
                     .inputs
                     .iter()
                     .map(|input| {
