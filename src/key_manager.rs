@@ -124,7 +124,6 @@ impl KeyManager for SimpleKeyManager {
         self.signer.sign_envelope(envelope, denomination)
     }
 
-    #[allow(clippy::ptr_arg)]
     fn verify_slip(
         &self,
         slip: &Slip,
@@ -174,8 +173,7 @@ impl Keys {
         sig: &Signature,
     ) -> Result<()> {
         self.verify_known_key(key, derive_idx)?;
-        let is_verified = SignatureExaminer::verify_signature_on_slip(slip, sig, key);
-        if is_verified {
+        if SignatureExaminer::verify_signature_on_slip(slip, sig, key) {
             Ok(())
         } else {
             Err(Error::FailedMintSignature)

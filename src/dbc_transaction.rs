@@ -60,7 +60,7 @@ impl DbcEnvelope {
 /// The spent identifier of the outputs created from this input
 /// Note these are hashes and not identifiers as the Dbc is not addressable on the network.
 /// i.e. a Dbc can be stored anywhere, even offline.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct DbcTransaction {
     pub inputs: BTreeSet<SpendKey>,
     pub outputs: HashSet<DbcEnvelope>,
@@ -78,8 +78,7 @@ impl DbcTransaction {
         }
 
         for output in self.outputs.iter() {
-            let bytes = output.clone().to_bytes();
-            sha3.update(&bytes);
+            sha3.update(&output.to_bytes());
         }
 
         let mut hash = [0; 32];
