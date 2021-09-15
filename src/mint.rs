@@ -33,7 +33,7 @@ pub fn genesis_dbc_input() -> SpendKey {
 #[derive(Debug, Clone)]
 pub struct GenesisDbcShare {
     pub dbc_content: DbcContent,
-    pub dbc_transaction: DbcTransaction,
+    pub transaction: DbcTransaction,
     pub slip_preparer: SlipPreparer,
     pub public_key_set: PublicKeySet,
     pub signed_envelope_share: SignedEnvelopeShare,
@@ -103,7 +103,7 @@ impl ReissueTransaction {
 
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct ReissueShare {
-    pub dbc_transaction: DbcTransaction,
+    pub transaction: DbcTransaction,
     pub signed_envelope_shares: Vec<SignedEnvelopeShare>, // fixme: Vec does not guarantee uniqueness.
     pub public_key_set: PublicKeySet,
 }
@@ -142,7 +142,7 @@ impl<K: KeyManager, S: SpendBookVerifier> MintNode<K, S> {
             denomination: dbc_content.denomination(),
         };
 
-        let dbc_transaction = DbcTransaction {
+        let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter([genesis_dbc_input()]),
             outputs: HashSet::from_iter([dbc_envelope.clone()]),
         };
@@ -156,7 +156,7 @@ impl<K: KeyManager, S: SpendBookVerifier> MintNode<K, S> {
 
         Ok(GenesisDbcShare {
             dbc_content,
-            dbc_transaction,
+            transaction,
             slip_preparer,
             public_key_set,
             signed_envelope_share,
@@ -199,7 +199,7 @@ impl<K: KeyManager, S: SpendBookVerifier> MintNode<K, S> {
             .map_err(|e| Error::Signing(e.to_string()))?;
 
         let reissue_share = ReissueShare {
-            dbc_transaction: tx_blinded,
+            transaction: tx_blinded,
             signed_envelope_shares,
             public_key_set,
         };
@@ -601,7 +601,7 @@ mod tests {
 
             let reissue_share =
                 genesis_node.reissue(reissue_req, BTreeSet::from_iter([gen_dbc_name]))?;
-            let t = reissue_share.dbc_transaction;
+            let t = reissue_share.transaction;
             let s = reissue_share.mint_node_signatures;
 
             let (double_spend_reissue_tx, _output_owners) = crate::TransactionBuilder::default()
