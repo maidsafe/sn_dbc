@@ -110,7 +110,7 @@ pub struct ReissueRequest {
 
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct ReissueShare {
-    pub transaction: DbcTransaction,
+    pub dbc_transaction: DbcTransaction,
     pub signed_envelope_shares: Vec<SignedEnvelopeShare>, // fixme: Vec does not guarantee uniqueness.
     pub public_key_set: PublicKeySet,
 }
@@ -260,7 +260,7 @@ impl<K: KeyManager, S: SpendBook> MintNode<K, S> {
         }
 
         let reissue_share = ReissueShare {
-            transaction,
+            dbc_transaction: transaction,
             signed_envelope_shares,
             public_key_set,
         };
