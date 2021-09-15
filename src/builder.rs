@@ -97,11 +97,11 @@ impl TransactionBuilder {
 
 /// Builds a ReissueRequest from a ReissueTransaction and
 /// any number of (input) DBC hashes with associated ownership share(s).
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ReissueRequestBuilder {
     pub reissue_transaction: Option<ReissueTransaction>,
     #[allow(clippy::type_complexity)]
-    pub signers_by_dbc: HashMap<SpendKey, Vec<(PublicKeySet, (Fr, SecretKeyShare))>>,
+    pub signers_by_dbc: HashMap<SpendKey, BTreeMap<PublicKeySet, (Fr, SecretKeyShare)>>,
 }
 
 impl ReissueRequestBuilder {
@@ -127,8 +127,8 @@ impl ReissueRequestBuilder {
         share_index: FR,
         secret_key_share: SecretKeyShare,
     ) -> Self {
-        let entry = self.signers_by_dbc.entry(dbc_key).or_insert_with(Vec::new);
-        entry.push((public_key_set, (share_index.into_fr(), secret_key_share)));
+        let entry = self.signers_by_dbc.entry(dbc_key).or_default();
+        entry.insert(public_key_set, (share_index.into_fr(), secret_key_share));
         self
     }
 
@@ -139,11 +139,18 @@ impl ReissueRequestBuilder {
         public_key_set: PublicKeySet,
         secret_key_shares: Vec<(FR, SecretKeyShare)>,
     ) -> Self {
-        let entry = self.signers_by_dbc.entry(dbc_key).or_insert_with(Vec::new);
+        let entry = self.signers_by_dbc.entry(dbc_key).or_default();
         for (idx, secret_key_share) in secret_key_shares.into_iter() {
-            entry.push((public_key_set.clone(), (idx.into_fr(), secret_key_share)));
+            entry.insert(public_key_set.clone(), (idx.into_fr(), secret_key_share));
         }
         self
+    }
+
+    pub fn num_signers_by_dbc(&self, dbc_key: SpendKey) -> usize {
+        self.signers_by_dbc
+            .get(&dbc_key)
+            .map(BTreeMap::len)
+            .unwrap_or(0)
     }
 
     /// Aggregates SecretKeyShares for all DBC owners in a ReissueTransaction
@@ -204,7 +211,7 @@ impl ReissueRequestBuilder {
 /// A Builder for aggregating ReissueShare (Mint::reissue() results)
 /// from multiple mint nodes and combining signatures to
 /// generate the final Dbc outputs.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct DbcBuilder {
     pub reissue_transaction: Option<ReissueTransaction>,
     pub reissue_shares: Vec<ReissueShare>,
@@ -225,6 +232,12 @@ impl DbcBuilder {
         self
     }
 
+    /// Add multiple ReissueShare from Mint::reissue()
+    pub fn add_reissue_shares(mut self, shares: impl IntoIterator<Item = ReissueShare>) -> Self {
+        self.reissue_shares.extend(shares);
+        self
+    }
+
     /// Set the ReissueTransaction
     pub fn set_reissue_transaction(mut self, reissue_transaction: ReissueTransaction) -> Self {
         self.reissue_transaction = Some(reissue_transaction);
@@ -232,9 +245,6 @@ impl DbcBuilder {
     }
 
     /// Build the output DBCs
-    ///
-    /// Note that the result Vec may be empty if the ReissueTransaction
-    /// has not been set or no ReissueShare has been added.
     pub fn build(self) -> Result<Vec<Dbc>> {
         if self.reissue_shares.is_empty() {
             return Err(Error::NoReissueShares);
