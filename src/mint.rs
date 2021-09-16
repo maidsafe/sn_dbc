@@ -32,6 +32,14 @@ pub fn genesis_dbc_input() -> SpendKey {
     SpendKey(PublicKey::from_bytes(gen_bytes).unwrap())
 }
 
+#[derive(Debug, Clone)]
+pub struct GenesisDbcShare {
+    pub dbc_content: DbcContent,
+    pub transaction: DbcTransaction,
+    pub public_key_set: PublicKeySet,
+    pub transaction_sig: NodeSignature,
+}
+
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct ReissueTransaction {
     pub inputs: HashSet<Dbc>,
@@ -151,12 +159,9 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
         }
     }
 
-    pub fn issue_genesis_dbc(
-        &mut self,
-        amount: Amount,
-    ) -> Result<(DbcContent, DbcTransaction, (PublicKeySet, NodeSignature))> {
+    pub fn issue_genesis_dbc(&mut self, amount: Amount) -> Result<GenesisDbcShare> {
         let parents = BTreeSet::from_iter([genesis_dbc_input()]);
-        let content = DbcContent::new(
+        let dbc_content = DbcContent::new(
             parents,
             amount,
             self.key_manager
@@ -167,7 +172,7 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
         )?;
         let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter([genesis_dbc_input()]),
-            outputs: BTreeSet::from_iter([content.owner]),
+            outputs: BTreeSet::from_iter([dbc_content.owner]),
         };
 
         match self
@@ -187,16 +192,15 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
             .sign(&transaction.hash())
             .map_err(|e| Error::Signing(e.to_string()))?;
 
-        Ok((
-            content,
+        Ok(GenesisDbcShare {
+            dbc_content,
             transaction,
-            (
-                self.key_manager
-                    .public_key_set()
-                    .map_err(|e| Error::Signing(e.to_string()))?,
-                transaction_sig,
-            ),
-        ))
+            public_key_set: self
+                .key_manager
+                .public_key_set()
+                .map_err(|e| Error::Signing(e.to_string()))?,
+            transaction_sig,
+        })
     }
 
     pub fn is_spent(&self, spend_key: SpendKey) -> Result<bool> {
@@ -324,16 +328,16 @@ mod tests {
         );
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
-        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(1000).unwrap();
+        let genesis = genesis_node.issue_genesis_dbc(1000).unwrap();
 
-        let genesis_sig = gen_key_set
-            .combine_signatures(vec![gen_node_sig.threshold_crypto()])
+        let genesis_sig = genesis
+            .public_key_set
+            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])
             .unwrap();
 
         let genesis_dbc = Dbc {
-            content: gen_dbc_content,
-            transaction: gen_dbc_trans,
+            content: genesis.dbc_content,
+            transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
                 genesis_dbc_input(),
                 (genesis_key, genesis_sig),
@@ -362,13 +366,14 @@ mod tests {
             SimpleKeyManager::new(SimpleSigner::from(genesis_owner.clone()), genesis_key);
         let mut genesis_node = Mint::new(key_manager.clone(), SimpleSpendBook::new());
 
-        let (gen_dbc_content, gen_dbc_tx, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(output_amount)?;
-        let genesis_sig = gen_key_set.combine_signatures(vec![gen_node_sig.threshold_crypto()])?;
+        let genesis = genesis_node.issue_genesis_dbc(output_amount)?;
+        let genesis_sig = genesis
+            .public_key_set
+            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
-            content: gen_dbc_content,
-            transaction: gen_dbc_tx,
+            content: genesis.dbc_content,
+            transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
                 genesis_dbc_input(),
                 (genesis_key, genesis_sig),
@@ -443,13 +448,14 @@ mod tests {
             SimpleKeyManager::new(SimpleSigner::from(genesis_owner.clone()), genesis_key);
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
-        let (gen_dbc_content, gen_dbc_tx, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(1000)?;
-        let genesis_sig = gen_key_set.combine_signatures(vec![gen_node_sig.threshold_crypto()])?;
+        let genesis = genesis_node.issue_genesis_dbc(1000)?;
+        let genesis_sig = genesis
+            .public_key_set
+            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
-            content: gen_dbc_content,
-            transaction: gen_dbc_tx,
+            content: genesis.dbc_content,
+            transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
                 genesis_dbc_input(),
                 (genesis_key, genesis_sig),
@@ -550,17 +556,16 @@ mod tests {
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
         let genesis_amount: Amount = input_amounts.iter().sum();
-        let (gen_dbc_content, gen_dbc_tx, (_gen_key, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(genesis_amount)?;
+        let genesis = genesis_node.issue_genesis_dbc(genesis_amount)?;
 
         let genesis_sig = genesis_node
             .key_manager
             .public_key_set()?
-            .combine_signatures(vec![gen_node_sig.threshold_crypto()])?;
+            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
-            content: gen_dbc_content,
-            transaction: gen_dbc_tx,
+            content: genesis.dbc_content,
+            transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
                 genesis_dbc_input(),
                 (genesis_key, genesis_sig),
@@ -904,13 +909,14 @@ mod tests {
         );
         let mut genesis_node = Mint::new(key_manager.clone(), SimpleSpendBook::new());
 
-        let (gen_dbc_content, gen_dbc_tx, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(1000)?;
-        let genesis_sig = gen_key_set.combine_signatures(vec![gen_node_sig.threshold_crypto()])?;
+        let genesis = genesis_node.issue_genesis_dbc(1000)?;
+        let genesis_sig = genesis
+            .public_key_set
+            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
 
         let genesis_dbc = Dbc {
-            content: gen_dbc_content,
-            transaction: gen_dbc_tx,
+            content: genesis.dbc_content,
+            transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
                 genesis_dbc_input(),
                 (genesis_key, genesis_sig),

@@ -21,9 +21,9 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, DbcContent, DbcTransaction, Mint, NodeSignature, Output,
-    ReissueRequest, ReissueRequestBuilder, ReissueTransaction, SimpleKeyManager as KeyManager,
-    SimpleSigner as Signer, SimpleSpendBook as SpendBook, SpendKey, TransactionBuilder,
+    Amount, Dbc, DbcBuilder, GenesisDbcShare, Mint, Output, ReissueRequest, ReissueRequestBuilder,
+    ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
+    SimpleSpendBook as SpendBook, SpendKey, TransactionBuilder,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
@@ -215,8 +215,7 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Resu
     let mut mints: Vec<Mint<KeyManager, SpendBook>> = Default::default();
 
     // Generate each Mint node, and corresponding NodeSignature. (Index + SignatureShare)
-    let mut genesis_set: Vec<(DbcContent, DbcTransaction, (PublicKeySet, NodeSignature))> =
-        Default::default();
+    let mut genesis_set: Vec<GenesisDbcShare> = Default::default();
     for i in 0..secret_key_set.threshold() as u64 + 1 {
         let key_manager = KeyManager::new(
             Signer::new(
@@ -233,7 +232,7 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Resu
     // Make a list of (Index, SignatureShare) for combining sigs.
     let node_sigs: Vec<(u64, &SignatureShare)> = genesis_set
         .iter()
-        .map(|e| e.2 .1.threshold_crypto())
+        .map(|g| g.transaction_sig.threshold_crypto())
         .collect();
 
     // Todo: in a true multi-node mint, each node would call issue_genesis_dbc(), then the aggregated
@@ -245,8 +244,8 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Resu
 
     // Create the Genesis Dbc
     let genesis_dbc = Dbc {
-        content: genesis_set[0].0.clone(),
-        transaction: genesis_set[0].1.clone(),
+        content: genesis_set[0].dbc_content.clone(),
+        transaction: genesis_set[0].transaction.clone(),
         transaction_sigs: BTreeMap::from_iter([(
             sn_dbc::genesis_dbc_input(),
             (genesis_pubkey, genesis_sig),
