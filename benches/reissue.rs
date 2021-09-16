@@ -37,23 +37,23 @@ fn genesis(
     );
     let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
-    let (content, transaction, (mint_key_set, mint_sig_share)) =
-        genesis_node.issue_genesis_dbc(amount).unwrap();
+    let genesis = genesis_node.issue_genesis_dbc(amount).unwrap();
 
-    let mint_sig = mint_key_set
-        .combine_signatures(vec![mint_sig_share.threshold_crypto()])
+    let mint_sig = genesis
+        .public_key_set
+        .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])
         .unwrap();
 
-    let transaction_sigs = BTreeMap::from_iter(
-        transaction
-            .inputs
-            .iter()
-            .map(|in_hash| (*in_hash, (mint_key_set.public_key(), mint_sig.clone()))),
-    );
+    let transaction_sigs = BTreeMap::from_iter(genesis.transaction.inputs.iter().map(|in_hash| {
+        (
+            *in_hash,
+            (genesis.public_key_set.public_key(), mint_sig.clone()),
+        )
+    }));
 
     let genesis_dbc = Dbc {
-        content,
-        transaction,
+        content: genesis.dbc_content,
+        transaction: genesis.transaction,
         transaction_sigs,
     };
 

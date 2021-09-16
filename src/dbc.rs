@@ -187,16 +187,16 @@ mod tests {
         );
         let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
 
-        let (gen_dbc_content, gen_dbc_trans, (gen_key_set, gen_node_sig)) =
-            genesis_node.issue_genesis_dbc(amount).unwrap();
+        let genesis = genesis_node.issue_genesis_dbc(amount).unwrap();
 
-        let genesis_sig = gen_key_set
-            .combine_signatures(vec![gen_node_sig.threshold_crypto()])
+        let genesis_sig = genesis
+            .public_key_set
+            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])
             .unwrap();
 
         let genesis_dbc = Dbc {
-            content: gen_dbc_content,
-            transaction: gen_dbc_trans,
+            content: genesis.dbc_content,
+            transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
                 crate::genesis_dbc_input(),
                 (genesis_key, genesis_sig),
