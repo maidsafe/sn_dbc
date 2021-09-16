@@ -22,8 +22,8 @@ use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
     Amount, Dbc, DbcBuilder, DbcContent, DbcTransaction, Mint, NodeSignature, Output,
-    ReissueRequest, ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
-    SimpleSpendBook as SpendBook, SpendKey, TransactionBuilder,
+    ReissueRequest, ReissueRequestBuilder, ReissueTransaction, SimpleKeyManager as KeyManager,
+    SimpleSigner as Signer, SimpleSpendBook as SpendBook, SpendKey, TransactionBuilder,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
@@ -784,6 +784,7 @@ fn sign_tx() -> Result<()> {
 
 /// Implements prepare_reissue command.
 fn prepare_reissue() -> Result<()> {
+    // TODO: rewrite this using the ReissueRequestBuilder
     let tx_input = readline_prompt_nl("\nReissueTransaction: ")?;
     let tx: ReissueTransactionUnblinded = from_be_hex(&tx_input)?;
     let mut sig_shares_by_input: HashMap<PublicKey, BTreeMap<usize, SignatureShare>> =
@@ -889,13 +890,13 @@ fn reissue(mintinfo: &mut MintInfo) -> Result<()> {
 /// Implements reissue_ez command.
 fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
     let mut tx_builder: TransactionBuilder = Default::default();
+    let mut rr_builder: ReissueRequestBuilder = Default::default();
     let mut pk_pks: HashMap<PublicKey, PublicKeySet> = Default::default();
-    let mut inputs_sks: HashMap<DbcUnblinded, BTreeMap<usize, SecretKeyShare>> = Default::default();
 
     // Get from user: input DBC(s) and required # of SecretKeyShare+index for each.
     'input_loop: loop {
         println!("--------------");
-        println!("Input DBC #{}", inputs_sks.len());
+        println!("Input DBC #{}", tx_builder.inputs.len());
         println!("--------------\n");
 
         let mut dbc: DbcUnblinded;
@@ -929,47 +930,36 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
             dbc.owner.threshold() + 1
         );
 
-        let mut secrets: BTreeMap<usize, SecretKeyShare> = Default::default();
-        while secrets.len() < dbc.owner.threshold() + 1 {
-            let mut secret: SecretKeyShare;
-            let idx: usize;
-            loop {
-                let key = readline_prompt_nl("\nSecretKeyShare, or 'cancel': ")?;
+        while rr_builder.num_signers_by_dbc(dbc.inner.spend_key()) < dbc.owner.threshold() + 1 {
+            let key = readline_prompt_nl("\nSecretKeyShare, or 'cancel': ")?;
+            let secret: SecretKeyShare = if key == "cancel" {
+                println!("\nreissue_ez cancelled\n");
+                return Ok(());
+            } else {
+                from_be_hex(&key)?
+            };
+            let idx_input = readline_prompt("\nSecretKeyShare Index: ")?;
+            let idx: usize = idx_input.parse()?;
 
-                secret = if key == "cancel" {
-                    println!("\nreissue_ez cancelled\n");
-                    return Ok(());
-                } else {
-                    match from_be_hex(&key) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            println!("Failed key decoding: {:?}", e);
-                            continue;
-                        }
-                    }
-                };
-
-                let idx_input = readline_prompt("\nSecretKeyShare Index: ")?;
-                idx = match idx_input.parse() {
-                    Ok(idx) => idx,
-                    Err(e) => {
-                        println!("index parsing failed {:?}", e);
-                        continue;
-                    }
-                };
-                break;
-            }
-
-            secrets.insert(idx, secret);
+            rr_builder = rr_builder.add_dbc_signer(
+                dbc.inner.spend_key(),
+                dbc.owner.clone(),
+                (idx, secret.clone()),
+            );
         }
+
+        let secret_shares = rr_builder
+            .get_signers(dbc.inner.spend_key())
+            .ok_or(sn_dbc::Error::MissingInputOwnerProof)?
+            .get(&dbc.owner)
+            .ok_or(sn_dbc::Error::ReissueRequestPublicKeySetMismatch)?;
 
         let amount_secrets = dbc
             .inner
             .content
-            .amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
+            .amount_secrets_by_secret_key_shares(&dbc.owner, secret_shares)?;
 
         tx_builder = tx_builder.add_input(dbc.inner.clone(), amount_secrets);
-        inputs_sks.insert(dbc, secrets);
     }
 
     let mut i = 0u32;
@@ -1034,33 +1024,11 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
 
     let input_owners = tx_builder.input_spend_keys();
     let transaction = tx_builder.build()?;
-    let tx_hash = transaction.blinded().hash();
-
-    // for each input Dbc, combine owner's SignatureShare(s) to obtain owner's Signature
-    let mut proofs: HashMap<SpendKey, Signature> = Default::default();
-    for (dbc, secrets) in inputs_sks.iter() {
-        let mut sig_shares: BTreeMap<usize, SignatureShare> = Default::default();
-        for (idx, secret) in secrets.iter() {
-            let sig_share = secret
-                .derive_child(&dbc.inner.spend_key_index())
-                .sign(&tx_hash);
-            sig_shares.insert(*idx, sig_share.clone());
-        }
-        let sig = dbc
-            .owner
-            .combine_signatures(&sig_shares)
-            .map_err(|e| anyhow!(e))?;
-        proofs.insert(dbc.inner.spend_key(), sig);
-    }
-
-    let reissue_request = ReissueRequest {
-        transaction,
-        input_ownership_proofs: proofs,
-    };
+    let rr = rr_builder.set_reissue_transaction(transaction).build()?;
 
     println!("Prepared reissue request...");
 
-    reissue_exec(mintinfo, &reissue_request, &input_owners, &pk_pks)
+    reissue_exec(mintinfo, &rr, &input_owners, &pk_pks)
 }
 
 /// Performs reissue

@@ -8,7 +8,8 @@
 use std::collections::BTreeSet;
 
 use blsttc::{
-    Ciphertext, DecryptionShare, PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare,
+    Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
+    SecretKeyShare,
 };
 use bulletproofs::{BulletproofGens, PedersenGens, RangeProof};
 use curve25519_dalek_ng::ristretto::CompressedRistretto;
@@ -175,12 +176,12 @@ impl DbcContent {
     }
 
     /// Decrypt AmountSecrets using threshold+1 SecretKeyShares
-    pub fn amount_secrets_by_secret_key_shares(
+    pub fn amount_secrets_by_secret_key_shares<I: IntoFr + Ord>(
         &self,
         public_key_set: &PublicKeySet,
-        secret_key_shares: &BTreeMap<usize, SecretKeyShare>,
+        secret_key_shares: &BTreeMap<I, SecretKeyShare>,
     ) -> Result<AmountSecrets, Error> {
-        let mut decryption_shares: BTreeMap<usize, DecryptionShare> = Default::default();
+        let mut decryption_shares: BTreeMap<I, DecryptionShare> = Default::default();
         for (idx, sec_share) in secret_key_shares.iter() {
             let share = sec_share.decrypt_share_no_verify(&self.amount_secrets_cipher);
             decryption_shares.insert(*idx, share);
@@ -194,10 +195,10 @@ impl DbcContent {
     /// In which case each party will need to call SecretKeyShare::decrypt_share() or
     /// decrypt_share_no_verify() to generate a DecryptionShare and one party will need to
     /// obtain/aggregate all the shares together somehow.
-    pub fn amount_secrets_by_decryption_shares(
+    pub fn amount_secrets_by_decryption_shares<I: IntoFr + Ord>(
         &self,
         public_key_set: &PublicKeySet,
-        decryption_shares: &BTreeMap<usize, DecryptionShare>,
+        decryption_shares: &BTreeMap<I, DecryptionShare>,
     ) -> Result<AmountSecrets, Error> {
         let bytes_vec = public_key_set.decrypt(decryption_shares, &self.amount_secrets_cipher)?;
         AmountSecrets::from_bytes_ref(&bytes_vec)

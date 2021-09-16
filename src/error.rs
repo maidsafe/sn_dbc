@@ -29,6 +29,8 @@ pub enum Error {
     FailedSignature,
     #[error("Unrecognised authority.")]
     UnrecognisedAuthority,
+    #[error("ReissueRequestBuilder is missing a reissue transaction")]
+    MissingReissueTransaction,
     #[error("At least one transaction input is missing a signature.")]
     MissingSignatureForInput,
     #[error("At least one input is missing an ownership proof")]
