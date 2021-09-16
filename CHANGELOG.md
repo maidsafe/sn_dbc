@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.7.0](https://github.com/maidsafe/sn_dbc/compare/v2.6.0...v2.7.0) (2021-09-16)
+
+
+### Features
+
+* add ReissueRequestBuilder to simplify aggregating dbc ownership proofs ([b0c3d5a](https://github.com/maidsafe/sn_dbc/commit/b0c3d5ae1b6e49534ddef75763141530cbace9dd))
+
 ## [2.6.0](https://github.com/maidsafe/sn_dbc/compare/v2.5.0...v2.6.0) (2021-09-14)
 
 
