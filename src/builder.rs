@@ -68,12 +68,14 @@ impl TransactionBuilder {
         BTreeSet::from_iter(self.inputs.iter().map(Dbc::spend_key))
     }
 
-    pub fn inputs_amount_sum(&self) -> Amount {
-        self.inputs.iter().map(|s| s.denomination().amount()).sum()
+    pub fn inputs_amount_sum(&self) -> Result<Amount> {
+        let amounts = self.inputs.iter().map(|d| d.denomination().amount());
+        Amount::checked_sum(amounts)
     }
 
-    pub fn outputs_amount_sum(&self) -> Amount {
-        self.outputs.iter().map(|o| o.denomination.amount()).sum()
+    pub fn outputs_amount_sum(&self) -> Result<Amount> {
+        let amounts = self.outputs.iter().map(|o| o.denomination.amount());
+        Amount::checked_sum(amounts)
     }
 
     // Note: The HashMap result is necessary because DbcBuilder needs a couple things:
@@ -259,7 +261,7 @@ impl DbcBuilder {
                 );
             }
 
-            let denom_idx = dbc_envelope.denomination.to_be_bytes();
+            let denom_idx = dbc_envelope.denomination.to_bytes();
             let mint_derived_pks = mint_public_key_set.derive_child(&denom_idx);
 
             // Combine signatures from all the mint nodes to obtain Mint's Signature.

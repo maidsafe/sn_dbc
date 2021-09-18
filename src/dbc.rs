@@ -51,7 +51,7 @@ impl Dbc {
         verifier
             .verify_slip(
                 &self.content.slip(),
-                &self.content.denomination().to_be_bytes(),
+                &self.content.denomination().to_bytes(),
                 &self.mint_public_key,
                 &self.mint_signature,
             )

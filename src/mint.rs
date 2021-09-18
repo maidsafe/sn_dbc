@@ -68,12 +68,18 @@ impl ReissueTransaction {
     }
 
     fn validate_balance(&self) -> Result<()> {
-        let inputs: Amount = self
-            .inputs
-            .iter()
-            .map(|d| d.content.denomination().amount())
-            .sum();
-        let outputs: Amount = self.outputs.iter().map(|d| d.denomination.amount()).sum();
+        let i_amounts = self.inputs.iter().map(|d| d.denomination().amount());
+        let inputs = Amount::checked_sum(i_amounts)?;
+
+        let o_amounts = self.outputs.iter().map(|o| o.denomination.amount());
+        let outputs = Amount::checked_sum(o_amounts)?;
+
+        // let inputs: Amount = self
+        //     .inputs
+        //     .iter()
+        //     .map(|d| d.content.denomination().amount())
+        //     .sum();
+        // let outputs: Amount = self.outputs.iter().map(|d| d.denomination.amount()).sum();
 
         if inputs != outputs {
             Err(Error::DbcReissueRequestDoesNotBalance)
@@ -126,14 +132,14 @@ impl<K: KeyManager, S: SpendBookVerifier> MintNode<K, S> {
         }
     }
 
-    pub fn issue_genesis_dbc(&mut self) -> Result<GenesisDbcShare> {
+    pub fn issue_genesis_dbc(&mut self, denomination: Denomination) -> Result<GenesisDbcShare> {
         let slip_preparer = SlipPreparer::from_fr(1); // deterministic/known
         let dbc_content = DbcContent::new(
             self.key_manager
                 .public_key_set()
                 .map_err(|e| Error::Signing(e.to_string()))?
                 .public_key(),
-            Denomination::Genesis,
+            denomination,
         );
 
         let envelope = slip_preparer.place_slip_in_envelope(&dbc_content.slip());
@@ -229,7 +235,7 @@ mod tests {
     use super::*;
     use crate::{
         tests::{TinyInt, TinyVec},
-        Amount, DbcBuilder, Output, SimpleKeyManager, SimpleSigner, SimpleSpendBook,
+        Amount, AmountCounter, DbcBuilder, Output, SimpleKeyManager, SimpleSigner, SimpleSpendBook,
         TransactionBuilder,
     };
     use quickcheck_macros::quickcheck;
@@ -239,6 +245,10 @@ mod tests {
     /// Serialize anything serializable as big endian bytes
     fn to_be_bytes<T: Serialize>(sk: &T) -> Vec<u8> {
         bincode::serialize(&sk).unwrap()
+    }
+
+    fn genesis_denomination() -> Denomination {
+        Denomination::One(8)
     }
 
     fn genesis() -> Result<(
@@ -255,7 +265,10 @@ mod tests {
         let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
         let mut genesis_node = MintNode::new(key_manager, spend_book);
 
-        let genesis = genesis_node.issue_genesis_dbc().unwrap();
+        let genesis = genesis_node
+            .issue_genesis_dbc(genesis_denomination())
+            .unwrap();
+
         let ses = &genesis.signed_envelope_share;
 
         let mint_signature = genesis
@@ -266,7 +279,7 @@ mod tests {
             )])
             .unwrap();
 
-        let denom_idx = genesis.dbc_content.denomination().to_be_bytes();
+        let denom_idx = genesis.dbc_content.denomination().to_bytes();
         let mint_derived_pks = genesis.public_key_set.derive_child(&denom_idx);
 
         let genesis_dbc = Dbc {
@@ -283,7 +296,7 @@ mod tests {
     fn prop_genesis() -> Result<(), Error> {
         let (genesis_dbc, genesis_node, _genesis_owner) = genesis()?;
 
-        assert_eq!(genesis_dbc.denomination(), Denomination::Genesis);
+        assert_eq!(genesis_dbc.denomination(), genesis_denomination());
         assert!(genesis_dbc
             .confirm_valid(genesis_node.key_manager())
             .is_ok());
@@ -303,7 +316,7 @@ mod tests {
         let (tx, output_secrets) = TransactionBuilder::default()
             .add_input(genesis_dbc.clone())
             .add_output(Output {
-                denomination: Denomination::Genesis,
+                denomination: genesis_denomination(),
                 owner: genesis_owner.public_key_set.public_key(),
             })
             .build()?;
@@ -347,7 +360,7 @@ mod tests {
             .confirm_valid(genesis_node.key_manager())
             .is_ok());
 
-        let pay_amt = Amount::MAX - 1;
+        let pay_amt = Amount::new(1, 1);
         let pay_denoms = Denomination::make_change(pay_amt);
         println!("pay: {:#?}", pay_denoms);
         let pay_outputs: Vec<Output> = pay_denoms
@@ -357,7 +370,7 @@ mod tests {
                 owner: genesis_owner.public_key_set.public_key(),
             })
             .collect();
-        let change_amt = Denomination::Genesis.amount() - pay_amt;
+        let change_amt = genesis_denomination().amount().checked_sub(pay_amt)?;
         let change_denoms = Denomination::make_change(change_amt);
         let change_outputs: Vec<Output> = change_denoms
             .iter()
@@ -397,11 +410,11 @@ mod tests {
         println!("Dbc outputs count: {:?}", dbcs.len());
         println!("Dbc size: {:?}", bytes.len());
 
-        let outputs_sum: Amount = dbcs.iter().map(|d| d.denomination().amount()).sum();
+        let outputs_sum = Amount::checked_sum(dbcs.iter().map(|d| d.denomination().amount()))?;
 
         assert_eq!(dbcs.len(), num_outputs);
         assert_ne!(dbcs[0].spend_key(), genesis_dbc.spend_key());
-        assert_eq!(outputs_sum, Denomination::Genesis.amount());
+        assert_eq!(outputs_sum, genesis_denomination().amount());
 
         Ok(())
     }
@@ -415,7 +428,7 @@ mod tests {
         let (tx, output_secrets) = TransactionBuilder::default()
             .add_input(genesis_dbc.clone())
             .add_output(Output {
-                denomination: Denomination::Genesis,
+                denomination: genesis_denomination(),
                 owner: genesis_owner.public_key_set.public_key(),
             })
             .build()?;
@@ -441,7 +454,7 @@ mod tests {
         let (tx, output_secrets) = TransactionBuilder::default()
             .add_input(dbc_a.clone())
             .add_output(Output {
-                denomination: Denomination::Genesis,
+                denomination: genesis_denomination(),
                 owner: genesis_owner.public_key_set.public_key(),
             })
             .build()?;
@@ -469,14 +482,17 @@ mod tests {
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
         let (genesis_dbc, mut genesis_node, _genesis_owner) = genesis()?;
 
-        let mut output_amounts =
-            Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
+        let mut output_amounts = Vec::from_iter(
+            output_amounts
+                .into_iter()
+                .map(|a| Amount::new(TinyInt::coerce::<AmountCounter>(a), 1)),
+        );
 
         let n_outputs = output_amounts.len();
-        let output_amount: Amount = output_amounts.iter().sum();
+        let output_amount = Amount::checked_sum(output_amounts.clone().into_iter())?;
 
         // if there are any outputs, then we must add a change output.
-        let change = Denomination::Genesis.amount() - output_amount;
+        let change = genesis_denomination().amount().checked_sub(output_amount)?;
         if n_outputs > 0 {
             output_amounts.push(change);
         }
@@ -540,11 +556,8 @@ mod tests {
         }
 
         assert_eq!(
-            output_dbcs
-                .iter()
-                .map(|dbc| dbc.content.denomination().amount())
-                .sum::<Amount>(),
-            output_amount + change
+            Amount::checked_sum(output_dbcs.iter().map(|d| d.denomination().amount()))?,
+            output_amount.checked_add(change)?
         );
 
         Ok(())
