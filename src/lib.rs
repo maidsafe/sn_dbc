@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
-
+mod amount;
 mod builder;
 mod dbc;
 mod dbc_content;
@@ -23,6 +23,7 @@ mod mint;
 mod spend_book;
 
 pub use crate::{
+    amount::{Amount, AmountCounter, PowerOfTen},
     builder::{DbcBuilder, Output, OutputSecret, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,
     dbc_content::DbcContent,
@@ -45,7 +46,7 @@ pub use crate::{
 //       If going to a smaller size you should regenerate it first by
 //       defining Amount locally to smaller size in denom-gen, then changing
 //       it here.  Else you will get compile errors.
-pub type Amount = u128;
+// pub type Amount = u128;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Hash([u8; 32]);
