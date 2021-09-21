@@ -20,7 +20,7 @@ mod mint;
 mod spend_book;
 
 pub use crate::{
-    builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
+    builder::{DbcBuilder, Output, TransactionBuilder},
     dbc::Dbc,
     dbc_content::{Amount, AmountSecrets, DbcContent},
     dbc_transaction::DbcTransaction,
@@ -30,7 +30,7 @@ pub use crate::{
         SimpleSigner,
     },
     mint::{
-        genesis_dbc_input, GenesisDbcShare, Mint, MintNodeSignatures, ReissueRequest, ReissueShare,
+        genesis_dbc_input, GenesisDbcShare, Mint, MintNodeSignatures, ReissueShare,
         ReissueTransaction,
     },
     spend_book::{SimpleSpendBook, SpendBookVerifier, SpendKey},

@@ -89,8 +89,8 @@ mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, Mint, ReissueRequest,
-        ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SimpleSpendBook,
+        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, Mint, ReissueTransaction,
+        SimpleKeyManager, SimpleSigner, SimpleSpendBook,
     };
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
@@ -107,29 +107,21 @@ mod tests {
         dbc_owner: &bls_dkg::outcome::Outcome,
         dbc: Dbc,
         n_ways: u8,
-        output_owner: &blsttc::PublicKeySet,
-    ) -> Result<ReissueRequest, Error> {
+        output_owner: blsttc::PublicKey,
+    ) -> Result<ReissueTransaction, Error> {
         let amount_secrets = DbcHelper::decrypt_amount_secrets(dbc_owner, &dbc.content)?;
 
-        let reissue_tx = crate::TransactionBuilder::default()
-            .add_input(dbc.clone(), amount_secrets)
+        let tx = crate::TransactionBuilder::default()
+            .add_input(dbc, amount_secrets)
             .add_outputs(
                 divide(amount_secrets.amount, n_ways).map(|amount| crate::Output {
                     amount,
-                    owner: output_owner.public_key(),
+                    owner: output_owner,
                 }),
             )
             .build()?;
 
-        let rr = ReissueRequestBuilder::new(reissue_tx)
-            .add_dbc_signer(
-                dbc.spend_key(),
-                dbc_owner.public_key_set.clone(),
-                (dbc_owner.index, dbc_owner.secret_key_share.clone()),
-            )
-            .build()?;
-
-        Ok(rr)
+        Ok(tx)
     }
 
     #[test]
@@ -206,26 +198,23 @@ mod tests {
         };
 
         let input_owner = crate::bls_dkg_id();
-        let reissue_request = prepare_even_split(
+        let tx = prepare_even_split(
             &genesis_owner,
             genesis_dbc.clone(),
             n_inputs.coerce(),
-            &input_owner.public_key_set,
+            input_owner.public_key_set.public_key(),
         )?;
 
-        spend_book.lock().unwrap().log_spent(
-            genesis_dbc.spend_key(),
-            reissue_request.transaction.blinded(),
-        );
+        spend_book
+            .lock()
+            .unwrap()
+            .log_spent(genesis_dbc.spend_key(), tx.blinded());
 
         let split_reissue_share = genesis_node
-            .reissue(
-                reissue_request.clone(),
-                reissue_request.transaction.blinded().inputs,
-            )
+            .reissue(tx.clone(), tx.blinded().inputs)
             .unwrap();
 
-        let mut dbc_builder = DbcBuilder::new(reissue_request.transaction);
+        let mut dbc_builder = DbcBuilder::new(tx);
         dbc_builder = dbc_builder.add_reissue_share(split_reissue_share);
         let output_dbcs = dbc_builder.build()?;
 
@@ -244,26 +233,17 @@ mod tests {
             })
             .build()?;
 
-        let mut rr_builder = ReissueRequestBuilder::new(reissue_tx.clone());
         for input in reissue_tx.inputs.iter() {
             spend_book
                 .lock()
                 .unwrap()
                 .log_spent(input.spend_key(), reissue_tx.blinded());
-
-            rr_builder = rr_builder.add_dbc_signer(
-                input.spend_key(),
-                input_owner.public_key_set.clone(),
-                (input_owner.index, input_owner.secret_key_share.clone()),
-            );
         }
 
-        let rr = rr_builder.build()?;
-
         let reissue_share = genesis_node
-            .reissue(rr.clone(), rr.transaction.blinded().inputs)
+            .reissue(reissue_tx.clone(), reissue_tx.blinded().inputs)
             .unwrap();
-        assert_eq!(rr.transaction.blinded(), reissue_share.dbc_transaction);
+        assert_eq!(reissue_tx.blinded(), reissue_share.dbc_transaction);
 
         let (mint_key_set, mint_sig_share) =
             reissue_share.mint_node_signatures.values().next().unwrap();
@@ -304,8 +284,7 @@ mod tests {
                 .take(n_valid_sigs.coerce())
                 .map(|in_owner| (*in_owner, (genesis_key, mint_sig.clone()))),
         );
-        let mut repeating_inputs = rr
-            .transaction
+        let mut repeating_inputs = reissue_tx
             .inputs
             .iter()
             .cycle()
