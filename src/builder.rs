@@ -1,4 +1,4 @@
-use blsttc::{Fr, IntoFr, PublicKeySet, SecretKeyShare, Signature, SignatureShare};
+use blsttc::{PublicKeySet, SignatureShare};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
@@ -6,7 +6,7 @@ use curve25519_dalek_ng::scalar::Scalar;
 
 use crate::{
     Amount, AmountSecrets, Dbc, DbcContent, Error, NodeSignature, PublicKey, ReissueRequest,
-    ReissueShare, ReissueTransaction, Result, SpendKey,
+    ReissueShare, ReissueTransaction, Result, SpendKey, SpentProof, SpentProofShare,
 };
 
 ///! Unblinded data for creating sn_dbc::DbcContent
@@ -96,117 +96,72 @@ impl TransactionBuilder {
 }
 
 /// Builds a ReissueRequest from a ReissueTransaction and
-/// any number of (input) DBC hashes with associated ownership share(s).
-#[derive(Debug, Default)]
+/// any number of (input) DBC spent proof shares.
+#[derive(Debug)]
 pub struct ReissueRequestBuilder {
-    pub reissue_transaction: Option<ReissueTransaction>,
-    #[allow(clippy::type_complexity)]
-    pub signers_by_dbc: HashMap<SpendKey, BTreeMap<PublicKeySet, BTreeMap<Fr, SecretKeyShare>>>,
+    pub reissue_transaction: ReissueTransaction,
+    pub spent_proof_shares: BTreeMap<SpendKey, HashSet<SpentProofShare>>,
 }
 
 impl ReissueRequestBuilder {
     /// Create a new ReissueRequestBuilder from a ReissueTransaction
     pub fn new(reissue_transaction: ReissueTransaction) -> Self {
         Self {
-            reissue_transaction: Some(reissue_transaction),
-            signers_by_dbc: Default::default(),
+            reissue_transaction,
+            spent_proof_shares: Default::default(),
         }
     }
 
-    /// Set the reissue_transaction
-    pub fn set_reissue_transaction(mut self, reissue_transaction: ReissueTransaction) -> Self {
-        self.reissue_transaction = Some(reissue_transaction);
+    /// Add a SpentProofShare for the given spend_key
+    pub fn add_spent_proof_share(mut self, spend_key: SpendKey, share: SpentProofShare) -> Self {
+        let shares = self.spent_proof_shares.entry(spend_key).or_default();
+        shares.insert(share);
+
         self
     }
 
-    /// Add a single signer share for a DBC hash
-    pub fn add_dbc_signer<FR: IntoFr>(
-        mut self,
-        dbc_key: SpendKey,
-        public_key_set: PublicKeySet,
-        secret_key_share: (FR, SecretKeyShare),
-    ) -> Self {
-        self.signers_by_dbc
-            .entry(dbc_key)
-            .or_default()
-            .entry(public_key_set)
-            .or_default()
-            .insert(secret_key_share.0.into_fr(), secret_key_share.1);
-        self
-    }
+    pub fn build(&self) -> Result<ReissueRequest> {
+        let spent_proofs: BTreeMap<SpendKey, SpentProof> = self
+            .spent_proof_shares
+            .iter()
+            .map(|(spend_key, shares)| {
+                let any_share = shares
+                    .iter()
+                    .next()
+                    .ok_or(Error::ReissueRequestMissingSpentProofShare(*spend_key))?;
 
-    /// Add a list of signer shares for a DBC hash
-    pub fn add_dbc_signers<FR: IntoFr>(
-        mut self,
-        dbc_key: SpendKey,
-        public_key_set: PublicKeySet,
-        secret_key_shares: Vec<(FR, SecretKeyShare)>,
-    ) -> Self {
-        let dbc_owners = self.signers_by_dbc.entry(dbc_key).or_default();
-        for (idx, secret_key_share) in secret_key_shares.into_iter() {
-            dbc_owners
-                .entry(public_key_set.clone())
-                .or_default()
-                .insert(idx.into_fr(), secret_key_share);
-        }
-        self
-    }
+                if shares
+                    .iter()
+                    .map(SpentProofShare::spentbook_pks)
+                    .any(|pks| pks != any_share.spentbook_pks())
+                {
+                    return Err(Error::ReissueRequestPublicKeySetMismatch);
+                }
 
-    pub fn num_signers_by_dbc(&self, dbc_key: SpendKey) -> usize {
-        self.signers_by_dbc
-            .get(&dbc_key)
-            .map(BTreeMap::len)
-            .unwrap_or(0)
-    }
+                let spend_sig = any_share.spend_sig.clone();
+                let spentbook_pub_key = any_share.spentbook_public_key();
+                let spentbook_sig = any_share.spentbook_pks.combine_signatures(
+                    shares
+                        .iter()
+                        .map(SpentProofShare::spentbook_sig_share)
+                        .map(NodeSignature::threshold_crypto),
+                )?;
 
-    pub fn get_signers(
-        &self,
-        dbc_key: SpendKey,
-    ) -> Option<&BTreeMap<PublicKeySet, BTreeMap<Fr, SecretKeyShare>>> {
-        self.signers_by_dbc.get(&dbc_key)
-    }
+                let spent_proof = SpentProof {
+                    spend_sig,
+                    spentbook_pub_key,
+                    spentbook_sig,
+                };
 
-    /// Aggregates SecretKeyShares for all DBC owners in a ReissueTransaction
-    /// in order to combine signature shares into Signatures, thereby
-    /// creating the ownership proofs necessary to construct
-    /// a ReissueRequest.
-    pub fn build(self) -> Result<ReissueRequest> {
-        let mut input_ownership_proofs: HashMap<SpendKey, Signature> = Default::default();
-        let transaction = match self.reissue_transaction {
-            Some(tx) => tx,
-            None => return Err(Error::MissingReissueTransaction),
-        };
+                Ok((*spend_key, spent_proof))
+            })
+            .collect::<Result<_>>()?;
 
-        for dbc in transaction.inputs.iter() {
-            let signers = self
-                .signers_by_dbc
-                .get(&dbc.spend_key())
-                .ok_or(Error::MissingInputOwnerProof)?;
-
-            if signers.len() != 1 {
-                return Err(Error::ReissueRequestPublicKeySetMismatch);
-            }
-            let (owner_pks, secret_shares) = signers
-                .iter()
-                .next()
-                .ok_or(Error::ReissueRequestPublicKeySetMismatch)?;
-
-            let sig_shares: BTreeMap<Fr, SignatureShare> = secret_shares
-                .iter()
-                .map(|(idx, secret_key_share)| {
-                    let sks = secret_key_share.derive_child(&dbc.spend_key_index());
-                    let sig_share = sks.sign(transaction.blinded().hash());
-                    (*idx, sig_share)
-                })
-                .collect();
-
-            let signature = owner_pks.combine_signatures(sig_shares)?;
-            input_ownership_proofs.insert(dbc.spend_key(), signature);
-        }
+        let transaction = self.reissue_transaction.clone();
 
         let rr = ReissueRequest {
             transaction,
-            input_ownership_proofs,
+            spent_proofs,
         };
         Ok(rr)
     }
