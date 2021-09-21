@@ -33,8 +33,9 @@ use std::collections::BTreeMap;
 use std::{error, fmt};
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-use crate::{DbcTransaction, PublicKey};
+use crate::{DbcTransaction, Hash, PublicKey};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SpendKey(pub PublicKey);
@@ -66,12 +67,11 @@ impl Distribution<SpendKey> for Standard {
     }
 }
 
-/// The SpendBook logs all spent DBC's.
-pub trait SpendBook: fmt::Debug + Clone {
+pub trait SpendBookVerifier {
     type Error: error::Error;
 
-    fn lookup(&self, spend_key: &SpendKey) -> Result<Option<&DbcTransaction>, Self::Error>;
-    fn log(&mut self, spend_key: SpendKey, transaction: DbcTransaction) -> Result<(), Self::Error>;
+    /// Verify that a DBC has been logged in the spendbook with this transaction.
+    fn verify_spent(&self, spend_key: SpendKey, tx_hash: Hash) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -79,16 +79,32 @@ pub struct SimpleSpendBook {
     pub transactions: BTreeMap<SpendKey, DbcTransaction>,
 }
 
-impl SpendBook for SimpleSpendBook {
-    type Error = std::convert::Infallible;
+#[derive(Error, Debug)]
+pub enum SimpleSpendBookError {
+    #[error("{0:?} does not have an entry in the spendbook")]
+    NoEntryForSpendKey(SpendKey),
+    #[error("Spend Key maps to a different transaction than the provided hash")]
+    TxHashDoesNotMatchCommitment,
+    #[error("Failed to take mutex")]
+    MutexError,
+}
 
-    fn lookup(&self, spend_key: &SpendKey) -> Result<Option<&DbcTransaction>, Self::Error> {
-        Ok(self.transactions.get(spend_key))
-    }
+impl SpendBookVerifier for std::sync::Arc<std::sync::Mutex<SimpleSpendBook>> {
+    type Error = SimpleSpendBookError;
 
-    fn log(&mut self, spend_key: SpendKey, transaction: DbcTransaction) -> Result<(), Self::Error> {
-        self.transactions.insert(spend_key, transaction);
-        Ok(())
+    fn verify_spent(&self, spend_key: SpendKey, tx_hash: Hash) -> Result<(), Self::Error> {
+        self.lock()
+            .map_err(|_| SimpleSpendBookError::MutexError)?
+            .transactions
+            .get(&spend_key)
+            .ok_or(SimpleSpendBookError::NoEntryForSpendKey(spend_key))
+            .and_then(|tx| {
+                if tx.hash() == tx_hash {
+                    Ok(())
+                } else {
+                    Err(SimpleSpendBookError::TxHashDoesNotMatchCommitment)
+                }
+            })
     }
 }
 
@@ -108,5 +124,18 @@ impl SimpleSpendBook {
 
     pub fn iter(&self) -> std::collections::btree_map::Iter<SpendKey, DbcTransaction> {
         self.transactions.iter()
+    }
+
+    pub fn log_spent(&mut self, spend_key: SpendKey, transaction: DbcTransaction) {
+        self.transactions.entry(spend_key).or_insert(transaction);
+    }
+
+    pub fn is_spent(&self, spend_key: SpendKey) -> bool {
+        self.transactions.contains_key(&spend_key)
+    }
+
+    #[cfg(test)]
+    pub fn reset(&mut self) {
+        self.transactions.clear();
     }
 }

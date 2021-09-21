@@ -15,7 +15,7 @@
 
 use crate::{
     Amount, Dbc, DbcContent, DbcTransaction, Error, KeyManager, NodeSignature, PublicKey,
-    PublicKeySet, Result, SpendBook, SpendKey,
+    PublicKeySet, Result, SpendBookVerifier, SpendKey,
 };
 use curve25519_dalek_ng::ristretto::RistrettoPoint;
 use serde::{Deserialize, Serialize};
@@ -145,13 +145,13 @@ pub struct ReissueShare {
 pub struct Mint<K, S>
 where
     K: KeyManager,
-    S: SpendBook,
+    S: SpendBookVerifier,
 {
     pub(crate) key_manager: K,
     pub spendbook: S,
 }
 
-impl<K: KeyManager, S: SpendBook> Mint<K, S> {
+impl<K: KeyManager, S: SpendBookVerifier> Mint<K, S> {
     pub fn new(key_manager: K, spendbook: S) -> Self {
         Self {
             key_manager,
@@ -170,45 +170,28 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
                 .public_key(),
             DbcContent::random_blinding_factor(),
         )?;
+
         let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter([genesis_dbc_input()]),
             outputs: BTreeSet::from_iter([dbc_content.owner]),
         };
 
-        match self
-            .spendbook
-            .lookup(&genesis_dbc_input())
-            .map_err(|e| Error::SpendBook(e.to_string()))?
-        {
-            Some(tx) if tx != &transaction => return Err(Error::GenesisInputAlreadySpent),
-            _ => (),
-        }
-
-        self.spendbook
-            .log(genesis_dbc_input(), transaction.clone())
-            .map_err(|e| Error::SpendBook(e.to_string()))?;
         let transaction_sig = self
             .key_manager
             .sign(&transaction.hash())
             .map_err(|e| Error::Signing(e.to_string()))?;
 
+        let public_key_set = self
+            .key_manager
+            .public_key_set()
+            .map_err(|e| Error::Signing(e.to_string()))?;
+
         Ok(GenesisDbcShare {
             dbc_content,
             transaction,
-            public_key_set: self
-                .key_manager
-                .public_key_set()
-                .map_err(|e| Error::Signing(e.to_string()))?,
+            public_key_set,
             transaction_sig,
         })
-    }
-
-    pub fn is_spent(&self, spend_key: SpendKey) -> Result<bool> {
-        Ok(self
-            .spendbook
-            .lookup(&spend_key)
-            .map_err(|e| Error::SpendBook(e.to_string()))?
-            .is_some())
     }
 
     pub fn key_manager(&self) -> &K {
@@ -238,34 +221,15 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
         }
 
         // Validate that each input has not yet been spent.
-        for input in inputs_belonging_to_mint.iter() {
-            if let Some(transaction) = self
-                .spendbook
-                .lookup(input)
-                .map_err(|e| Error::SpendBook(e.to_string()))?
-                .cloned()
-            {
-                // This input has already been spent, return the spend transaction to the user
-                let transaction_sigs = self.sign_transaction(&transaction)?;
-                return Err(Error::DbcAlreadySpent {
-                    transaction,
-                    transaction_sigs,
-                });
+        for input in reissue_req.transaction.inputs.iter() {
+            if inputs_belonging_to_mint.contains(&input.spend_key()) {
+                self.spendbook
+                    .verify_spent(input.spend_key(), transaction.hash())
+                    .map_err(|e| Error::SpendBook(e.to_string()))?;
             }
         }
 
         let transaction_sigs = self.sign_transaction(&transaction)?;
-
-        for input in reissue_req
-            .transaction
-            .inputs
-            .iter()
-            .filter(|&i| inputs_belonging_to_mint.contains(&i.spend_key()))
-        {
-            self.spendbook
-                .log(input.spend_key(), transaction.clone())
-                .map_err(|e| Error::SpendBook(e.to_string()))?;
-        }
 
         let reissue_share = ReissueShare {
             dbc_transaction: transaction,
@@ -293,16 +257,6 @@ impl<K: KeyManager, S: SpendBook> Mint<K, S> {
             ))),
         ))
     }
-
-    // Used in testing / benchmarking
-    pub fn snapshot_spendbook(&self) -> S {
-        self.spendbook.clone()
-    }
-
-    // Used in testing / benchmarking
-    pub fn reset_spendbook(&mut self, spendbook: S) {
-        self.spendbook = spendbook
-    }
 }
 
 #[cfg(test)]
@@ -310,6 +264,7 @@ mod tests {
     use super::*;
     use blsttc::{Ciphertext, DecryptionShare, SecretKeyShare};
     use quickcheck_macros::quickcheck;
+    use std::sync::{Arc, Mutex};
 
     use crate::{
         tests::{TinyInt, TinyVec},
@@ -319,6 +274,7 @@ mod tests {
 
     #[quickcheck]
     fn prop_genesis() -> Result<(), Error> {
+        let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
 
@@ -326,9 +282,9 @@ mod tests {
             SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
+        let mut genesis_node = Mint::new(key_manager, spend_book);
 
-        let genesis = genesis_node.issue_genesis_dbc(1000).unwrap();
+        let genesis = genesis_node.issue_genesis_dbc(1000)?;
 
         let genesis_sig = genesis
             .public_key_set
@@ -364,7 +320,9 @@ mod tests {
         let genesis_key = genesis_owner.public_key_set.public_key();
         let key_manager =
             SimpleKeyManager::new(SimpleSigner::from(genesis_owner.clone()), genesis_key);
-        let mut genesis_node = Mint::new(key_manager.clone(), SimpleSpendBook::new());
+
+        let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
+        let mut genesis_node = Mint::new(key_manager.clone(), spend_book.clone());
 
         let genesis = genesis_node.issue_genesis_dbc(output_amount)?;
         let genesis_sig = genesis
@@ -388,12 +346,17 @@ mod tests {
         let output_owner_pk = output_owner.public_key_set.public_key();
 
         let reissue_tx = crate::TransactionBuilder::default()
-            .add_input(genesis_dbc, genesis_amount_secrets)
+            .add_input(genesis_dbc.clone(), genesis_amount_secrets)
             .add_outputs(output_amounts.iter().map(|a| crate::Output {
                 amount: *a,
                 owner: output_owner_pk,
             }))
             .build()?;
+
+        spend_book
+            .lock()
+            .unwrap()
+            .log_spent(genesis_dbc.spend_key(), reissue_tx.blinded());
 
         let rr = ReissueRequestBuilder::new(reissue_tx.clone())
             .add_dbc_signer(
@@ -446,7 +409,8 @@ mod tests {
         let genesis_key = genesis_owner.public_key_set.public_key();
         let key_manager =
             SimpleKeyManager::new(SimpleSigner::from(genesis_owner.clone()), genesis_key);
-        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
+        let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
+        let mut genesis_node = Mint::new(key_manager, spend_book.clone());
 
         let genesis = genesis_node.issue_genesis_dbc(1000)?;
         let genesis_sig = genesis
@@ -466,14 +430,18 @@ mod tests {
         let genesis_amount_secrets =
             DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
 
-        let output_owner = crate::bls_dkg_id();
         let reissue_tx = crate::TransactionBuilder::default()
             .add_input(genesis_dbc.clone(), genesis_amount_secrets)
             .add_output(crate::Output {
                 amount: 1000,
-                owner: output_owner.public_key_set.public_key(),
+                owner: crate::bls_dkg_id().public_key_set.public_key(),
             })
             .build()?;
+
+        spend_book
+            .lock()
+            .unwrap()
+            .log_spent(genesis_dbc.spend_key(), reissue_tx.blinded());
 
         let rr = ReissueRequestBuilder::new(reissue_tx)
             .add_dbc_signer(
@@ -483,15 +451,13 @@ mod tests {
             )
             .build()?;
 
-        let reissue_share = genesis_node.reissue(rr, BTreeSet::from_iter([gen_dbc_spend_key]))?;
-        let t = reissue_share.dbc_transaction;
-        let s = reissue_share.mint_node_signatures;
+        genesis_node.reissue(rr, BTreeSet::from_iter([gen_dbc_spend_key]))?;
 
         let double_spend_reissue_tx = crate::TransactionBuilder::default()
             .add_input(genesis_dbc, genesis_amount_secrets)
             .add_output(crate::Output {
                 amount: 1000,
-                owner: output_owner.public_key_set.public_key(),
+                owner: crate::bls_dkg_id().public_key_set.public_key(),
             })
             .build()?;
 
@@ -505,10 +471,7 @@ mod tests {
 
         let res = genesis_node.reissue(double_spend_rr, BTreeSet::from_iter([gen_dbc_spend_key]));
 
-        assert!(matches!(
-            res,
-            Err(Error::DbcAlreadySpent { transaction, transaction_sigs }) if transaction == t && transaction_sigs == s
-        ));
+        assert!(matches!(res, Err(Error::SpendBook(_))));
 
         Ok(())
     }
@@ -525,6 +488,8 @@ mod tests {
         input_owner_proofs: TinyVec<TinyInt>,
         // Include an invalid ownership proof for the following inputs
         invalid_input_owner_proofs: TinyVec<TinyInt>,
+        // DBC's missing Spentbook entries
+        missing_spent_book_entry: TinyVec<TinyInt>,
     ) -> Result<(), Error> {
         let input_amounts =
             Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<Amount>));
@@ -547,13 +512,20 @@ mod tests {
                 .map(TinyInt::coerce::<usize>),
         );
 
+        let missing_spent_book_entry = BTreeSet::from_iter(
+            missing_spent_book_entry
+                .into_iter()
+                .map(TinyInt::coerce::<usize>),
+        );
+
         let genesis_owner = crate::bls_dkg_id();
         let genesis_key = genesis_owner.public_key_set.public_key();
         let key_manager = SimpleKeyManager::new(
             SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
+        let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
+        let mut genesis_node = Mint::new(key_manager, spend_book.clone());
 
         let genesis_amount: Amount = input_amounts.iter().sum();
         let genesis = genesis_node.issue_genesis_dbc(genesis_amount)?;
@@ -582,7 +554,7 @@ mod tests {
         }));
 
         let reissue_tx = crate::TransactionBuilder::default()
-            .add_input(genesis_dbc, genesis_amount_secrets)
+            .add_input(genesis_dbc.clone(), genesis_amount_secrets)
             .add_outputs(
                 owner_amounts_and_keys
                     .clone()
@@ -590,6 +562,11 @@ mod tests {
                     .map(|(owner, (amount, _))| crate::Output { amount, owner }),
             )
             .build()?;
+
+        spend_book
+            .lock()
+            .unwrap()
+            .log_spent(genesis_dbc.spend_key(), reissue_tx.blinded());
 
         let rr1 = ReissueRequestBuilder::new(reissue_tx)
             .add_dbc_signer(
@@ -702,6 +679,17 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()?;
         let output_total_amount: Amount = dbc_output_amounts.iter().sum();
 
+        for (i, in_dbc) in reissue_tx.inputs.iter().enumerate() {
+            if missing_spent_book_entry.contains(&i) {
+                continue;
+            }
+
+            spend_book
+                .lock()
+                .unwrap()
+                .log_spent(in_dbc.spend_key(), reissue_tx.blinded());
+        }
+
         let rr2 = ReissueRequest {
             transaction: reissue_tx,
             input_ownership_proofs,
@@ -716,6 +704,9 @@ mod tests {
             Ok(rs) => {
                 assert_eq!(genesis_amount, output_total_amount);
                 assert_eq!(dbcs_with_fuzzed_parents.len(), 0);
+                assert!(missing_spent_book_entry
+                    .iter()
+                    .all(|i| i >= &rr2.transaction.inputs.len()));
                 assert!(
                     input_amounts.is_empty()
                         || BTreeSet::from_iter(dbcs_with_invalid_ownership_proofs.keys().copied())
@@ -808,6 +799,9 @@ mod tests {
             Err(Error::FailedUnblinding) => {
                 assert_ne!(dbcs_with_invalid_ownership_proofs.len(), 0);
             }
+            Err(Error::SpendBook(_)) => {
+                assert_ne!(missing_spent_book_entry.len(), 0);
+            }
             err => panic!("Unexpected reissue err {:#?}", err),
         }
 
@@ -833,7 +827,8 @@ mod tests {
             SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
+        let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
+        let mut genesis_node = Mint::new(key_manager, spend_book);
 
         let input_owner = crate::bls_dkg_id();
         let input_content = DbcContent::new(
@@ -907,7 +902,8 @@ mod tests {
             SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager.clone(), SimpleSpendBook::new());
+        let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
+        let mut genesis_node = Mint::new(key_manager.clone(), spend_book.clone());
 
         let genesis = genesis_node.issue_genesis_dbc(1000)?;
         let genesis_sig = genesis
@@ -964,6 +960,11 @@ mod tests {
 
         // Add the fudged output back into the reissue transaction.
         transaction.outputs.insert(out_dbc_content);
+
+        spend_book
+            .lock()
+            .unwrap()
+            .log_spent(genesis_dbc.spend_key(), transaction.blinded());
 
         let rr = ReissueRequestBuilder::new(transaction)
             .add_dbc_signer(
@@ -1038,6 +1039,11 @@ mod tests {
             })
             .build()?;
 
+        spend_book
+            .lock()
+            .unwrap()
+            .log_spent(input_dbc.spend_key(), transaction.blinded());
+
         let rr = ReissueRequestBuilder::new(transaction)
             .add_dbc_signer(
                 input_dbc.spend_key(),
@@ -1065,6 +1071,12 @@ mod tests {
                 owner: outputs_owner_pk,
             })
             .build()?;
+
+        spend_book.lock().unwrap().reset();
+        spend_book
+            .lock()
+            .unwrap()
+            .log_spent(input_dbc.spend_key(), transaction.blinded());
 
         let rr = ReissueRequestBuilder::new(transaction)
             .add_dbc_signer(

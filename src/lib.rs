@@ -33,7 +33,7 @@ pub use crate::{
         genesis_dbc_input, GenesisDbcShare, Mint, MintNodeSignatures, ReissueRequest, ReissueShare,
         ReissueTransaction,
     },
-    spend_book::{SimpleSpendBook, SpendBook, SpendKey},
+    spend_book::{SimpleSpendBook, SpendBookVerifier, SpendKey},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

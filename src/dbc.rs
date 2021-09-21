@@ -83,6 +83,7 @@ mod tests {
 
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
+    use std::sync::{Arc, Mutex};
 
     use quickcheck_macros::quickcheck;
 
@@ -185,7 +186,8 @@ mod tests {
             SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager, SimpleSpendBook::new());
+        let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
+        let mut genesis_node = Mint::new(key_manager, spend_book.clone());
 
         let genesis = genesis_node.issue_genesis_dbc(amount).unwrap();
 
@@ -206,10 +208,15 @@ mod tests {
         let input_owner = crate::bls_dkg_id();
         let reissue_request = prepare_even_split(
             &genesis_owner,
-            genesis_dbc,
+            genesis_dbc.clone(),
             n_inputs.coerce(),
             &input_owner.public_key_set,
         )?;
+
+        spend_book.lock().unwrap().log_spent(
+            genesis_dbc.spend_key(),
+            reissue_request.transaction.blinded(),
+        );
 
         let split_reissue_share = genesis_node
             .reissue(
@@ -239,6 +246,11 @@ mod tests {
 
         let mut rr_builder = ReissueRequestBuilder::new(reissue_tx.clone());
         for input in reissue_tx.inputs.iter() {
+            spend_book
+                .lock()
+                .unwrap()
+                .log_spent(input.spend_key(), reissue_tx.blinded());
+
             rr_builder = rr_builder.add_dbc_signer(
                 input.spend_key(),
                 input_owner.public_key_set.clone(),
