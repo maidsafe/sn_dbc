@@ -10,23 +10,24 @@
 //! Safe Network DBC Mint CLI playground.
 #![allow(clippy::from_iter_instead_of_collect)]
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{anyhow, Result};
 use blsttc::poly::Poly;
 use blsttc::serde_impl::SerdeSecret;
 use blsttc::{
-    PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, Signature, SignatureShare,
+    Fr, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, SignatureShare,
 };
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, GenesisDbcShare, Mint, Output, ReissueRequest, ReissueRequestBuilder,
-    ReissueTransaction, SimpleKeyManager as KeyManager, SimpleSigner as Signer,
-    SimpleSpendBook as SpendBook, SpendKey, TransactionBuilder,
+    Amount, Dbc, DbcBuilder, GenesisDbcShare, MintNode, Output, ReissueTransaction,
+    SimpleKeyManager as KeyManager, SimpleSigner as Signer, SimpleSpendBook as SpendBook, SpendKey,
+    TransactionBuilder,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
+use std::sync::{Arc, Mutex};
 
 #[cfg(unix)]
 use std::os::unix::{io::AsRawFd, prelude::RawFd};
@@ -37,7 +38,7 @@ use termios::{tcsetattr, Termios, ICANON, TCSADRAIN};
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
 struct MintInfo {
-    mintnodes: Vec<Mint<KeyManager, SpendBook>>,
+    mintnodes: Vec<MintNode<KeyManager, Arc<Mutex<SpendBook>>>>,
     genesis: DbcUnblinded,
     secret_key_set: SecretKeySet,
     poly: Poly,
@@ -45,7 +46,7 @@ struct MintInfo {
 
 impl MintInfo {
     // returns the first mint node.
-    fn mintnode(&self) -> Result<&Mint<KeyManager, SpendBook>> {
+    fn mintnode(&self) -> Result<&MintNode<KeyManager, Arc<Mutex<SpendBook>>>> {
         self.mintnodes
             .get(0)
             .ok_or_else(|| anyhow!("Mint not yet created"))
@@ -70,14 +71,6 @@ struct DbcUnblinded {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReissueTransactionUnblinded {
     inner: ReissueTransaction,
-    input_pk_pks: HashMap<PublicKey, PublicKeySet>,
-    output_pk_pks: HashMap<PublicKey, PublicKeySet>,
-}
-
-/// A ReissueRequest with pubkey set for all the input and output Dbcs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ReissueRequestUnblinded {
-    inner: ReissueRequest,
     input_pk_pks: HashMap<PublicKey, PublicKeySet>,
     output_pk_pks: HashMap<PublicKey, PublicKeySet>,
 }
@@ -118,7 +111,6 @@ fn main() -> Result<()> {
                     "mintinfo" => print_mintinfo_human(&mintinfo),
                     "prepare_tx" => prepare_tx(),
                     "sign_tx" => sign_tx(),
-                    "prepare_reissue" => prepare_reissue(),
                     "reissue" => reissue(&mut mintinfo),
                     "reissue_ez" => reissue_ez(&mut mintinfo),
                     "validate" => validate(&mintinfo),
@@ -127,7 +119,7 @@ fn main() -> Result<()> {
                     "quit" | "exit" => break,
                     "help" => {
                         println!(
-                            "\nCommands:\n  Mint:    [mintinfo, newmint, reissue]\n  Client:  [newkey, prepare_tx, sign_tx, prepare_reissue, reissue_ez, decode, validate]\n  General: [exit, help]\n"
+                            "\nCommands:\n  Mint:    [mintinfo, newmint, reissue]\n  Client:  [newkey, prepare_tx, sign_tx, reissue_ez, decode, validate]\n  General: [exit, help]\n"
                         );
                         Ok(())
                     }
@@ -212,7 +204,7 @@ fn mk_new_random_mint(threshold: usize, amount: Amount) -> Result<MintInfo> {
 /// creates a new mint from an existing SecretKeySet that was seeded by poly.
 fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Result<MintInfo> {
     let genesis_pubkey = secret_key_set.public_keys().public_key();
-    let mut mints: Vec<Mint<KeyManager, SpendBook>> = Default::default();
+    let mut mints: Vec<MintNode<KeyManager, Arc<Mutex<SpendBook>>>> = Default::default();
 
     // Generate each Mint node, and corresponding NodeSignature. (Index + SignatureShare)
     let mut genesis_set: Vec<GenesisDbcShare> = Default::default();
@@ -224,7 +216,7 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Resu
             ),
             genesis_pubkey,
         );
-        let mut mint = Mint::new(key_manager, SpendBook::new());
+        let mut mint = MintNode::new(key_manager, Arc::new(Mutex::new(SpendBook::new())));
         genesis_set.push(mint.issue_genesis_dbc(amount)?);
         mints.push(mint);
     }
@@ -389,7 +381,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     println!("\n");
 
     println!("-- SpendBook --\n");
-    for (dbc_owner, _tx) in mintinfo.mintnode()?.spendbook.iter() {
+    for (dbc_owner, _tx) in mintinfo.mintnode()?.spendbook.lock().unwrap().iter() {
         println!("  {}", encode(&dbc_owner.0.to_bytes()));
     }
 
@@ -458,7 +450,7 @@ fn print_dbc_human(
 
 /// handles decode command.  
 fn decode_input() -> Result<()> {
-    let t = readline_prompt("\n[d: DBC, rt: ReissueTransaction, s: SignatureSharesMap, rr: ReissueRequest, pks: PublicKeySet, sks: SecretKeySet]\nType: ")?;
+    let t = readline_prompt("\n[d: DBC, rt: ReissueTransaction, s: SignatureSharesMap, pks: PublicKeySet, sks: SecretKeySet]\nType: ")?;
     let input = readline_prompt_nl("\nPaste Data: ")?;
     let bytes = decode(input)?;
 
@@ -530,10 +522,6 @@ fn decode_input() -> Result<()> {
             "\n\n-- SignatureSharesMap --\n\n{:#?}",
             from_be_bytes::<SignatureSharesMap>(&bytes)?
         ),
-        "rr" => println!(
-            "\n\n-- ReissueRequest --\n\n{:#?}",
-            from_be_bytes::<ReissueRequestUnblinded>(&bytes)?
-        ),
         _ => println!("Unknown type!"),
     }
     println!();
@@ -569,7 +557,13 @@ fn validate(mintinfo: &MintInfo) -> Result<()> {
     };
 
     match dbc.confirm_valid(mintinfo.mintnode()?.key_manager()) {
-        Ok(_) => match mintinfo.mintnode()?.is_spent(dbc.spend_key())? {
+        Ok(_) => match mintinfo
+            .mintnode()?
+            .spendbook
+            .lock()
+            .unwrap()
+            .is_spent(dbc.spend_key())
+        {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
         },
@@ -781,115 +775,23 @@ fn sign_tx() -> Result<()> {
     Ok(())
 }
 
-/// Implements prepare_reissue command.
-fn prepare_reissue() -> Result<()> {
-    // TODO: rewrite this using the ReissueRequestBuilder
-    let tx_input = readline_prompt_nl("\nReissueTransaction: ")?;
-    let tx: ReissueTransactionUnblinded = from_be_hex(&tx_input)?;
-    let mut sig_shares_by_input: HashMap<PublicKey, BTreeMap<usize, SignatureShare>> =
-        Default::default();
-
-    // Get from user: SignatureSharesMap(s) for each tx input
-    //                until required # of SignatureShare obtained.
-    for dbc in tx.inner.inputs.iter() {
-        println!("-----------------");
-        println!("Input [id: {}]", encode(dbc.owner().to_bytes()),);
-        println!("-----------------");
-
-        let pubkeyset = tx
-            .input_pk_pks
-            .get(&dbc.owner())
-            .ok_or_else(|| anyhow!("PubKeySet not found"))?;
-
-        let mut num_shares = 0usize;
-        while num_shares < pubkeyset.threshold() + 1 {
-            let ssm_input = readline_prompt_nl("\nSignatureSharesMap, or 'cancel': ")?;
-            let shares_map: SignatureSharesMap = if ssm_input == "cancel" {
-                println!("\nprepare_reissue cancelled.\n");
-                return Ok(());
-            } else {
-                from_be_hex(&ssm_input)?
-            };
-            for (owner, shares) in shares_map.0.iter() {
-                for (idx, share) in shares.iter() {
-                    let list = sig_shares_by_input
-                        .entry(*owner)
-                        .or_insert_with(BTreeMap::default);
-                    (*list).insert(*idx, share.clone());
-                    num_shares += 1;
-                }
-            }
-        }
-    }
-
-    let mut proofs: HashMap<SpendKey, Signature> = Default::default();
-    for dbc in tx.inner.inputs.iter() {
-        let shares = match sig_shares_by_input.get(&dbc.owner()) {
-            Some(s) => s,
-            None => {
-                return Err(anyhow!(
-                    "Signature Shares not found for input Dbc {}",
-                    encode(&dbc.owner().to_bytes())
-                ))
-            }
-        };
-        let pubkeyset = tx
-            .input_pk_pks
-            .get(&dbc.owner())
-            .ok_or_else(|| anyhow!("PubKeySet not found"))?;
-
-        let sig = pubkeyset
-            .combine_signatures(shares)
-            .map_err(|e| Error::msg(format!("{}", e)))?;
-        proofs.insert(dbc.spend_key(), sig);
-    }
-
-    println!("\n\nThank-you.   Preparing ReissueRequest...\n\n");
-
-    let reissue_request = ReissueRequestUnblinded {
-        inner: ReissueRequest {
-            transaction: tx.inner.clone(),
-            input_ownership_proofs: proofs,
-        },
-        input_pk_pks: tx.input_pk_pks,
-        output_pk_pks: tx.output_pk_pks,
-    };
-
-    println!("\n-- ReissueRequest --");
-    println!("{}", to_be_hex(&reissue_request)?);
-    println!("-- End ReissueRequest --\n");
-
-    Ok(())
-}
-
 /// Implements reissue command.
 fn reissue(mintinfo: &mut MintInfo) -> Result<()> {
-    let mr_input = readline_prompt_nl("\nReissueRequest: ")?;
-    let reissue_request: ReissueRequestUnblinded = from_be_hex(&mr_input)?;
+    let tx_input = readline_prompt_nl("\nReissueTransaction: ")?;
+    let tx: ReissueTransactionUnblinded = from_be_hex(&tx_input)?;
 
     println!("\n\nThank-you.   Generating DBC(s)...\n\n");
 
-    let input_keys = BTreeSet::from_iter(
-        reissue_request
-            .inner
-            .transaction
-            .inputs
-            .iter()
-            .map(Dbc::spend_key),
-    );
+    let input_keys = BTreeSet::from_iter(tx.inner.inputs.iter().map(Dbc::spend_key));
 
-    reissue_exec(
-        mintinfo,
-        &reissue_request.inner,
-        &input_keys,
-        &reissue_request.output_pk_pks,
-    )
+    reissue_exec(mintinfo, &tx.inner, &input_keys, &tx.output_pk_pks)
 }
 
 /// Implements reissue_ez command.
 fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
     let mut tx_builder: TransactionBuilder = Default::default();
-    let mut rr_builder: ReissueRequestBuilder = Default::default();
+    let mut dbc_signers: BTreeMap<SpendKey, (PublicKeySet, BTreeMap<Fr, SecretKeyShare>)> =
+        Default::default();
     let mut pk_pks: HashMap<PublicKey, PublicKeySet> = Default::default();
 
     // Get from user: input DBC(s) and required # of SecretKeyShare+index for each.
@@ -929,7 +831,9 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
             dbc.owner.threshold() + 1
         );
 
-        while rr_builder.num_signers_by_dbc(dbc.inner.spend_key()) < dbc.owner.threshold() + 1 {
+        let mut secret_shares = BTreeMap::new();
+
+        while dbc.owner.threshold() + 1 > secret_shares.len() {
             let key = readline_prompt_nl("\nSecretKeyShare, or 'cancel': ")?;
             let secret: SecretKeyShare = if key == "cancel" {
                 println!("\nreissue_ez cancelled\n");
@@ -940,25 +844,16 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
             let idx_input = readline_prompt("\nSecretKeyShare Index: ")?;
             let idx: usize = idx_input.parse()?;
 
-            rr_builder = rr_builder.add_dbc_signer(
-                dbc.inner.spend_key(),
-                dbc.owner.clone(),
-                (idx, secret.clone()),
-            );
+            secret_shares.insert(idx.into_fr(), secret);
         }
-
-        let secret_shares = rr_builder
-            .get_signers(dbc.inner.spend_key())
-            .ok_or(sn_dbc::Error::MissingInputOwnerProof)?
-            .get(&dbc.owner)
-            .ok_or(sn_dbc::Error::ReissueRequestPublicKeySetMismatch)?;
 
         let amount_secrets = dbc
             .inner
             .content
-            .amount_secrets_by_secret_key_shares(&dbc.owner, secret_shares)?;
+            .amount_secrets_by_secret_key_shares(&dbc.owner, &secret_shares)?;
 
         tx_builder = tx_builder.add_input(dbc.inner.clone(), amount_secrets);
+        dbc_signers.insert(dbc.inner.spend_key(), (dbc.owner, secret_shares));
     }
 
     let mut i = 0u32;
@@ -1022,22 +917,18 @@ fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
     println!("\n\nThank-you.   Generating DBC(s)...\n\n");
 
     let input_owners = tx_builder.input_spend_keys();
-    let transaction = tx_builder.build()?;
-    let rr = rr_builder.set_reissue_transaction(transaction).build()?;
-
-    println!("Prepared reissue request...");
-
-    reissue_exec(mintinfo, &rr, &input_owners, &pk_pks)
+    let tx = tx_builder.build()?;
+    reissue_exec(mintinfo, &tx, &input_owners, &pk_pks)
 }
 
 /// Performs reissue
 fn reissue_exec(
     mintinfo: &mut MintInfo,
-    reissue_request: &ReissueRequest,
+    reissue_tx: &ReissueTransaction,
     input_owners: &BTreeSet<SpendKey>,
     output_pk_pks: &HashMap<PublicKey, PublicKeySet>,
 ) -> Result<()> {
-    let mut dbc_builder = DbcBuilder::new(reissue_request.transaction.clone());
+    let mut dbc_builder = DbcBuilder::new(reissue_tx.clone());
 
     // Mint is multi-node.  So each mint node must execute Mint::reissue() and
     // provide its SignatureShare, which the client must then combine together
@@ -1045,8 +936,17 @@ fn reissue_exec(
     for mint in mintinfo.mintnodes.iter_mut() {
         // here we pretend the client has made a network request to a single mint node
         // so this mint.reissue() execs on the Mint node and returns data to client.
-        println!("Sending reissue request..");
-        let reissue_share = mint.reissue(reissue_request.clone(), input_owners.clone())?;
+        let blinded_tx = reissue_tx.blinded();
+        for in_dbc in reissue_tx.inputs.iter() {
+            mint.spendbook
+                .lock()
+                .unwrap()
+                .log_spent(in_dbc.spend_key(), blinded_tx.clone());
+        }
+
+        println!("Sending reissue tx..");
+
+        let reissue_share = mint.reissue(reissue_tx.clone(), input_owners.clone())?;
 
         // and now we are back to client code.
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
