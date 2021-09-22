@@ -111,7 +111,7 @@ fn main() -> Result<()> {
                     "mintinfo" => print_mintinfo_human(&mintinfo),
                     "prepare_tx" => prepare_tx(),
                     "sign_tx" => sign_tx(),
-                    // "reissue" => reissue(&mut mintinfo),
+                    "reissue" => reissue(&mut mintinfo),
                     "reissue_ez" => reissue_ez(&mut mintinfo),
                     "validate" => validate(&mintinfo),
                     "newkey" => newkey(),
@@ -119,7 +119,7 @@ fn main() -> Result<()> {
                     "quit" | "exit" => break,
                     "help" => {
                         println!(
-                            "\nCommands:\n  Mint:    [mintinfo, newmint, reissue]\n  Client:  [newkey, prepare_tx, sign_tx, prepare_reissue, reissue_ez, decode, validate]\n  General: [exit, help]\n"
+                            "\nCommands:\n  Mint:    [mintinfo, newmint, reissue]\n  Client:  [newkey, prepare_tx, sign_tx, reissue_ez, decode, validate]\n  General: [exit, help]\n"
                         );
                         Ok(())
                     }
@@ -775,31 +775,17 @@ fn sign_tx() -> Result<()> {
     Ok(())
 }
 
-/*
 /// Implements reissue command.
 fn reissue(mintinfo: &mut MintInfo) -> Result<()> {
-    let mr_input = readline_prompt_nl("\nReissueRequest: ")?;
-    let reissue_request: ReissueRequestUnblinded = from_be_hex(&mr_input)?;
+    let tx_input = readline_prompt_nl("\nReissueTransaction: ")?;
+    let tx: ReissueTransactionUnblinded = from_be_hex(&tx_input)?;
 
     println!("\n\nThank-you.   Generating DBC(s)...\n\n");
 
-    let input_keys = BTreeSet::from_iter(
-        reissue_request
-            .inner
-            .transaction
-            .inputs
-            .iter()
-            .map(Dbc::spend_key),
-    );
+    let input_keys = BTreeSet::from_iter(tx.inner.inputs.iter().map(Dbc::spend_key));
 
-    reissue_exec(
-        mintinfo,
-        &reissue_request.inner,
-        &input_keys,
-        &reissue_request.output_pk_pks,
-    )
+    reissue_exec(mintinfo, &tx.inner, &input_keys, &tx.output_pk_pks)
 }
-*/
 
 /// Implements reissue_ez command.
 fn reissue_ez(mintinfo: &mut MintInfo) -> Result<()> {
