@@ -1,6 +1,8 @@
+
+use crate::{Amount, AmountCounter, PowerOfTen, Result, Error};
 use crate::amount::digits;
-use crate::{Amount, AmountCounter, PowerOfTen, Result};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Denomination {
@@ -141,6 +143,49 @@ impl Denomination {
             chosen.push(*denom);
         }
         chosen
+    }
+}
+
+impl FromStr for Denomination {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let r = s.parse::<u128>();
+
+        let n = match r {
+            Ok(n) => n,
+            Err(_) => return Err(Error::UnparseableDenomination),
+        };
+
+        let mut cnt = 1i8;
+        let (exp, amt) = loop {
+            if cnt >= 38 {
+                return Err(Error::UnparseableDenomination);
+            }
+            let amt = 10u128.pow(cnt as u32);
+            if amt > n {
+                break (cnt -1, 10u128.pow(cnt as u32 - 1));
+            }
+            cnt += 1;
+        };
+        
+        if n % amt == 0 {
+            let denom = match n / amt {
+                1 => Self::One(exp),
+                2 => Self::Two(exp),
+                3 => Self::Three(exp),
+                4 => Self::Four(exp),
+                5 => Self::Five(exp),
+                6 => Self::Six(exp),
+                7 => Self::Seven(exp),
+                8 => Self::Eight(exp),
+                9 => Self::Nine(exp),
+                _ => return Err(Error::UnparseableDenomination),
+            };
+            Ok(denom)
+        } else {
+            Err(Error::UnparseableDenomination)
+        }
     }
 }
 
