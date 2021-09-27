@@ -82,11 +82,17 @@ pub enum Error {
     #[error("Unknown denomination")]
     UnknownDenomination,
 
+    #[error("Denomination could not be parsed")]
+    UnparseableDenomination,
+
     #[error("Incompatible denomination amounts")]
     AmountIncompatible,
 
     #[error("Operation would result in underflow")]
     AmountUnderflow,
+
+    #[error("Amount could not be parsed")]
+    AmountUnparseable,
 
     /// Blind Signature error
     #[error("blind signature error: {0}")]

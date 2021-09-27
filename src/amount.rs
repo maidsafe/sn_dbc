@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::str::FromStr;
 
 // represents the exponent in 10^-10, 10^0, 10^3, etc.  -127..127.
 pub type PowerOfTen = i8;
@@ -268,9 +269,6 @@ impl Amount {
             };
             let unit_base = *[a.unit, b.unit].iter().min().unwrap();
 
-            // println!("unit_distance_range: {:?}", (a.unit..b.unit));
-            // println!("unit_distance: {}", unit_distance);
-
             let mut pair: Vec<NormalizedAmount> = [a, b]
                 .iter()
                 .rev()
@@ -299,7 +297,6 @@ impl Amount {
         // 4. Amount::new()
 
         let (a, b) = Self::normalize(self, other);
-        // println!("a: {:?}, b: {:?}", a, b);
 
         let mut count_sum = a.count + b.count;
         let mut unit = a.unit;
@@ -327,15 +324,8 @@ impl Amount {
         // 2. subtract count.
         // 3. find unit in which count is less than Self::counter_max()
         // 4. Amount::new()
-
-        // println!("-- sub() --");
-        // println!("self: {:?}, other: {:?}", self, other);
-
         let (a, b) = Self::normalize(self, rhs);
-        println!("a: {:?}, b: {:?}", a, b);
-
         let count_diff = a.count - b.count;
-        println!("count_diff: {}", count_diff);
 
         match AmountCounter::try_from(count_diff) {
             Ok(v) if v <= Self::counter_max() => Ok(Amount::new(v, a.unit)),
@@ -441,13 +431,8 @@ impl Ord for Amount {
         let a_digits = digits(self.count);
         let b_digits = digits(other.count);
 
-        // println!("a_unit: {}, a_digits_len: {}", self.unit, a_digits.len());
-        // println!("b_unit: {}, b_digits_len: {}", other.unit, b_digits.len());
         let a_num_digits = self.unit as isize + a_digits.len() as isize;
         let b_num_digits = other.unit as isize + b_digits.len() as isize;
-
-        // println!("a_num_digits: {}", a_num_digits);
-        // println!("b_num_digits: {}", b_num_digits);
 
         if a_num_digits == b_num_digits {
             for (ad, bd) in a_digits.iter().zip(b_digits.iter()) {
@@ -470,6 +455,23 @@ impl Ord for Amount {
         } else {
             a_num_digits.cmp(&b_num_digits)
         }
+    }
+}
+
+impl FromStr for Amount {
+    type Err = Error;
+
+    // fixme: implement real parsing for Amount.  for now
+    //        we cheat and parse as a u32.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let r = s.parse::<u32>();
+
+        let n = match r {
+            Ok(n) => n,
+            Err(_) => return Err(Error::AmountUnparseable),
+        };
+
+        Ok(Self::new(n, 0))
     }
 }
 
