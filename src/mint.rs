@@ -135,7 +135,7 @@ pub struct ReissueShare {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Mint<K, S>
+pub struct MintNode<K, S>
 where
     K: KeyManager,
     S: SpendBookVerifier,
@@ -144,7 +144,7 @@ where
     pub spendbook: S,
 }
 
-impl<K: KeyManager, S: SpendBookVerifier> Mint<K, S> {
+impl<K: KeyManager, S: SpendBookVerifier> MintNode<K, S> {
     pub fn new(key_manager: K, spendbook: S) -> Self {
         Self {
             key_manager,
@@ -265,7 +265,7 @@ mod tests {
             SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
-        let mut genesis_node = Mint::new(key_manager, spend_book);
+        let mut genesis_node = MintNode::new(key_manager, spend_book);
 
         let genesis = genesis_node.issue_genesis_dbc(1000)?;
 
@@ -305,7 +305,7 @@ mod tests {
             SimpleKeyManager::new(SimpleSigner::from(genesis_owner.clone()), genesis_key);
 
         let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
-        let mut genesis_node = Mint::new(key_manager.clone(), spend_book.clone());
+        let mut genesis_node = MintNode::new(key_manager.clone(), spend_book.clone());
 
         let genesis = genesis_node.issue_genesis_dbc(output_amount)?;
         let genesis_sig = genesis
@@ -385,7 +385,7 @@ mod tests {
         let key_manager =
             SimpleKeyManager::new(SimpleSigner::from(genesis_owner.clone()), genesis_key);
         let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
-        let mut genesis_node = Mint::new(key_manager, spend_book.clone());
+        let mut genesis_node = MintNode::new(key_manager, spend_book.clone());
 
         let genesis = genesis_node.issue_genesis_dbc(1000)?;
         let genesis_sig = genesis
@@ -471,7 +471,7 @@ mod tests {
             genesis_owner.public_key_set.public_key(),
         );
         let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
-        let mut genesis_node = Mint::new(key_manager, spend_book.clone());
+        let mut genesis_node = MintNode::new(key_manager, spend_book.clone());
 
         let genesis_amount: Amount = input_amounts.iter().sum();
         let genesis = genesis_node.issue_genesis_dbc(genesis_amount)?;
@@ -676,7 +676,7 @@ mod tests {
             genesis_owner.public_key_set.public_key(),
         );
         let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
-        let mut genesis_node = Mint::new(key_manager, spend_book);
+        let mut genesis_node = MintNode::new(key_manager, spend_book);
 
         let input_owner = crate::bls_dkg_id();
         let input_content = DbcContent::new(
@@ -748,7 +748,7 @@ mod tests {
             genesis_owner.public_key_set.public_key(),
         );
         let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
-        let mut genesis_node = Mint::new(key_manager.clone(), spend_book.clone());
+        let mut genesis_node = MintNode::new(key_manager.clone(), spend_book.clone());
 
         let genesis = genesis_node.issue_genesis_dbc(1000)?;
         let genesis_sig = genesis

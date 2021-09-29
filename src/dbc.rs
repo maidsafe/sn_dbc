@@ -89,7 +89,7 @@ mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, Mint, ReissueTransaction,
+        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, MintNode, ReissueTransaction,
         SimpleKeyManager, SimpleSigner, SimpleSpendBook,
     };
 
@@ -179,7 +179,7 @@ mod tests {
             genesis_owner.public_key_set.public_key(),
         );
         let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
-        let mut genesis_node = Mint::new(key_manager, spend_book.clone());
+        let mut genesis_node = MintNode::new(key_manager, spend_book.clone());
 
         let genesis = genesis_node.issue_genesis_dbc(amount).unwrap();
 

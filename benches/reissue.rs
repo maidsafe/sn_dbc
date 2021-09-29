@@ -5,7 +5,7 @@ use std::iter::FromIterator;
 use std::sync::{Arc, Mutex};
 
 use sn_dbc::{
-    bls_dkg_id, Amount, AmountSecrets, Dbc, DbcContent, Error, Mint, SimpleKeyManager,
+    bls_dkg_id, Amount, AmountSecrets, Dbc, DbcContent, Error, MintNode, SimpleKeyManager,
     SimpleSigner, SimpleSpendBook,
 };
 
@@ -23,7 +23,7 @@ fn decrypt_amount_secrets(
 fn genesis(
     amount: Amount,
 ) -> (
-    Mint<SimpleKeyManager, Arc<Mutex<SimpleSpendBook>>>,
+    MintNode<SimpleKeyManager, Arc<Mutex<SimpleSpendBook>>>,
     bls_dkg::outcome::Outcome,
     Dbc,
 ) {
@@ -36,7 +36,7 @@ fn genesis(
         ),
         genesis_owner.public_key_set.public_key(),
     );
-    let mut genesis_node = Mint::new(key_manager, Arc::new(Mutex::new(SimpleSpendBook::new())));
+    let mut genesis_node = MintNode::new(key_manager, Arc::new(Mutex::new(SimpleSpendBook::new())));
 
     let genesis = genesis_node.issue_genesis_dbc(amount).unwrap();
 

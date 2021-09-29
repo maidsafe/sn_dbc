@@ -30,7 +30,7 @@ pub use crate::{
         SimpleSigner,
     },
     mint::{
-        genesis_dbc_input, GenesisDbcShare, Mint, MintNodeSignatures, ReissueShare,
+        genesis_dbc_input, GenesisDbcShare, MintNode, MintNodeSignatures, ReissueShare,
         ReissueTransaction,
     },
     spend_book::{SimpleSpendBook, SpendBookVerifier, SpendKey},

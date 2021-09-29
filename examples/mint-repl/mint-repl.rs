@@ -21,7 +21,7 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, GenesisDbcShare, Mint, Output, ReissueTransaction,
+    Amount, Dbc, DbcBuilder, GenesisDbcShare, MintNode, Output, ReissueTransaction,
     SimpleKeyManager as KeyManager, SimpleSigner as Signer, SimpleSpendBook as SpendBook, SpendKey,
     TransactionBuilder,
 };
@@ -38,7 +38,7 @@ use termios::{tcsetattr, Termios, ICANON, TCSADRAIN};
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
 struct MintInfo {
-    mintnodes: Vec<Mint<KeyManager, Arc<Mutex<SpendBook>>>>,
+    mintnodes: Vec<MintNode<KeyManager, Arc<Mutex<SpendBook>>>>,
     genesis: DbcUnblinded,
     secret_key_set: SecretKeySet,
     poly: Poly,
@@ -46,7 +46,7 @@ struct MintInfo {
 
 impl MintInfo {
     // returns the first mint node.
-    fn mintnode(&self) -> Result<&Mint<KeyManager, Arc<Mutex<SpendBook>>>> {
+    fn mintnode(&self) -> Result<&MintNode<KeyManager, Arc<Mutex<SpendBook>>>> {
         self.mintnodes
             .get(0)
             .ok_or_else(|| anyhow!("Mint not yet created"))
@@ -204,7 +204,7 @@ fn mk_new_random_mint(threshold: usize, amount: Amount) -> Result<MintInfo> {
 /// creates a new mint from an existing SecretKeySet that was seeded by poly.
 fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Result<MintInfo> {
     let genesis_pubkey = secret_key_set.public_keys().public_key();
-    let mut mints: Vec<Mint<KeyManager, Arc<Mutex<SpendBook>>>> = Default::default();
+    let mut mints: Vec<MintNode<KeyManager, Arc<Mutex<SpendBook>>>> = Default::default();
 
     // Generate each Mint node, and corresponding NodeSignature. (Index + SignatureShare)
     let mut genesis_set: Vec<GenesisDbcShare> = Default::default();
@@ -216,7 +216,7 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Resu
             ),
             genesis_pubkey,
         );
-        let mut mint = Mint::new(key_manager, Arc::new(Mutex::new(SpendBook::new())));
+        let mut mint = MintNode::new(key_manager, Arc::new(Mutex::new(SpendBook::new())));
         genesis_set.push(mint.issue_genesis_dbc(amount)?);
         mints.push(mint);
     }
