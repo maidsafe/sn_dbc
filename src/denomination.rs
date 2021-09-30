@@ -1,7 +1,8 @@
-
-use crate::{Amount, AmountCounter, PowerOfTen, Result, Error};
 use crate::amount::digits;
+use crate::{Amount, AmountCounter, Error, PowerOfTen, Result};
 use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
+use std::fmt;
 use std::str::FromStr;
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -19,11 +20,13 @@ pub enum Denomination {
 
 impl Denomination {
     pub fn to_bytes(&self) -> Vec<u8> {
-        bincode::serialize(self).unwrap() // fixme, unwrap
+        // fixme, unwrap. we should serialize manually without serde.
+        //        to_bytes() should never fail, should not require a Result.
+        bincode::serialize(self).unwrap()
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        Ok(bincode::deserialize(bytes).unwrap()) // fixme, unwrap
+    pub fn from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self> {
+        bincode::deserialize(bytes.as_ref()).map_err(|_| Error::DenominationFromBytes)
     }
 
     pub fn unit(&self) -> PowerOfTen {
@@ -55,16 +58,18 @@ impl Denomination {
     }
 
     pub fn amount(&self) -> Amount {
+        // note: we use new_unchecked because we know the count is less
+        // than Amount::counter_max() and we don't wish to return a Result.
         match *self {
-            Self::One(p) => Amount::new(1, p),
-            Self::Two(p) => Amount::new(2, p),
-            Self::Three(p) => Amount::new(3, p),
-            Self::Four(p) => Amount::new(4, p),
-            Self::Five(p) => Amount::new(5, p),
-            Self::Six(p) => Amount::new(6, p),
-            Self::Seven(p) => Amount::new(7, p),
-            Self::Eight(p) => Amount::new(8, p),
-            Self::Nine(p) => Amount::new(9, p),
+            Self::One(p) => Amount::new_unchecked(1, p),
+            Self::Two(p) => Amount::new_unchecked(2, p),
+            Self::Three(p) => Amount::new_unchecked(3, p),
+            Self::Four(p) => Amount::new_unchecked(4, p),
+            Self::Five(p) => Amount::new_unchecked(5, p),
+            Self::Six(p) => Amount::new_unchecked(6, p),
+            Self::Seven(p) => Amount::new_unchecked(7, p),
+            Self::Eight(p) => Amount::new_unchecked(8, p),
+            Self::Nine(p) => Amount::new_unchecked(9, p),
         }
     }
 
@@ -88,42 +93,10 @@ impl Denomination {
         }
     }
 
-    fn powname(count: u8, p: PowerOfTen) -> String {
-        let abs = p.abs();
-        if p < 0 {
-            format!("{}tenneg{}", count, abs)
-        } else {
-            format!("{}tento{}", count, abs)
-        }
-    }
-
-    // Some examples:
-    //   Seven(-50) -> 7tenneg50
-    //   One(-5)    -> 1tenneg5
-    //   Six(0)     -> 6tento0        (aka six)
-    //   Nine(3)    -> 9tento3        (aka nine thousand)
-    pub fn to_powname_string(&self) -> String {
-        match *self {
-            Self::One(p) => Self::powname(1, p),
-            Self::Two(p) => Self::powname(2, p),
-            Self::Three(p) => Self::powname(3, p),
-            Self::Four(p) => Self::powname(4, p),
-            Self::Five(p) => Self::powname(5, p),
-            Self::Six(p) => Self::powname(6, p),
-            Self::Seven(p) => Self::powname(7, p),
-            Self::Eight(p) => Self::powname(8, p),
-            Self::Nine(p) => Self::powname(9, p),
-        }
-    }
-
-    pub fn to_integer_string(&self) -> String {
-        self.amount().to_string()
-    }
-
     pub fn all() -> Vec<Self> {
         let mut all: Vec<Self> = Default::default();
 
-        for i in -PowerOfTen::MAX..PowerOfTen::MAX {
+        for i in PowerOfTen::MIN..=PowerOfTen::MAX {
             let mut v = vec![
                 Self::One(i),
                 Self::Two(i),
@@ -169,24 +142,41 @@ impl Denomination {
         let denoms = Self::all();
         let target = target_amount;
 
+        // note: Amount is carefully sized such that the largest count of
+        //       largest unit can be represented by our largest
+        //       denomination(s).  As such, make_change never fails
+        //       and does not need to return a Result.
+
         // This is the greedy coin algo.
-        // It is simple, but can fail for certain denom sets and target amounts as
-        // it picks more coins than necessary.
-        // Eg for denoms: [1, 15, 25] and target amount = 30, it picks
-        // [25,1,1,1,1,1] instead of [15,15].
-        // To avoid this, the denom set must be chosen carefully.
-        // See https://stackoverflow.com/questions/13557979/why-does-the-greedy-coin-change-algorithm-not-work-for-some-coin-sets
+        // We start with an amount like count: 543021, unit: 7
+        // We get the length of digits 543021 == 6
+        // We iterate over digits: 5,4,3,0,2,1
+        // We make denoms, largest to smallest:
+        //  5 --> 5*10^(6-1-0+7) --> 5*10^12
+        //  4 --> 4*10^(6-1-1+7) --> 4*10^11
+        //  3 --> 3*10^(6-1-2+7) --> 3*10^10
+        //  0 --> skip
+        //  2 --> 2*10^(6-1-4+7) --> 2*10^8
+        //  1 --> 2*10^(6-1-5+7) --> 1*10^7
 
         let mut chosen = vec![];
 
         let digits = digits(target.count);
-        let len = digits.len() as i8;
+        let len = digits.len() as PowerOfTen;
+        let exp_base = len - 1 + target.unit;
         for (idx, digit) in digits.iter().enumerate() {
             if *digit == 0 {
                 continue;
             }
-            let amt = Amount::new(*digit as AmountCounter, len - 1 - idx as i8 + target.unit);
+            // note: we use new_unchecked because we know the count is less
+            // than Amount::counter_max() and we don't wish to return a Result.
 
+            let unit = exp_base - idx as PowerOfTen;
+            let amt = Amount::new_unchecked(*digit as AmountCounter, unit);
+
+            // Note: we leave this unwrap() here purposefully.  If it were to
+            // ever fail, something is *SERIOUSLY* wrong with the implementation
+            // and must be fixed.
             let denom = denoms.iter().find(|d| d.amount() == amt).unwrap();
             chosen.push(*denom);
         }
@@ -208,46 +198,41 @@ impl Denomination {
     }
 }
 
+impl TryFrom<Amount> for Denomination {
+    type Error = Error;
+
+    fn try_from(amt: Amount) -> Result<Self> {
+        let a = amt.to_highest_unit();
+        let exp = a.unit;
+
+        let denom = match a.count {
+            1 => Self::One(exp),
+            2 => Self::Two(exp),
+            3 => Self::Three(exp),
+            4 => Self::Four(exp),
+            5 => Self::Five(exp),
+            6 => Self::Six(exp),
+            7 => Self::Seven(exp),
+            8 => Self::Eight(exp),
+            9 => Self::Nine(exp),
+            _ => return Err(Error::DenominationUnknown),
+        };
+        Ok(denom)
+    }
+}
+
+impl fmt::Display for Denomination {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.amount().fmt(f)
+    }
+}
+
 impl FromStr for Denomination {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let r = s.parse::<u128>();
-
-        let n = match r {
-            Ok(n) => n,
-            Err(_) => return Err(Error::UnparseableDenomination),
-        };
-
-        let mut cnt = 1i8;
-        let (exp, amt) = loop {
-            if cnt >= 38 {
-                return Err(Error::UnparseableDenomination);
-            }
-            let amt = 10u128.pow(cnt as u32);
-            if amt > n {
-                break (cnt -1, 10u128.pow(cnt as u32 - 1));
-            }
-            cnt += 1;
-        };
-        
-        if n % amt == 0 {
-            let denom = match n / amt {
-                1 => Self::One(exp),
-                2 => Self::Two(exp),
-                3 => Self::Three(exp),
-                4 => Self::Four(exp),
-                5 => Self::Five(exp),
-                6 => Self::Six(exp),
-                7 => Self::Seven(exp),
-                8 => Self::Eight(exp),
-                9 => Self::Nine(exp),
-                _ => return Err(Error::UnparseableDenomination),
-            };
-            Ok(denom)
-        } else {
-            Err(Error::UnparseableDenomination)
-        }
+        let amt = Amount::from_str(s)?;
+        Self::try_from(amt)
     }
 }
 

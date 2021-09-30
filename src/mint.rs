@@ -398,7 +398,7 @@ mod tests {
             .confirm_valid(genesis_node.key_manager())
             .is_ok());
 
-        let pay_amt = Amount::new(1, 1);
+        let pay_amt = Amount::new(1, 1)?;
         let pay_denoms = Denomination::make_change(pay_amt);
         println!("pay: {:#?}", pay_denoms);
         let pay_outputs: Vec<Output> = pay_denoms
@@ -872,7 +872,7 @@ mod tests {
                     assert!(output_denominations.is_empty());
                     assert_eq!(
                         Amount::checked_sum(input_denominations.iter().map(Denomination::amount))?,
-                        Amount::new(0, 1)
+                        Amount::new_unchecked(0, 1)
                     );
                     assert!(!input_denominations.is_empty());
                 }
