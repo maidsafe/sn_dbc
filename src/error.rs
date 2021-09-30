@@ -80,13 +80,16 @@ pub enum Error {
     NoReissueShares,
 
     #[error("Unknown denomination")]
-    UnknownDenomination,
+    DenominationUnknown,
 
-    #[error("Denomination could not be parsed")]
-    UnparseableDenomination,
+    #[error("Denomination could not be deserialized from bytes")]
+    DenominationFromBytes,
 
     #[error("Incompatible denomination amounts")]
     AmountIncompatible,
+
+    #[error("Invalid amount")]
+    AmountInvalid,
 
     #[error("Operation would result in underflow")]
     AmountUnderflow,

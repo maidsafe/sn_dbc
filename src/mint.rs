@@ -361,7 +361,7 @@ mod tests {
             .confirm_valid(genesis_node.key_manager())
             .is_ok());
 
-        let pay_amt = Amount::new(1, 1);
+        let pay_amt = Amount::new(1, 1)?;
         let pay_denoms = Denomination::make_change(pay_amt);
         println!("pay: {:#?}", pay_denoms);
         let pay_outputs: Vec<Output> = pay_denoms
@@ -483,11 +483,10 @@ mod tests {
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
         let (genesis_dbc, mut genesis_node, _genesis_owner) = genesis()?;
 
-        let mut output_amounts = Vec::from_iter(
-            output_amounts
-                .into_iter()
-                .map(|a| Amount::new(TinyInt::coerce::<AmountCounter>(a), 1)),
-        );
+        let mut output_amounts: Vec<Amount> = output_amounts
+            .into_iter()
+            .map(|a| Amount::new(TinyInt::coerce::<AmountCounter>(a), 1))
+            .collect::<Result<_>>()?;
 
         let n_outputs = output_amounts.len();
         let output_amount = Amount::checked_sum(output_amounts.clone().into_iter())?;

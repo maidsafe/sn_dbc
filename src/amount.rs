@@ -97,18 +97,28 @@ pub struct Amount {
 /// with a NormalizedAmount.
 ///
 /// For now, have this only for internal use/ops.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct NormalizedAmount {
     count: Integer,
     unit: PowerOfTen,
 }
 
 impl Amount {
-    pub fn new(count: AmountCounter, unit: PowerOfTen) -> Self {
-        // We constrain count to ::counter_max().  If you want to use a bigger value,
-        // you must change the unit.
-        debug_assert!(count <= Self::counter_max());
+    const COUNT_MAX_TEN_POW: PowerOfTen = 9;
+    const COUNT_MAX: AmountCounter = 1000000000; // This value MUST equal 10^COUNT_MAX_TEN_POW
 
+    pub fn new(count: AmountCounter, unit: PowerOfTen) -> Result<Self> {
+        if count > Self::counter_max() {
+            return Err(Error::AmountInvalid);
+        }
+
+        Ok(Self { count, unit })
+    }
+
+    // only for use in this crate because code in this impl depends on
+    // count always being <= Self::counter_max().
+    pub(crate) fn new_unchecked(count: AmountCounter, unit: PowerOfTen) -> Self {
+        debug_assert!(count <= Self::counter_max());
         Self { count, unit }
     }
 
@@ -119,32 +129,33 @@ impl Amount {
     //       writing test cases.
     pub fn counter_max() -> AmountCounter {
         // One billion units per tx ought to be enough for anybody! -- danda 2021.
-        1000000000
+        Self::COUNT_MAX
     }
 
-    pub fn unit_max() -> i8 {
-        i8::MAX - 9 // this prevents some add/sub edge cases when unit is
-                    // near i8::MAX and count is multi-digit.
-                    // todo: revisit.
+    pub fn unit_max() -> PowerOfTen {
+        // We decreate max unit by size of counter max so that
+        // the largest count of largest Amount unit will always be representable
+        // by at most COUNT_MAX_TEN_POW denominations.  In other words, so that
+        // it is impossible to create an Amount that cannot be efficiently
+        // represented by denominations.
+        PowerOfTen::MAX - Self::COUNT_MAX_TEN_POW
     }
 
-    pub fn unit_min() -> i8 {
-        -Self::unit_max()
+    pub fn unit_min() -> PowerOfTen {
+        // We increase max unit by size of counter max so that
+        // the largest count of smallest Amount unit will always be representable
+        // by at most COUNT_MAX_TEN_POW denominations.  In other words, so that
+        // it is impossible to create an Amount that cannot be efficiently
+        // represented by denominations.
+        PowerOfTen::MIN + Self::COUNT_MAX_TEN_POW
     }
 
     fn to_rational(self) -> Rational {
         Rational::from(10).pow(self.unit as i32) * Rational::from(self.count)
     }
 
-    // SI units obtained from:
-    //  http://www.knowledgedoor.com/2/units_and_constants_handbook/power_prefixes.html
-    //
-    // note: presently we special case count == 0.
-    //       So it prints 0 instead of eg 0*10^25 or 0*10^2.
-    //       This hides the unit information, but is easier
-    //       to read.  Anyway, the two cases are equally zero.
-    pub fn to_si_string(self) -> String {
-        let map: BTreeMap<i8, &str> = [
+    fn si_map() -> BTreeMap<PowerOfTen, &'static str> {
+        [
             (24, "yotta"),
             (21, "zetta"),
             (18, "exa"),
@@ -169,19 +180,48 @@ impl Amount {
         ]
         .iter()
         .cloned()
-        .collect();
+        .collect()
+    }
 
-        if self.unit >= -24 && self.unit <= 24 && self.count != 0 {
+    // SI units obtained from:
+    //  http://www.knowledgedoor.com/2/units_and_constants_handbook/power_prefixes.html
+    //
+    // note: presently we special case count == 0.
+    //       So it prints 0 instead of eg 0*10^25 or 0*10^2.
+    //       This hides the unit information, but is easier
+    //       to read.  Anyway, the two cases are equally zero.
+    pub fn to_si_string(self) -> String {
+        let map = Self::si_map();
+        // note: this unwrap_or can never fail because map always contains values.
+        let min = map.keys().min().unwrap_or(&0);
+        let max = map.keys().max().unwrap_or(&0);
+
+        // 187459185 giga
+
+        // 25 giga   = 25 * 10^9,   count = 25, unit = 9
+        // 250 giga   = 25 * 10^10,   count = 25, unit = 10
+        // 2500 giga   = 25 * 10^11,   count = 25, unit = 11
+
+        // xx                          count = 187459185, unit = 11
+
+        if self.unit >= *min && self.unit <= *max && self.count != 0 {
             let mut unit = self.unit;
             loop {
                 if let Some(name) = map.get(&unit) {
-                    let diff = self.unit.abs() - unit.abs();
-                    let udiff = 10u64.pow(diff as u32);
-                    let newcount = self.count as u64 * udiff;
+                    let diff = (self.unit.abs() - unit.abs()).abs();
+                    let udiff = 10u128.pow(diff as u32);
+                    let newcount = self.count as u128 * udiff;
+
+                    // cannot fit in count, so we use to_string() instead.
+                    // The alternative is to return the larger number, but then
+                    // from_si_string() must be made able to handle it.
+                    if newcount > Self::counter_max() as u128 {
+                        return self.to_string();
+                    }
                     let sep = if name.is_empty() { "" } else { " " };
                     return format!("{}{}{}", newcount, sep, name);
                 } else {
-                    unit += if self.unit >= 0 { -1 } else { 1 };
+                    unit -= 1;
                 }
             }
         }
@@ -190,10 +230,21 @@ impl Amount {
         self.to_string()
     }
 
+    pub fn to_notation_string(self) -> String {
+        format!("{}*10^{}", self.count, self.unit)
+    }
+
     pub fn max() -> Self {
         Self {
             count: Self::counter_max(),
             unit: Self::unit_max(),
+        }
+    }
+
+    pub fn min() -> Self {
+        Self {
+            count: 1,
+            unit: Self::unit_min(),
         }
     }
 
@@ -216,29 +267,32 @@ impl Amount {
     // count = 25,     unit = 5             (value: 2500000).
     //
     // This function turns the former into the latter.
-    fn to_highest_unit(self) -> Self {
+    pub fn to_highest_unit(self) -> Self {
         let mut count = self.count;
         let mut unit = self.unit;
         while count % 10 == 0 && unit < Self::unit_max() {
             unit += 1;
             count = count.div_ceil(10);
         }
-        Self::new(count, unit)
+
+        debug_assert!(count <= Self::counter_max());
+        Self { count, unit }
     }
 
     // we want to normalize these:
     // count = 25,  unit = 2    = 2500
     // count = 255, unit = 1    = 2550.
 
-    // option a:
+    // if we normalize to highest unit:
     // count = 25, unit = 2    = 25 * 100 = 2500
-    // count = 25, unit = 2    = 25 * 10 = 2500    <---- loses information.
+    // count = 25, unit = 2    = 25 * 10 = 2500    <---- loses information. can't do this.
 
-    // option b:
+    // if we normalize to lowest unit:
     // count = 250,  unit = 1    = 2500  <--- works.  but count can overflow.
     // count = 255,  unit = 1    = 2550.
 
-    // todo: can we somehow normalize without requiring use of BigInteger?
+    // Because count can overflow in one of the Amount, we return
+    // NormalizedAmount that uses a big rug::Integer for the count.
     fn normalize(a: Self, b: Self) -> (NormalizedAmount, NormalizedAmount) {
         let a = a.to_highest_unit();
         let b = b.to_highest_unit();
@@ -267,7 +321,8 @@ impl Amount {
             } else {
                 (b.unit..a.unit).len() as u32
             };
-            let unit_base = *[a.unit, b.unit].iter().min().unwrap();
+            // note: this unwrap_or_default() can never fail because there are two items.
+            let unit_base = *[a.unit, b.unit].iter().min().unwrap_or(&0);
 
             let mut pair: Vec<NormalizedAmount> = [a, b]
                 .iter()
@@ -285,7 +340,11 @@ impl Amount {
                 })
                 .collect();
 
-            (pair.pop().unwrap(), pair.pop().unwrap())
+            // note: these unwrap_or_default() can never fail because there are two items.
+            (
+                pair.pop().unwrap_or_default(),
+                pair.pop().unwrap_or_default(),
+            )
         }
     }
 
@@ -301,14 +360,19 @@ impl Amount {
         let mut count_sum = a.count + b.count;
         let mut unit = a.unit;
         if count_sum > 0 {
-            while count_sum > Self::counter_max() || count_sum.clone() % 10 == 0 {
+            let ten = Integer::from(10);
+            while count_sum.clone() % 10 == 0 {
+                // avoid overflowing unit
+                if unit == Self::unit_max() {
+                    return Err(Error::AmountIncompatible);
+                }
                 unit += 1;
-                count_sum = count_sum.div_ceil(10);
+                count_sum = count_sum.div_exact(&ten);
             }
         }
 
         match AmountCounter::try_from(count_sum) {
-            Ok(v) if v <= Self::counter_max() => Ok(Amount::new(v, unit)),
+            Ok(v) if v <= Self::counter_max() => Ok(Amount::new(v, unit)?),
             _ => Err(Error::AmountIncompatible),
         }
     }
@@ -328,9 +392,23 @@ impl Amount {
         let count_diff = a.count - b.count;
 
         match AmountCounter::try_from(count_diff) {
-            Ok(v) if v <= Self::counter_max() => Ok(Amount::new(v, a.unit)),
+            Ok(v) if v <= Self::counter_max() => Ok(Amount::new(v, a.unit)?),
             _ => Err(Error::AmountIncompatible),
         }
+    }
+
+    // pub fn nearness(self, other) -> usize {
+    //     let (a, b) = Self::normalize(self, other);
+    //     let count_diff = a.count - b.count;
+    //     count_diff.to_string().len()
+    // }
+
+    pub fn sub_compatible(self, other: Amount) -> bool {
+        self.checked_sub(other).is_ok()
+    }
+
+    pub fn add_compatible(self, other: Amount) -> bool {
+        self.checked_add(other).is_ok()
     }
 
     pub fn checked_sum<I>(iter: I) -> Result<Self>
@@ -343,30 +421,245 @@ impl Amount {
         }
         Ok(sum)
     }
+
+    fn from_str_u128(s: &str) -> Result<Self> {
+        match s.parse::<u128>() {
+            Ok(v) => Self::try_from(v),
+            Err(_) => Err(Error::AmountUnparseable),
+        }
+    }
+
+    fn from_str_rational(s: &str) -> Result<Self> {
+        match s.parse::<Rational>() {
+            Ok(v) => Self::try_from(v),
+            Err(_) => Err(Error::AmountUnparseable),
+        }
+    }
+
+    // parses a string in the notation: x*10^y
+    // where x must be positive and y may be negative.
+    fn from_str_notation_full(s: &str) -> Result<Self> {
+        let parts: Vec<&str> = s.split(|c| c == '*' || c == '^').collect();
+
+        if parts.len() != 3 {
+            return Err(Error::AmountUnparseable);
+        }
+        if parts[1] != "10" {
+            return Err(Error::AmountUnparseable);
+        }
+
+        let count: AmountCounter = parts[0].parse().map_err(|_| Error::AmountUnparseable)?;
+        let unit: PowerOfTen = parts[2].parse().map_err(|_| Error::AmountUnparseable)?;
+
+        // Self::new will verify that count <= Self::counter_max()
+        Self::new(count, unit)
+    }
+
+    // parses a string in the notation: 10^y
+    // where y may be negative.
+    fn from_str_notation_short(s: &str) -> Result<Self> {
+        let parts: Vec<&str> = s.split('^').collect();
+
+        if parts[0] != "10" {
+            return Err(Error::AmountUnparseable);
+        }
+        if parts.len() != 2 {
+            return Err(Error::AmountUnparseable);
+        }
+        let unit: PowerOfTen = parts[1].parse().map_err(|_| Error::AmountUnparseable)?;
+
+        // Self::new will verify that count <= Self::counter_max()
+        Self::new(1, unit)
+    }
+
+    // parses a string like "253 yotta"
+    fn from_str_si(s: &str) -> Result<Self> {
+        let map = Self::si_map();
+
+        let parts: Vec<&str> = s.split(' ').collect();
+        if parts.len() != 2 {
+            return Err(Error::AmountUnparseable);
+        }
+
+        let count: AmountCounter = parts[0].parse().map_err(|_| Error::AmountUnparseable)?;
+        let name = parts[1].to_lowercase();
+
+        let (unit, _) = map
+            .iter()
+            .find(|(_, v)| **v == name)
+            .ok_or(Error::AmountUnparseable)?;
+
+        Self::new(count, *unit)
+    }
+}
+
+impl TryFrom<Integer> for Amount {
+    type Error = Error;
+
+    fn try_from(n: Integer) -> Result<Self, Self::Error> {
+        let (unit, count) = calc_exponent_bigint(n).ok_or(Error::AmountUnparseable)?;
+
+        let count = AmountCounter::try_from(count).map_err(|_| Error::AmountUnparseable)?;
+        Amount::new(count, unit)
+    }
+}
+
+impl TryFrom<Rational> for Amount {
+    type Error = Error;
+
+    fn try_from(n: Rational) -> Result<Self, Self::Error> {
+        println!("rational: {:?}", n);
+
+        let mut d = n.denom().clone();
+        let mut numer = n.numer().clone();
+        println!("d: {:?}", d);
+
+        match d.cmp(&Integer::from(1)) {
+            Ordering::Greater => {
+                // denominator is > 1, so we have a fraction.
+                // for now, we only handle fractions like:
+                //     1/2, 1/5, 1/10, 1/100, 1/20, 2/10, etc.
+                // We do not (yet) handle things like:
+                //     1/4, 1/8, 1/25, 1/12500 etc.
+                match is_pure(&d) {
+                    Some(first_digit) => {
+                        // normalize: x/5 --> 2x/10, x/50 --> 2x/100
+                        println!("fd: {}", first_digit);
+                        if first_digit == 5 {
+                            let two = Integer::from(2);
+                            d *= &two;
+                            numer *= two;
+                        }
+                        // normalize: x/2 --> 5x/10, x/20 --> 5x/100
+                        else if first_digit == 2 {
+                            let five = Integer::from(5);
+                            d *= &five;
+                            numer *= five;
+                        }
+                        let (exp, rem) =
+                            calc_exponent_bigint(d.clone()).ok_or(Error::AmountUnparseable)?;
+                        println!("exp: {}, rem: {}", exp, rem);
+                        if rem != 1 {
+                            return Err(Error::AmountUnparseable);
+                        }
+
+                        let count =
+                            AmountCounter::try_from(numer).map_err(|_| Error::AmountUnparseable)?;
+                        Amount::new(count, -exp)
+                    }
+                    None => Err(Error::AmountUnparseable),
+                }
+            }
+            Ordering::Equal => {
+                // numerator is a rug::Integer
+                Self::try_from(numer)
+            }
+            _ => Err(Error::AmountUnparseable),
+        }
+    }
+}
+
+// calculates largest power-of-ten exponent that is less than amt
+// and also returns the remainder
+fn calc_exponent_bigint(mut amt: Integer) -> Option<(PowerOfTen, Integer)> {
+    let mut cnt: PowerOfTen = 0;
+    let ten = Integer::from(10);
+    while amt.mod_u(10) == 0 && amt > 1 {
+        // bail if we would overflow cnt
+        if cnt == PowerOfTen::MAX {
+            return None;
+        }
+        amt = amt.div_exact(&ten);
+        cnt += 1;
+    }
+    // count, remainder
+    Some((cnt, amt))
+}
+
+// calculates largest power-of-ten exponent that is less than amt
+// and also returns the remainder
+fn calc_exponent_u128(mut amt: u128) -> Option<(PowerOfTen, u128)> {
+    let mut cnt: PowerOfTen = 0;
+
+    while amt % 10 == 0 && amt > 1 {
+        // bail if we would overflow cnt
+        if cnt == PowerOfTen::MAX {
+            return None;
+        }
+        amt /= 10;
+        cnt += 1;
+    }
+    // count, remainder
+    Some((cnt, amt))
+}
+
+impl TryFrom<u128> for Amount {
+    type Error = Error;
+
+    fn try_from(n: u128) -> Result<Self, Self::Error> {
+        let (unit, count) = calc_exponent_u128(n).ok_or(Error::AmountUnparseable)?;
+
+        let count = AmountCounter::try_from(count).map_err(|_| Error::AmountUnparseable)?;
+        Amount::new(count, unit)
+    }
+}
+
+impl TryFrom<u64> for Amount {
+    type Error = Error;
+
+    fn try_from(n: u64) -> Result<Self, Self::Error> {
+        Self::try_from(n as u128)
+    }
+}
+
+impl TryFrom<u32> for Amount {
+    type Error = Error;
+
+    fn try_from(n: u32) -> Result<Self, Self::Error> {
+        Self::try_from(n as u128)
+    }
+}
+
+impl TryFrom<u16> for Amount {
+    type Error = Error;
+
+    fn try_from(n: u16) -> Result<Self, Self::Error> {
+        Self::try_from(n as u128)
+    }
+}
+
+impl TryFrom<u8> for Amount {
+    type Error = Error;
+
+    fn try_from(n: u8) -> Result<Self, Self::Error> {
+        Self::try_from(n as u128)
+    }
 }
 
 impl fmt::Display for Amount {
     // note:  this also creates ::to_string()
     //
-    // note: presently we special case count == 0.
-    //       So it prints 0 instead of eg 0*10^25 or 0*10^2.
-    //       This hides the unit information, but is easier
-    //       to read.  Anyway, the two cases are equally zero.
+    // note: we special case unit == 0, so it
+    //       prints eg 5250 instead of 5250*10^0.
     //
-    // note: presently we special case count == 1, so it
-    //       prints eg 10^25 instead of 1*10^25.  This is
-    //       less regular, but easier to read.  Perhaps it
-    //       is better to use the regular form instead.
+    // note: we special case count == 0.
+    //       So it prints 0 instead of eg 0*10^25 or 0*10^2.
+    //
+    // note: we special case count == 1, so it
+    //       prints eg 10^25 instead of 1*10^25.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let str = match self.count {
-            0 => "0".to_string(),
-            1 => format!("10^{}", self.unit),
-            _ => format!("{}*10^{}", self.count, self.unit),
+        let s = match self.unit {
+            0 => format!("{}", self.count),
+            _ => match self.count {
+                0 => "0".to_string(),
+                1 => format!("10^{}", self.unit),
+                _ => self.to_notation_string(),
+            },
         };
         if let Some(width) = f.width() {
-            write!(f, "{:width$}", str, width = width)
+            write!(f, "{:width$}", s, width = width)
         } else {
-            write!(f, "{}", str)
+            write!(f, "{}", s)
         }
     }
 }
@@ -385,6 +678,22 @@ pub(crate) fn digits(n: AmountCounter) -> Vec<u8> {
     xs
 }
 
+// detects if an integer starts with a single
+// non-zero digit and all following digits are zero.
+// If this pattern is found, returns Some(first_digit)
+// else None
+fn is_pure(i: &Integer) -> Option<u32> {
+    let digits = i.to_string();
+    if digits.len() > 1 {
+        for d in digits[1..].chars() {
+            if d != '0' {
+                return None;
+            }
+        }
+    }
+    digits.chars().next()?.to_digit(10)
+}
+
 impl PartialEq for Amount {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
@@ -396,7 +705,7 @@ impl Eq for Amount {}
 impl Hash for Amount {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // the following must hold true: k1 == k2 ⇒ hash(k1) == hash(k2)
-        // todo: re-implement without to_rational(), which is slow.
+        // todo: re-implement without to_rational(), which is slow(er).
         let r = self.to_rational();
         r.hash(state)
     }
@@ -461,17 +770,37 @@ impl Ord for Amount {
 impl FromStr for Amount {
     type Err = Error;
 
-    // fixme: implement real parsing for Amount.  for now
-    //        we cheat and parse as a u32.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let r = s.parse::<u32>();
+        // note: from_str_u128 is an optimization to avoid calling
+        //       presumed slower from_str_rational() if not necessary.
+        //       perhaps the optimization is not worth the extra
+        //       code/complexity.
+        if let Ok(v) = Self::from_str_u128(s) {
+            return Ok(v);
+        }
 
-        let n = match r {
-            Ok(n) => n,
-            Err(_) => return Err(Error::AmountUnparseable),
-        };
+        // parses eg 0, 1, 10, 1/10, 1/5, 2/5
+        //           15000000000000000000000000000000000000000000000000000000000000000
+        if let Ok(v) = Self::from_str_rational(s) {
+            return Ok(v);
+        }
 
-        Ok(Self::new(n, 0))
+        // parses eg 3*10^-5
+        if let Ok(v) = Self::from_str_notation_full(s) {
+            return Ok(v);
+        }
+
+        // parses eg 10^-5
+        if let Ok(v) = Self::from_str_notation_short(s) {
+            return Ok(v);
+        }
+
+        // parses eg 253 yotta
+        if let Ok(v) = Self::from_str_si(s) {
+            return Ok(v);
+        }
+
+        Err(Error::AmountUnparseable)
     }
 }
 
@@ -487,7 +816,7 @@ impl Arbitrary for Amount {
                 break c;
             }
         };
-        Self::new(count, unit)
+        Self { count, unit }
     }
 }
 
@@ -502,6 +831,7 @@ mod tests {
     use super::Amount;
     use crate::{Error, Result};
     use quickcheck_macros::quickcheck;
+    use std::collections::BTreeMap;
 
     #[quickcheck]
     fn prop_hash_eq(a: Amount, b: Amount) -> Result<()> {
@@ -523,35 +853,52 @@ mod tests {
         Ok(())
     }
 
+    // Subtracts amounts with checked_sub(). If an Incompatible error occurs,
+    // verifies that difference between amounts exceeds nearness limit.
+    // If an Underflow error occurs, verifies that left < right.
     #[quickcheck]
-    fn amount_checked_sub(a: Amount, b: Amount) -> Result<()> {
+    fn prop_amount_checked_sub(a: Amount, b: Amount) -> Result<()> {
         let result = a.checked_sub(b);
 
         match result {
-            Ok(diff) => println!("{:?} - {:?} --> {:?}", a, b, diff),
+            Ok(diff) => {
+                assert!(a.sub_compatible(b));
+                println!("{:?} - {:?} --> {:?}", a, b, diff);
+            }
             Err(Error::AmountUnderflow) => assert!(a < b),
             Err(Error::AmountIncompatible) => {
+                assert!(!a.sub_compatible(b));
                 println!("{:?} - {:?} --> Incompatible", a, b);
             }
-            Err(e) => return Err(e),
+            Err(_e) => panic!("Unexpected error"),
         }
         Ok(())
     }
 
+    // Adds amounts with checked_add(). If an Incompatible error occurs,
+    // verifies that add_compatible() returns false
     #[quickcheck]
     fn prop_amount_checked_add(a: Amount, b: Amount) -> Result<()> {
         let result = a.checked_add(b);
 
         match result {
-            Ok(sum) => println!("{:?} - {:?} --> {:?}", a, b, sum),
+            Ok(sum) => {
+                assert_eq!(a.to_rational() + b.to_rational(), sum.to_rational());
+                assert!(a.add_compatible(b));
+                println!("{:?} - {:?} --> {:?}", a, b, sum);
+            }
             Err(Error::AmountIncompatible) => {
+                assert!(!a.add_compatible(b));
                 println!("{:?} - {:?} --> Incompatible", a, b);
             }
-            Err(e) => return Err(e),
+            Err(_e) => panic!("Unexpected error"),
         }
         Ok(())
     }
 
+    // Sorts amounts and then verifies that order is lowest
+    // to highest, using both Amount and rug::Rational comparison
+    // operators.
     #[quickcheck]
     fn amount_sort(mut amounts: Vec<Amount>) -> Result<()> {
         amounts.sort();
@@ -574,6 +921,63 @@ mod tests {
     }
 
     #[quickcheck]
+    fn prop_to_string_then_parse(amounts: Vec<Amount>) -> Result<()> {
+        for amt in amounts.into_iter() {
+            let new: Amount = amt.to_string().parse()?;
+            assert_eq!(amt, new);
+            assert_eq!(amt.to_rational(), new.to_rational());
+        }
+        Ok(())
+    }
+
+    #[quickcheck]
+    fn prop_to_si_string_then_parse(amounts: Vec<Amount>) -> Result<()> {
+        for amt in amounts.into_iter() {
+            println!("{}", amt.to_si_string());
+            let new: Amount = amt.to_si_string().parse()?;
+            assert_eq!(amt, new);
+            assert_eq!(amt.to_rational(), new.to_rational());
+        }
+        Ok(())
+    }
+
+    #[quickcheck]
+    fn prop_to_notation_string_then_parse(amounts: Vec<Amount>) -> Result<()> {
+        for amt in amounts.into_iter() {
+            let new: Amount = amt.to_notation_string().parse()?;
+            println!("{}", amt.to_notation_string());
+            assert_eq!(amt, new);
+            assert_eq!(amt.to_rational(), new.to_rational());
+        }
+        Ok(())
+    }
+
+    #[quickcheck]
+    fn prop_to_highest_unit(amounts: Vec<Amount>) -> Result<()> {
+        for amt in amounts.into_iter() {
+            let new = amt.to_highest_unit();
+            assert_eq!(amt, new);
+            assert_eq!(amt.to_rational(), new.to_rational());
+        }
+        Ok(())
+    }
+
+    // todo: TryFrom<Rational> is not yet able to handle all output of ::to_rational()
+    // #[quickcheck]
+    // fn prop_to_rational_then_from(amounts: Vec<Amount>) -> Result<()> {
+    //     for amt in amounts.into_iter() {
+    //         println!("{:?} --> {}", amt, amt.to_rational());
+    //         let new = Amount::try_from(amt.to_rational())?;
+    //         assert_eq!(amt, new);
+    //         assert_eq!(amt.to_rational(), new.to_rational());
+    //     }
+    //     Ok(())
+    // }
+
+    // Verifies that Amount comparison operators agree with
+    // rug::Rational comparison operators.  So this is testing
+    // the Amount::cmp() fn.
+    #[quickcheck]
     fn prop_ord(amounts: Vec<(Amount, Amount)>) -> Result<()> {
         for (a, b) in amounts.iter() {
             if a > b {
@@ -592,98 +996,258 @@ mod tests {
         amounts.sort();
 
         for a in amounts.into_iter() {
-            if a.unit >= 0 && a.unit <= 24 && a.count > 0 {
-                println!("{} \t\t<----- {:?}", a.to_si_string(), a);
-            }
+            println!("{} \t\t<----- {:?}", a.to_si_string(), a);
         }
 
         Ok(())
     }
 
+    fn gen_to_string_vector() -> BTreeMap<Amount, &'static str> {
+        [
+            // 10^0 values.
+            (Amount::new_unchecked(1, 24), "10^24"),
+            (Amount::new_unchecked(1, 0), "1"),
+            (Amount::new_unchecked(2, 0), "2"),
+            (Amount::new_unchecked(5, 0), "5"),
+            (Amount::new_unchecked(9, 0), "9"),
+            (Amount::new_unchecked(10, 0), "10"),
+            (Amount::new_unchecked(500, 0), "500"),
+            (Amount::new_unchecked(999999999, 0), "999999999"),
+            // other powers, count == 1
+            (Amount::new_unchecked(1, 1), "10"),
+            (Amount::new_unchecked(1, -1), "10^-1"),
+            (Amount::new_unchecked(1, -2), "10^-2"),
+            (Amount::new_unchecked(1, -24), "10^-24"),
+            // min, max
+            (Amount::max(), "1000000000*10^118"),
+            (Amount::min(), "10^-119"),
+            // counted values
+            (Amount::new_unchecked(2, 24), "2*10^24"),
+            (Amount::new_unchecked(25, -1), "25*10^-1"),
+            (Amount::new_unchecked(222, -2), "222*10^-2"),
+            (Amount::new_unchecked(1000, -24), "1000*10^-24"),
+            // zero
+            (Amount::new_unchecked(0, 3), "0"),
+            (Amount::new_unchecked(0, 0), "0"),
+        ]
+        .iter()
+        .cloned()
+        .collect()
+    }
+
+    fn gen_from_string_vector() -> BTreeMap<Amount, &'static str> {
+        let mut m: BTreeMap<Amount, &'static str> = [
+            (Amount::new_unchecked(1, 0), "10^0"),
+            (Amount::new_unchecked(1, 1), "10^1"),
+            (Amount::new_unchecked(1, 2), "10^2"),
+            (Amount::new_unchecked(3, 3), "3*10^3"),
+            (Amount::new_unchecked(0, 3), "0*10^3"),
+            (Amount::new_unchecked(1, -1), "1/10"),
+            (Amount::new_unchecked(2, -1), "2/10"),
+            (Amount::new_unchecked(3, -1), "3/10"),
+            (Amount::new_unchecked(4, -1), "4/10"),
+            (Amount::new_unchecked(5, -1), "5/10"),
+            (Amount::new_unchecked(6, -1), "6/10"),
+            (Amount::new_unchecked(7, -1), "7/10"),
+            (Amount::new_unchecked(8, -1), "8/10"),
+            (Amount::new_unchecked(9, -1), "9/10"),
+            (Amount::new_unchecked(2, -1), "1/5"),
+            (Amount::new_unchecked(4, -1), "2/5"),
+            (Amount::new_unchecked(6, -1), "3/5"),
+            (Amount::new_unchecked(8, -1), "4/5"),
+            (Amount::new_unchecked(1, 0), "5/5"),
+            (Amount::new_unchecked(5, -1), "1/2"),
+            (Amount::new_unchecked(1, -2), "1/100"),
+            (Amount::new_unchecked(2, -2), "2/100"),
+            (Amount::new_unchecked(2, -2), "1/50"),
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        let mut v = gen_to_si_vector();
+        v.append(&mut m);
+        v
+    }
+
+    fn gen_from_string_error_vector() -> BTreeMap<&'static str, Error> {
+        let mut m: BTreeMap<&'static str, Error> = Default::default();
+        m.insert("1*10^5 ", Error::AmountUnparseable);
+        m.insert("1*10^128", Error::AmountUnparseable);
+        m.insert("1*10^-129", Error::AmountUnparseable);
+        m.insert("1 *10^5", Error::AmountUnparseable);
+        m.insert("1**10^5", Error::AmountUnparseable);
+        m.insert("1*10^^5", Error::AmountUnparseable);
+        m.insert("1000000000000000*10^5", Error::AmountUnparseable);
+        m.insert("1/10*10^5", Error::AmountUnparseable);
+        m.insert("-1", Error::AmountUnparseable);
+        m.insert("-1/10", Error::AmountUnparseable);
+        m.insert("0.25", Error::AmountUnparseable);
+        m.insert(".25", Error::AmountUnparseable);
+
+        // Todo:
+        // would be nice if we could parse exact decimal like these.
+        // Unfortunately rug::Rational does not support it.
+        // We could possibly parse as float, then convert to Rational.
+        // But for now, we just verify that parser gives an error.
+        // I'm not wanting to introduce floats anywhere.
+        m.insert("0.1", Error::AmountUnparseable);
+        m.insert("0.2", Error::AmountUnparseable);
+        m
+    }
+
+    #[test]
+    fn from_string_error_vector() -> Result<()> {
+        let vector = gen_from_string_error_vector();
+
+        for (input, expect) in vector.iter() {
+            let result = input.parse::<Amount>();
+
+            let actual = format!("{}", result.unwrap_err());
+            let expected = format!("{}", expect);
+
+            println!("{} : {}", actual, expected);
+
+            assert_eq!(actual, expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn from_string_vector() -> Result<()> {
+        let vector = gen_from_string_vector();
+
+        for (expect, input) in vector.iter() {
+            let amt: Amount = input.parse()?;
+            println!("{} : {}", expect, amt);
+            assert_eq!(*expect, amt);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn to_string_vector() -> Result<()> {
+        let vector = gen_to_string_vector();
+
+        for (amt, expect) in vector.iter() {
+            let s = amt.to_string();
+            assert_eq!(s, *expect);
+        }
+        Ok(())
+    }
+
+    fn gen_to_si_vector() -> BTreeMap<Amount, &'static str> {
+        [
+            // Basic values.
+            (Amount::new_unchecked(1, 24), "1 yotta"),
+            (Amount::new_unchecked(1, 21), "1 zetta"),
+            (Amount::new_unchecked(1, 18), "1 exa"),
+            (Amount::new_unchecked(1, 15), "1 peta"),
+            (Amount::new_unchecked(1, 12), "1 tera"),
+            (Amount::new_unchecked(1, 9), "1 giga"),
+            (Amount::new_unchecked(1, 6), "1 mega"),
+            (Amount::new_unchecked(1, 3), "1 kilo"),
+            (Amount::new_unchecked(1, 2), "1 hecto"),
+            (Amount::new_unchecked(1, 1), "1 deka"),
+            (Amount::new_unchecked(1, 0), "1"),
+            (Amount::new_unchecked(1, -1), "1 deci"),
+            (Amount::new_unchecked(1, -2), "1 centi"),
+            (Amount::new_unchecked(1, -3), "1 milli"),
+            (Amount::new_unchecked(1, -6), "1 micro"),
+            (Amount::new_unchecked(1, -9), "1 nano"),
+            (Amount::new_unchecked(1, -12), "1 pico"),
+            (Amount::new_unchecked(1, -15), "1 femto"),
+            (Amount::new_unchecked(1, -18), "1 atto"),
+            (Amount::new_unchecked(1, -21), "1 zepto"),
+            (Amount::new_unchecked(1, -24), "1 yocto"),
+            // counted values
+            (Amount::new_unchecked(10, 24), "10 yotta"),
+            (Amount::new_unchecked(100, 24), "100 yotta"),
+            (Amount::new_unchecked(348, 24), "348 yotta"),
+            (Amount::new_unchecked(10, -12), "10 pico"),
+            (Amount::new_unchecked(100, -12), "100 pico"),
+            // overflow 10^3 values
+            (Amount::new_unchecked(1000, 24), "1000 yotta"),
+            (Amount::new_unchecked(1001, 24), "1001 yotta"),
+            (Amount::new_unchecked(10000, 3), "10000 kilo"),
+            // zero
+            (Amount::new_unchecked(0, 3), "0 kilo"),
+            (Amount::new_unchecked(0, 0), "0"),
+        ]
+        .iter()
+        .cloned()
+        .collect()
+    }
+
+    fn gen_from_si_vector() -> BTreeMap<Amount, &'static str> {
+        let mut m: BTreeMap<Amount, &'static str> = [
+            // case insensitive
+            (Amount::new_unchecked(1, -21), "1 zEpto"),
+            (Amount::new_unchecked(1, -21), "1 ZEPTO"),
+            (Amount::new_unchecked(1, -21), "1 zeptO"),
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        let mut v = gen_to_si_vector();
+        v.append(&mut m);
+        v
+    }
+
+    fn gen_from_si_error_vector() -> BTreeMap<&'static str, Error> {
+        let mut m: BTreeMap<&'static str, Error> = Default::default();
+        m.insert("1 yotto", Error::AmountUnparseable);
+        m.insert("-2 yotta", Error::AmountUnparseable);
+        m.insert("2/5 yotta", Error::AmountUnparseable);
+        m.insert("stuff", Error::AmountUnparseable);
+        m.insert("yotta", Error::AmountUnparseable);
+        m.insert("5       yotta", Error::AmountUnparseable);
+        m.insert(" 5 yotta ", Error::AmountUnparseable);
+        m.insert("5 yotta ", Error::AmountUnparseable);
+        m.insert(" 5 yotta", Error::AmountUnparseable);
+        m.insert("5 \nyotta", Error::AmountUnparseable);
+        m.insert("2000000000 yotta", Error::AmountUnparseable);
+        m.insert("10000000000000000000000000 yotta", Error::AmountUnparseable);
+        m
+    }
+
     #[test]
     fn to_si_string_vector() -> Result<()> {
-        let vector = vec![
-            "2*10^-30",
-            "2*10^-29",
-            "2*10^-28",
-            "2*10^-27",
-            "2*10^-26",
-            "2*10^-25",
-            "2 yocto",
-            "200 zepto",
-            "20 zepto",
-            "2 zepto",
-            "200 atto",
-            "20 atto",
-            "2 atto",
-            "200 femto",
-            "20 femto",
-            "2 femto",
-            "200 pico",
-            "20 pico",
-            "2 pico",
-            "200 nano",
-            "20 nano",
-            "2 nano",
-            "200 micro",
-            "20 micro",
-            "2 micro",
-            "200 milli",
-            "20 milli",
-            "2 milli",
-            "2 centi",
-            "2 deci",
-            "2",
-            "2 deka",
-            "2 hecto",
-            "2 kilo",
-            "20 kilo",
-            "200 kilo",
-            "2 mega",
-            "20 mega",
-            "200 mega",
-            "2 giga",
-            "20 giga",
-            "200 giga",
-            "2 tera",
-            "20 tera",
-            "200 tera",
-            "2 peta",
-            "20 peta",
-            "200 peta",
-            "2 exa",
-            "20 exa",
-            "200 exa",
-            "2 zetta",
-            "20 zetta",
-            "200 zetta",
-            "2 yotta",
-            "2*10^25",
-            "2*10^26",
-            "2*10^27",
-            "2*10^28",
-            "2*10^29",
-        ];
+        let vector = gen_to_si_vector();
 
-        // note: to keep this fn shorter we only test range -30..30, rather than
-        // -127..127
-        for (idx, i) in (-30..30i8).enumerate() {
-            let a = Amount::new(2, i);
-            let strval = a.to_si_string();
-            // println!("{:?}\t--> {}", a, strval);
-            println!("{:<8}\t--> {}", a, strval);
-            assert_eq!(strval, vector[idx]);
+        for (amt, expect) in vector.iter() {
+            let s = amt.to_si_string();
+            assert_eq!(s, *expect);
         }
+        Ok(())
+    }
 
-        // 0 and 1 are special cases.
-        assert_eq!(Amount::new(0, -5).to_si_string(), "0");
-        assert_eq!(Amount::new(0, 5).to_si_string(), "0");
-        assert_eq!(Amount::new(1, 25).to_si_string(), "10^25");
-        assert_eq!(Amount::new(1, -25).to_si_string(), "10^-25");
-        assert_eq!(Amount::new(1, 0).to_si_string(), "1");
-        assert_eq!(Amount::new(1, 1).to_si_string(), "1 deka");
-        assert_eq!(Amount::new(1, 2).to_si_string(), "1 hecto");
+    #[test]
+    fn from_si_string_vector() -> Result<()> {
+        let vector = gen_from_si_vector();
 
+        for (expect, input) in vector.iter() {
+            let amt: Amount = input.parse()?;
+            assert_eq!(*expect, amt);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn from_si_string_error_vector() -> Result<()> {
+        let vector = gen_from_si_error_vector();
+
+        for (input, expect) in vector.iter() {
+            let result = input.parse::<Amount>();
+
+            let actual = format!("{}", result.unwrap_err());
+            let expected = format!("{}", expect);
+
+            println!("{} : {}", actual, expected);
+
+            assert_eq!(actual, expected);
+        }
         Ok(())
     }
 }
