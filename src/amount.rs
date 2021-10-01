@@ -11,7 +11,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
-// represents the exponent in 10^-10, 10^0, 10^3, etc.  -127..127.
+// represents the exponent in 10^-10, 10^0, 10^3, etc.  -128..127.
 pub type PowerOfTen = i8;
 
 // defines size of unsigned counter for an Amount.
@@ -107,6 +107,8 @@ impl Amount {
     const COUNT_MAX_TEN_POW: PowerOfTen = 9;
     const COUNT_MAX: AmountCounter = 1000000000; // This value MUST equal 10^COUNT_MAX_TEN_POW
 
+    /// creates a new Amount.
+    /// Returns Error::AmountInvalid if count > Self::counter_max()
     pub fn new(count: AmountCounter, unit: PowerOfTen) -> Result<Self> {
         if count > Self::counter_max() {
             return Err(Error::AmountInvalid);
@@ -122,6 +124,8 @@ impl Amount {
         Self { count, unit }
     }
 
+    /// returns the maximum possible value for count field.
+    //
     // note: It's recommended to make this larger than Mint's genesis amount,
     //       else one immediately gets AmountIncompatible errors when reissuing
     //       two outputs: [1, GenesisAmount - 1] and must instead reissue to
@@ -132,6 +136,7 @@ impl Amount {
         Self::COUNT_MAX
     }
 
+    /// returns maximum possible value for unit field
     pub fn unit_max() -> PowerOfTen {
         // We decreate max unit by size of counter max so that
         // the largest count of largest Amount unit will always be representable
@@ -141,6 +146,7 @@ impl Amount {
         PowerOfTen::MAX - Self::COUNT_MAX_TEN_POW
     }
 
+    /// returns minimum possible value for unit field
     pub fn unit_min() -> PowerOfTen {
         // We increase max unit by size of counter max so that
         // the largest count of smallest Amount unit will always be representable
@@ -150,10 +156,14 @@ impl Amount {
         PowerOfTen::MIN + Self::COUNT_MAX_TEN_POW
     }
 
+    /// Converts Amount to a rug::Rational number.
+    // note: we should think about if we want to expose the Rational
+    //       as public or not.  keeping private for now.
     fn to_rational(self) -> Rational {
         Rational::from(10).pow(self.unit as i32) * Rational::from(self.count)
     }
 
+    /// generates a mapping of PowerOfTen to SI names.
     fn si_map() -> BTreeMap<PowerOfTen, &'static str> {
         [
             (24, "yotta"),
@@ -183,10 +193,12 @@ impl Amount {
         .collect()
     }
 
+    /// generates an SI string for this amount, eg: "253 yotta".
+    //
     // SI units obtained from:
     //  http://www.knowledgedoor.com/2/units_and_constants_handbook/power_prefixes.html
     //
-    // note: presently we special case count == 0.
+    // note: we special case count == 0.
     //       So it prints 0 instead of eg 0*10^25 or 0*10^2.
     //       This hides the unit information, but is easier
     //       to read.  Anyway, the two cases are equally zero.
@@ -196,13 +208,9 @@ impl Amount {
         let min = map.keys().min().unwrap_or(&0);
         let max = map.keys().max().unwrap_or(&0);
 
-        // 187459185 giga
-
-        // 25 giga   = 25 * 10^9,   count = 25, unit = 9
-        // 250 giga   = 25 * 10^10,   count = 25, unit = 10
-        // 2500 giga   = 25 * 10^11,   count = 25, unit = 11
-
-        // xx                          count = 187459185, unit = 11
+        //   25 giga  = 25 * 10^9,   count = 25, unit =  9
+        //  250 giga  = 25 * 10^10,  count = 25, unit = 10
+        // 2500 giga  = 25 * 10^11,  count = 25, unit = 11
 
         if self.unit >= *min && self.unit <= *max && self.count != 0 {
             let mut unit = self.unit;
@@ -230,10 +238,12 @@ impl Amount {
         self.to_string()
     }
 
+    /// generates a notation string, eg: "3*10^-25"
     pub fn to_notation_string(self) -> String {
         format!("{}*10^{}", self.count, self.unit)
     }
 
+    /// returns maximum possible Amount
     pub fn max() -> Self {
         Self {
             count: Self::counter_max(),
@@ -241,6 +251,7 @@ impl Amount {
         }
     }
 
+    /// returns minimum possible Amount
     pub fn min() -> Self {
         Self {
             count: 1,
@@ -260,13 +271,17 @@ impl Amount {
         }
     }
 
-    // we may have an Amount like:
-    // count = 25000,  unit = 2             (value: 2500000)
-    //
-    // We want instead an equivalent Amount:
-    // count = 25,     unit = 5             (value: 2500000).
-    //
-    // This function turns the former into the latter.
+    /// returns an Amount using the highest possible unit
+    /// and lowest possible count.
+    ///
+    /// For example:
+    ///   we may have an Amount like:
+    ///   count = 25000,  unit = 2             (value: 2500000)
+    ///
+    ///   We want instead an equivalent Amount:
+    ///   count = 25,     unit = 5             (value: 2500000).
+    ///
+    ///   This function turns the former into the latter.
     pub fn to_highest_unit(self) -> Self {
         let mut count = self.count;
         let mut unit = self.unit;
@@ -282,15 +297,15 @@ impl Amount {
     // we want to normalize these:
     // count = 25,  unit = 2    = 2500
     // count = 255, unit = 1    = 2550.
-
+    //
     // if we normalize to highest unit:
     // count = 25, unit = 2    = 25 * 100 = 2500
     // count = 25, unit = 2    = 25 * 10 = 2500    <---- loses information. can't do this.
-
+    //
     // if we normalize to lowest unit:
     // count = 250,  unit = 1    = 2500  <--- works.  but count can overflow.
     // count = 255,  unit = 1    = 2550.
-
+    //
     // Because count can overflow in one of the Amount, we return
     // NormalizedAmount that uses a big rug::Integer for the count.
     fn normalize(a: Self, b: Self) -> (NormalizedAmount, NormalizedAmount) {
@@ -348,6 +363,7 @@ impl Amount {
         }
     }
 
+    /// performs addition operation and returns error if operands are incompatible.
     pub fn checked_add(self, other: Self) -> Result<Self> {
         // steps:
         // 1. normalize to same units.  use rug:Integer to represent count.
@@ -377,6 +393,7 @@ impl Amount {
         }
     }
 
+    /// performs subtraction operation and returns error if operands are incompatible.
     pub fn checked_sub(self, rhs: Self) -> Result<Self> {
         // we do not support negative Amounts
         if self < rhs {
@@ -397,20 +414,17 @@ impl Amount {
         }
     }
 
-    // pub fn nearness(self, other) -> usize {
-    //     let (a, b) = Self::normalize(self, other);
-    //     let count_diff = a.count - b.count;
-    //     count_diff.to_string().len()
-    // }
-
+    /// returns true if operands are compatible for subtraction
     pub fn sub_compatible(self, other: Amount) -> bool {
         self.checked_sub(other).is_ok()
     }
 
+    /// returns true if operands are compatible for addition
     pub fn add_compatible(self, other: Amount) -> bool {
         self.checked_add(other).is_ok()
     }
 
+    /// sums values in iter or returns error if operands are incompatible.
     pub fn checked_sum<I>(iter: I) -> Result<Self>
     where
         I: Iterator<Item = Self>,
@@ -422,6 +436,7 @@ impl Amount {
         Ok(sum)
     }
 
+    // attempts to parse u128 into Amount
     fn from_str_u128(s: &str) -> Result<Self> {
         match s.parse::<u128>() {
             Ok(v) => Self::try_from(v),
@@ -429,6 +444,7 @@ impl Amount {
         }
     }
 
+    // attempts to parse rug::Rational into Amount
     fn from_str_rational(s: &str) -> Result<Self> {
         match s.parse::<Rational>() {
             Ok(v) => Self::try_from(v),
@@ -436,7 +452,7 @@ impl Amount {
         }
     }
 
-    // parses a string in the notation: x*10^y
+    // attempts to parse a string in the notation: x*10^y
     // where x must be positive and y may be negative.
     fn from_str_notation_full(s: &str) -> Result<Self> {
         let parts: Vec<&str> = s.split(|c| c == '*' || c == '^').collect();
@@ -455,7 +471,7 @@ impl Amount {
         Self::new(count, unit)
     }
 
-    // parses a string in the notation: 10^y
+    // attempts to parse a string in the notation: 10^y
     // where y may be negative.
     fn from_str_notation_short(s: &str) -> Result<Self> {
         let parts: Vec<&str> = s.split('^').collect();
@@ -472,7 +488,7 @@ impl Amount {
         Self::new(1, unit)
     }
 
-    // parses a string like "253 yotta"
+    // attempts to parse an SI string like "253 yotta"
     fn from_str_si(s: &str) -> Result<Self> {
         let map = Self::si_map();
 
@@ -493,6 +509,43 @@ impl Amount {
     }
 }
 
+impl FromStr for Amount {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // note: from_str_u128 is an optimization to avoid calling
+        //       presumed slower from_str_rational() if not necessary.
+        //       perhaps the optimization is not worth the extra
+        //       code/complexity.
+        if let Ok(v) = Self::from_str_u128(s) {
+            return Ok(v);
+        }
+
+        // parses eg 0, 1, 10, 1/10, 1/5, 2/5
+        //           15000000000000000000000000000000000000000000000000000000000000000
+        if let Ok(v) = Self::from_str_rational(s) {
+            return Ok(v);
+        }
+
+        // parses eg 3*10^-5
+        if let Ok(v) = Self::from_str_notation_full(s) {
+            return Ok(v);
+        }
+
+        // parses eg 10^-5
+        if let Ok(v) = Self::from_str_notation_short(s) {
+            return Ok(v);
+        }
+
+        // parses eg 253 yotta
+        if let Ok(v) = Self::from_str_si(s) {
+            return Ok(v);
+        }
+
+        Err(Error::AmountUnparseable)
+    }
+}
+
 impl TryFrom<Integer> for Amount {
     type Error = Error;
 
@@ -508,43 +561,33 @@ impl TryFrom<Rational> for Amount {
     type Error = Error;
 
     fn try_from(n: Rational) -> Result<Self, Self::Error> {
-        println!("rational: {:?}", n);
-
         let mut d = n.denom().clone();
         let mut numer = n.numer().clone();
-        println!("d: {:?}", d);
 
         match d.cmp(&Integer::from(1)) {
             Ordering::Greater => {
                 // denominator is > 1, so we have a fraction.
-                // for now, we only handle fractions like:
-                //     1/2, 1/5, 1/10, 1/100, 1/20, 2/10, etc.
-                // We do not (yet) handle things like:
-                //     1/4, 1/8, 1/25, 1/12500 etc.
-                match is_pure(&d) {
-                    Some(first_digit) => {
-                        // normalize: x/5 --> 2x/10, x/50 --> 2x/100
-                        println!("fd: {}", first_digit);
-                        if first_digit == 5 {
-                            let two = Integer::from(2);
-                            d *= &two;
-                            numer *= two;
-                        }
-                        // normalize: x/2 --> 5x/10, x/20 --> 5x/100
-                        else if first_digit == 2 {
-                            let five = Integer::from(5);
-                            d *= &five;
-                            numer *= five;
-                        }
+                // we analyze denominator to find a multiplier such that
+                // denominator * multiplier is a power of ten.
+                match find_denominator_multiplier(&d) {
+                    Some(powten) => {
+                        // multiply numerator and denominator by multiplier
+                        numer *= &powten;
+                        d *= &powten;
+
+                        // calc exp for 10^exp == d
                         let (exp, rem) =
                             calc_exponent_bigint(d.clone()).ok_or(Error::AmountUnparseable)?;
-                        println!("exp: {}, rem: {}", exp, rem);
+
                         if rem != 1 {
                             return Err(Error::AmountUnparseable);
                         }
 
+                        // convert numerator into AmountCounter, if it fits.
                         let count =
                             AmountCounter::try_from(numer).map_err(|_| Error::AmountUnparseable)?;
+
+                        // ::new() will check that count <= ::counter_max()
                         Amount::new(count, -exp)
                     }
                     None => Err(Error::AmountUnparseable),
@@ -557,40 +600,6 @@ impl TryFrom<Rational> for Amount {
             _ => Err(Error::AmountUnparseable),
         }
     }
-}
-
-// calculates largest power-of-ten exponent that is less than amt
-// and also returns the remainder
-fn calc_exponent_bigint(mut amt: Integer) -> Option<(PowerOfTen, Integer)> {
-    let mut cnt: PowerOfTen = 0;
-    let ten = Integer::from(10);
-    while amt.mod_u(10) == 0 && amt > 1 {
-        // bail if we would overflow cnt
-        if cnt == PowerOfTen::MAX {
-            return None;
-        }
-        amt = amt.div_exact(&ten);
-        cnt += 1;
-    }
-    // count, remainder
-    Some((cnt, amt))
-}
-
-// calculates largest power-of-ten exponent that is less than amt
-// and also returns the remainder
-fn calc_exponent_u128(mut amt: u128) -> Option<(PowerOfTen, u128)> {
-    let mut cnt: PowerOfTen = 0;
-
-    while amt % 10 == 0 && amt > 1 {
-        // bail if we would overflow cnt
-        if cnt == PowerOfTen::MAX {
-            return None;
-        }
-        amt /= 10;
-        cnt += 1;
-    }
-    // count, remainder
-    Some((cnt, amt))
 }
 
 impl TryFrom<u128> for Amount {
@@ -664,36 +673,6 @@ impl fmt::Display for Amount {
     }
 }
 
-// for a given number 234523 returns vec![2,3,4,5,2,3]
-// todo: use an iterative impl instead of recursion.
-pub(crate) fn digits(n: AmountCounter) -> Vec<u8> {
-    fn x_inner(n: AmountCounter, xs: &mut Vec<u8>) {
-        if n >= 10 {
-            x_inner(n / 10, xs);
-        }
-        xs.push((n % 10) as u8);
-    }
-    let mut xs = Vec::new();
-    x_inner(n, &mut xs);
-    xs
-}
-
-// detects if an integer starts with a single
-// non-zero digit and all following digits are zero.
-// If this pattern is found, returns Some(first_digit)
-// else None
-fn is_pure(i: &Integer) -> Option<u32> {
-    let digits = i.to_string();
-    if digits.len() > 1 {
-        for d in digits[1..].chars() {
-            if d != '0' {
-                return None;
-            }
-        }
-    }
-    digits.chars().next()?.to_digit(10)
-}
-
 impl PartialEq for Amount {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
@@ -714,7 +693,7 @@ impl Hash for Amount {
 impl Ord for Amount {
     // We perform the comparison without calculating exponent, which could be
     // very large.  Converting to Rational also works, but is slower.
-    // Doubtless this could be optimized much further.
+    // Doubtless this could be optimized further.
     fn cmp(&self, other: &Self) -> Ordering {
         let use_rational_impl = false;
 
@@ -767,40 +746,9 @@ impl Ord for Amount {
     }
 }
 
-impl FromStr for Amount {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // note: from_str_u128 is an optimization to avoid calling
-        //       presumed slower from_str_rational() if not necessary.
-        //       perhaps the optimization is not worth the extra
-        //       code/complexity.
-        if let Ok(v) = Self::from_str_u128(s) {
-            return Ok(v);
-        }
-
-        // parses eg 0, 1, 10, 1/10, 1/5, 2/5
-        //           15000000000000000000000000000000000000000000000000000000000000000
-        if let Ok(v) = Self::from_str_rational(s) {
-            return Ok(v);
-        }
-
-        // parses eg 3*10^-5
-        if let Ok(v) = Self::from_str_notation_full(s) {
-            return Ok(v);
-        }
-
-        // parses eg 10^-5
-        if let Ok(v) = Self::from_str_notation_short(s) {
-            return Ok(v);
-        }
-
-        // parses eg 253 yotta
-        if let Ok(v) = Self::from_str_si(s) {
-            return Ok(v);
-        }
-
-        Err(Error::AmountUnparseable)
+impl PartialOrd for Amount {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -820,10 +768,86 @@ impl Arbitrary for Amount {
     }
 }
 
-impl PartialOrd for Amount {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+// calculates largest power-of-ten exponent that is less than amt
+// and also returns the remainder
+fn calc_exponent_bigint(mut amt: Integer) -> Option<(PowerOfTen, Integer)> {
+    let mut cnt: PowerOfTen = 0;
+    let ten = Integer::from(10);
+    while amt.mod_u(10) == 0 && amt > 1 {
+        // bail if we would overflow cnt
+        if cnt == PowerOfTen::MAX {
+            return None;
+        }
+        // already verified amount is divisible by ten
+        amt = amt.div_exact(&ten);
+        cnt += 1;
     }
+    // count, remainder
+    Some((cnt, amt))
+}
+
+// calculates largest power-of-ten exponent that is less than amt
+// and also returns the remainder
+fn calc_exponent_u128(mut amt: u128) -> Option<(PowerOfTen, u128)> {
+    let mut cnt: PowerOfTen = 0;
+
+    while amt % 10 == 0 && amt > 1 {
+        // bail if we would overflow cnt
+        if cnt == PowerOfTen::MAX {
+            return None;
+        }
+        // already verified amount is divisible by ten
+        amt /= 10;
+        cnt += 1;
+    }
+    // count, remainder
+    Some((cnt, amt))
+}
+
+// for a given number 234523 returns vec![2,3,4,5,2,3]
+// todo: use an iterative impl instead of recursion.
+pub(crate) fn digits(n: AmountCounter) -> Vec<u8> {
+    fn x_inner(n: AmountCounter, xs: &mut Vec<u8>) {
+        if n >= 10 {
+            x_inner(n / 10, xs);
+        }
+        xs.push((n % 10) as u8);
+    }
+    let mut xs = Vec::new();
+    x_inner(n, &mut xs);
+    xs
+}
+
+// analyzes an input denominator to find a multiplier such that
+// denominator * multiplier is a power of ten.
+fn find_denominator_multiplier(i: &Integer) -> Option<Integer> {
+    // 1. convert integer to string.
+    let digits = i.to_string();
+
+    // 2. strip trailing zeros.
+    let leadstr = digits.trim_end_matches('0');
+    let leadnum: Integer = match leadstr.parse() {
+        Ok(n) => n,
+        Err(_) => return None,
+    };
+
+    // if 1, we are done.
+    if leadnum == 1 {
+        return Some(Integer::from(1));
+    }
+
+    // 3. increase powers of ten until we find pten into which
+    //    leadnum divides evenly
+    for j in leadstr.chars().count() as PowerOfTen..=Amount::unit_max() {
+        let pten = Integer::from(10).pow(j as u32);
+
+        // todo: Can we get rid of this clone somehow?
+        if pten.clone() % &leadnum == 0 {
+            let unit_big = pten.div_exact(&leadnum);
+            return Some(unit_big);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -832,7 +856,10 @@ mod tests {
     use crate::{Error, Result};
     use quickcheck_macros::quickcheck;
     use std::collections::BTreeMap;
+    use std::convert::TryFrom;
 
+    // tests that if a == b then hash(a) == hash(b)
+    //        and if a != b then hash(a) != hash(b)
     #[quickcheck]
     fn prop_hash_eq(a: Amount, b: Amount) -> Result<()> {
         use std::collections::hash_map::DefaultHasher;
@@ -920,6 +947,7 @@ mod tests {
         Ok(())
     }
 
+    // tests that ::to_string() result can be parsed back into Amount
     #[quickcheck]
     fn prop_to_string_then_parse(amounts: Vec<Amount>) -> Result<()> {
         for amt in amounts.into_iter() {
@@ -930,6 +958,7 @@ mod tests {
         Ok(())
     }
 
+    // tests that ::to_si_string() result can be parsed back into Amount
     #[quickcheck]
     fn prop_to_si_string_then_parse(amounts: Vec<Amount>) -> Result<()> {
         for amt in amounts.into_iter() {
@@ -941,6 +970,7 @@ mod tests {
         Ok(())
     }
 
+    // tests that ::to_notation_string() result can be parsed back into Amount
     #[quickcheck]
     fn prop_to_notation_string_then_parse(amounts: Vec<Amount>) -> Result<()> {
         for amt in amounts.into_iter() {
@@ -952,6 +982,7 @@ mod tests {
         Ok(())
     }
 
+    // tests that ::to_highest_unit() result is equal to original amount
     #[quickcheck]
     fn prop_to_highest_unit(amounts: Vec<Amount>) -> Result<()> {
         for amt in amounts.into_iter() {
@@ -962,17 +993,17 @@ mod tests {
         Ok(())
     }
 
-    // todo: TryFrom<Rational> is not yet able to handle all output of ::to_rational()
-    // #[quickcheck]
-    // fn prop_to_rational_then_from(amounts: Vec<Amount>) -> Result<()> {
-    //     for amt in amounts.into_iter() {
-    //         println!("{:?} --> {}", amt, amt.to_rational());
-    //         let new = Amount::try_from(amt.to_rational())?;
-    //         assert_eq!(amt, new);
-    //         assert_eq!(amt.to_rational(), new.to_rational());
-    //     }
-    //     Ok(())
-    // }
+    // tests that ::to_rational() result can be converted back into Amount
+    #[quickcheck]
+    fn prop_to_rational_then_from(amounts: Vec<Amount>) -> Result<()> {
+        for amt in amounts.into_iter() {
+            println!("{:?} --> {}", amt, amt.to_rational());
+            let new = Amount::try_from(amt.to_rational())?;
+            assert_eq!(amt, new);
+            assert_eq!(amt.to_rational(), new.to_rational());
+        }
+        Ok(())
+    }
 
     // Verifies that Amount comparison operators agree with
     // rug::Rational comparison operators.  So this is testing
@@ -991,6 +1022,7 @@ mod tests {
         Ok(())
     }
 
+    // not really a test.  this just prints SI strings.
     #[quickcheck]
     fn prop_to_si_string(mut amounts: Vec<Amount>) -> Result<()> {
         amounts.sort();
@@ -1002,6 +1034,7 @@ mod tests {
         Ok(())
     }
 
+    // generates test vector for ::to_string()
     fn gen_to_string_vector() -> BTreeMap<Amount, &'static str> {
         [
             // 10^0 values.
@@ -1035,6 +1068,7 @@ mod tests {
         .collect()
     }
 
+    // generates test vector for ::from_str()
     fn gen_from_string_vector() -> BTreeMap<Amount, &'static str> {
         let mut m: BTreeMap<Amount, &'static str> = [
             (Amount::new_unchecked(1, 0), "10^0"),
@@ -1070,6 +1104,7 @@ mod tests {
         v
     }
 
+    // generates error cases test vector for ::from_str()
     fn gen_from_string_error_vector() -> BTreeMap<&'static str, Error> {
         let mut m: BTreeMap<&'static str, Error> = Default::default();
         m.insert("1*10^5 ", Error::AmountUnparseable);
@@ -1096,6 +1131,7 @@ mod tests {
         m
     }
 
+    // tests error cases vector for ::from_str()
     #[test]
     fn from_string_error_vector() -> Result<()> {
         let vector = gen_from_string_error_vector();
@@ -1113,6 +1149,7 @@ mod tests {
         Ok(())
     }
 
+    // tests vector for ::from_str()
     #[test]
     fn from_string_vector() -> Result<()> {
         let vector = gen_from_string_vector();
@@ -1125,6 +1162,7 @@ mod tests {
         Ok(())
     }
 
+    // tests vector for ::to_string()
     #[test]
     fn to_string_vector() -> Result<()> {
         let vector = gen_to_string_vector();
@@ -1136,6 +1174,7 @@ mod tests {
         Ok(())
     }
 
+    // generates test vector for ::to_si_string()
     fn gen_to_si_vector() -> BTreeMap<Amount, &'static str> {
         [
             // Basic values.
@@ -1179,6 +1218,7 @@ mod tests {
         .collect()
     }
 
+    // generates test vector for ::from_si_str()
     fn gen_from_si_vector() -> BTreeMap<Amount, &'static str> {
         let mut m: BTreeMap<Amount, &'static str> = [
             // case insensitive
@@ -1195,6 +1235,7 @@ mod tests {
         v
     }
 
+    // generates error cases test vector for ::from_si_str()
     fn gen_from_si_error_vector() -> BTreeMap<&'static str, Error> {
         let mut m: BTreeMap<&'static str, Error> = Default::default();
         m.insert("1 yotto", Error::AmountUnparseable);
@@ -1212,6 +1253,7 @@ mod tests {
         m
     }
 
+    // tests vector for ::to_si_string()
     #[test]
     fn to_si_string_vector() -> Result<()> {
         let vector = gen_to_si_vector();
@@ -1223,6 +1265,7 @@ mod tests {
         Ok(())
     }
 
+    // tests vector for ::from_si_str()
     #[test]
     fn from_si_string_vector() -> Result<()> {
         let vector = gen_from_si_vector();
@@ -1234,6 +1277,7 @@ mod tests {
         Ok(())
     }
 
+    // tests error cases vector for ::from_si_str()
     #[test]
     fn from_si_string_error_vector() -> Result<()> {
         let vector = gen_from_si_error_vector();
