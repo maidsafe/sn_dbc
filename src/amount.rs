@@ -1045,6 +1045,7 @@ mod tests {
     // Verifies that Amount comparison operators agree with
     // rug::Rational comparison operators.  So this is testing
     // the Amount::cmp() fn.
+    #[allow(clippy::comparison_chain)]
     #[quickcheck]
     fn prop_ord(amounts: Vec<(Amount, Amount)>) -> Result<()> {
         for (a, b) in amounts.iter() {
