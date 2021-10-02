@@ -711,9 +711,9 @@ impl Eq for Amount {}
 impl Hash for Amount {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // the following must hold true: k1 == k2 ⇒ hash(k1) == hash(k2)
-        // todo: re-implement without to_rational(), which is slow(er).
-        let r = self.to_rational();
-        r.hash(state)
+        let a = self.to_highest_unit();
+        a.count.hash(state);
+        a.unit.hash(state);
     }
 }
 
@@ -898,10 +898,24 @@ mod tests {
     // tests that if a == b then hash(a) == hash(b)
     //        and if a != b then hash(a) != hash(b)
     #[quickcheck]
-    fn prop_hash_eq(a: Amount, b: Amount) -> Result<()> {
+    fn prop_hash_eq(a: Amount) -> Result<()> {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::Hash;
         use std::hash::Hasher;
+
+        let count = if a.count < Amount::counter_max() / 10 {
+            a.count * 10
+        } else if a.count % 10 == 0 {
+            a.count / 10
+        } else {
+            a.count
+        };
+        let unit = if a.unit < Amount::unit_max() {
+            a.unit + 1
+        } else {
+            a.unit
+        };
+        let b = Amount::new(count, unit)?;
 
         let mut ha = DefaultHasher::new();
         let mut hb = DefaultHasher::new();
@@ -909,9 +923,42 @@ mod tests {
         b.hash(&mut hb);
 
         if a == b {
+            println!(
+                "a == b, {} == {}",
+                a.to_notation_string(),
+                b.to_notation_string()
+            );
             assert_eq!(ha.finish(), hb.finish())
         } else {
+            println!(
+                "a != b, {} == {}",
+                a.to_notation_string(),
+                b.to_notation_string()
+            );
             assert_ne!(ha.finish(), hb.finish())
+        }
+
+        Ok(())
+    }
+
+    // tests that two amounts that use different bases but
+    // are equal hash to the same value.
+    #[test]
+    fn hash_eq() -> Result<()> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hash;
+        use std::hash::Hasher;
+
+        for unit in Amount::unit_min()..Amount::unit_max() {
+            let a = Amount::new(50, unit)?;
+            let b = Amount::new(5, unit + 1)?;
+
+            let mut ha = DefaultHasher::new();
+            let mut hb = DefaultHasher::new();
+            a.hash(&mut ha);
+            b.hash(&mut hb);
+
+            assert_eq!(ha.finish(), hb.finish());
         }
 
         Ok(())
