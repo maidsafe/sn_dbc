@@ -235,8 +235,8 @@ mod tests {
     use super::*;
     use crate::{
         tests::{TinyInt, TinyVec},
-        Amount, AmountCounter, DbcBuilder, Output, ReissueRequestBuilder, SimpleKeyManager,
-        SimpleSigner, SimpleSpendBook, TransactionBuilder,
+        Amount, AmountCounter, DbcBuilder, Output, SimpleKeyManager, SimpleSigner, SimpleSpendBook,
+        TransactionBuilder,
     };
     use quickcheck_macros::quickcheck;
     use serde::Serialize;
