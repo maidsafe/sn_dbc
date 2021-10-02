@@ -161,9 +161,9 @@ impl Denomination {
 
         let mut chosen = vec![];
 
-        let digits = digits(target.count);
+        let digits = digits(target.count());
         let len = digits.len() as PowerOfTen;
-        let exp_base = len - 1 + target.unit;
+        let exp_base = len - 1 + target.unit();
         for (idx, digit) in digits.iter().enumerate() {
             if *digit == 0 {
                 continue;
@@ -203,9 +203,9 @@ impl TryFrom<Amount> for Denomination {
 
     fn try_from(amt: Amount) -> Result<Self> {
         let a = amt.to_highest_unit();
-        let exp = a.unit;
+        let exp = a.unit();
 
-        let denom = match a.count {
+        let denom = match a.count() {
             1 => Self::One(exp),
             2 => Self::Two(exp),
             3 => Self::Three(exp),
