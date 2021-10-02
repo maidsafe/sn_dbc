@@ -398,7 +398,7 @@ impl Amount {
         let mut unit = a.unit;
         if count_sum > 0 {
             let ten = Integer::from(10);
-            while count_sum.clone() % 10 == 0 {
+            while count_sum.is_divisible(&ten) {
                 // avoid overflowing unit
                 if unit == Self::unit_max() {
                     return Err(Error::AmountIncompatible);
@@ -879,7 +879,7 @@ fn find_denominator_multiplier(i: &Integer) -> Option<Integer> {
         let pten = Integer::from(10).pow(j as u32);
 
         // todo: Can we get rid of this clone somehow?
-        if pten.clone() % &leadnum == 0 {
+        if pten.is_divisible(&leadnum) {
             let unit_big = pten.div_exact(&leadnum);
             return Some(unit_big);
         }
