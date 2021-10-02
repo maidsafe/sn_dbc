@@ -88,8 +88,8 @@ pub type AmountCounter = u32;
 ///
 #[derive(Clone, Debug, Copy, Default, Serialize, Deserialize)]
 pub struct Amount {
-    pub count: AmountCounter,
-    pub unit: PowerOfTen,
+    count: AmountCounter,
+    unit: PowerOfTen,
 }
 
 /// A NormalizedAmount is just like an Amount except that count is a Big Integer.
@@ -104,10 +104,17 @@ struct NormalizedAmount {
 }
 
 impl Amount {
+    /// maximum value for Self::count. MUST equal 10^COUNT_MAX_TEN_POW
+    //  note: we define these separately to avoid unnecessary runtime 10.pow() call.
+    const COUNT_MAX: AmountCounter = 1000000000;
+
+    /// power-of-ten exponent representing COUNT_MAX
     const COUNT_MAX_TEN_POW: PowerOfTen = 9;
-    const COUNT_MAX: AmountCounter = 1000000000; // This value MUST equal 10^COUNT_MAX_TEN_POW
 
     /// creates a new Amount.
+    ///   count: count of 10^unit values.
+    ///   unit:  power-of-ten exponent, as used in 10^unit
+    ///
     /// Returns Error::AmountInvalid if count > Self::counter_max()
     pub fn new(count: AmountCounter, unit: PowerOfTen) -> Result<Self> {
         if count > Self::counter_max() {
@@ -122,6 +129,16 @@ impl Amount {
     pub(crate) fn new_unchecked(count: AmountCounter, unit: PowerOfTen) -> Self {
         debug_assert!(count <= Self::counter_max());
         Self { count, unit }
+    }
+
+    // returns count of 10^unit
+    pub fn count(&self) -> AmountCounter {
+        self.count
+    }
+
+    // returns unit - the power-of-ten exponent, as used in 10^unit
+    pub fn unit(&self) -> PowerOfTen {
+        self.unit
     }
 
     /// returns the maximum possible value for count field.
@@ -143,6 +160,7 @@ impl Amount {
         // by at most COUNT_MAX_TEN_POW denominations.  In other words, so that
         // it is impossible to create an Amount that cannot be efficiently
         // represented by denominations.
+        debug_assert!(10u32.pow(Self::COUNT_MAX_TEN_POW as u32) == Self::COUNT_MAX);
         PowerOfTen::MAX - Self::COUNT_MAX_TEN_POW
     }
 
@@ -153,13 +171,16 @@ impl Amount {
         // by at most COUNT_MAX_TEN_POW denominations.  In other words, so that
         // it is impossible to create an Amount that cannot be efficiently
         // represented by denominations.
+        debug_assert!(10u32.pow(Self::COUNT_MAX_TEN_POW as u32) == Self::COUNT_MAX);
         PowerOfTen::MIN + Self::COUNT_MAX_TEN_POW
     }
 
     /// Converts Amount to a rug::Rational number.
-    // note: we should think about if we want to expose the Rational
-    //       as public or not.  keeping private for now.
-    fn to_rational(self) -> Rational {
+    //
+    // todo: we should think about if we want to expose rug::Rational
+    //       in our public API or not. Possibly this could be exposed
+    //       in a companion helper crate.
+    pub fn to_rational(self) -> Rational {
         Rational::from(10).pow(self.unit as i32) * Rational::from(self.count)
     }
 
@@ -336,7 +357,7 @@ impl Amount {
             } else {
                 (b.unit..a.unit).len() as u32
             };
-            // note: this unwrap_or_default() can never fail because there are two items.
+            // note: this unwrap_or() can never fail because there are two items.
             let unit_base = *[a.unit, b.unit].iter().min().unwrap_or(&0);
 
             let mut pair: Vec<NormalizedAmount> = [a, b]
@@ -546,6 +567,9 @@ impl FromStr for Amount {
     }
 }
 
+// todo: we should think about if we want to expose rug::Integer
+//       in our public API or not.  Possibly this could live in
+//       a companion helper crate.
 impl TryFrom<Integer> for Amount {
     type Error = Error;
 
@@ -557,6 +581,9 @@ impl TryFrom<Integer> for Amount {
     }
 }
 
+// todo: we should think about if we want to expose rug::Rational
+//       in our public API or not.  Possibly this could live in
+//       a companion helper crate.
 impl TryFrom<Rational> for Amount {
     type Error = Error;
 
@@ -770,6 +797,10 @@ impl Arbitrary for Amount {
 
 // calculates largest power-of-ten exponent that is less than amt
 // and also returns the remainder
+//
+// todo: we should think about if we want to expose rug::Integer
+//       in our public API or not.  Possibly this could live in
+//       a companion helper crate.
 fn calc_exponent_bigint(mut amt: Integer) -> Option<(PowerOfTen, Integer)> {
     let mut cnt: PowerOfTen = 0;
     let ten = Integer::from(10);
@@ -820,6 +851,12 @@ pub(crate) fn digits(n: AmountCounter) -> Vec<u8> {
 
 // analyzes an input denominator to find a multiplier such that
 // denominator * multiplier is a power of ten.
+//
+// todo: there is probably a better/faster way to impl this.
+//
+// todo: we should think about if we want to expose rug::Rational
+//       in our public API or not.  Possibly this could live in
+//       a companion helper crate.
 fn find_denominator_multiplier(i: &Integer) -> Option<Integer> {
     // 1. convert integer to string.
     let digits = i.to_string();
