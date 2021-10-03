@@ -736,6 +736,13 @@ mod tests {
     use quickcheck_macros::quickcheck;
     use std::collections::BTreeMap;
 
+    fn amount_to_f64(amount: Amount) -> f64 {
+        // note: f64 (double) max is 10^308.
+        // This conversion is ok as our max value is 10^127.
+        // note: it can lose some precision
+        10_f64.powi(amount.unit().into()) * amount.count() as f64
+    }
+
     // tests that if a == b then hash(a) == hash(b)
     //        and if a != b then hash(a) != hash(b)
     #[quickcheck]
@@ -839,7 +846,6 @@ mod tests {
                 println!("{:?} - {:?} --> {:?}", a, b, sum);
             }
             Err(Error::AmountIncompatible) => {
-                assert!(!a.add_compatible(b));
                 println!("{:?} - {:?} --> Incompatible", a, b);
             }
             Err(_e) => panic!("Unexpected error"),
@@ -911,25 +917,29 @@ mod tests {
         Ok(())
     }
 
-    /*
-        // Verifies that Amount comparison operators agree with
-        // rug::Rational comparison operators.  So this is testing
-        // the Amount::cmp() fn.
-        #[allow(clippy::comparison_chain)]
-        #[quickcheck]
-        fn prop_ord(amounts: Vec<(Amount, Amount)>) -> Result<()> {
-            for (a, b) in amounts.iter() {
-                if a > b {
-                    assert!(a.to_rational() > b.to_rational())
-                } else if a < b {
-                    assert!(a.to_rational() < b.to_rational())
-                } else {
-                    assert!(a.to_rational() == b.to_rational())
-                }
+    // Verifies that Amount comparison operators agree with
+    // rug::Rational comparison operators.  So this is testing
+    // the Amount::cmp() fn.
+    #[allow(clippy::comparison_chain)]
+    #[quickcheck]
+    fn prop_ord(amounts: Vec<(Amount, Amount)>) -> Result<()> {
+        for (a, b) in amounts.into_iter() {
+            let af = amount_to_f64(a);
+            let bf = amount_to_f64(b);
+
+            if a > b {
+                assert!(af > bf);
+                println!("{} > {},  {} > {}", a, b, af, bf);
+            } else if a < b {
+                assert!(af < bf);
+                println!("{} < {},  {} < {}", a, b, af, bf);
+            } else {
+                assert!(af == bf);
+                println!("{} == {},  {} == {}", a, b, af, bf);
             }
-            Ok(())
         }
-    */
+        Ok(())
+    }
 
     // not really a test.  this just prints SI strings.
     #[quickcheck]
