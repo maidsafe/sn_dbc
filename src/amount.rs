@@ -1,8 +1,4 @@
 use crate::{Error, Result};
-use rug::ops::DivRounding;
-use rug::ops::Pow;
-use rug::Integer;
-use rug::Rational;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -92,9 +88,9 @@ pub struct Amount {
     unit: PowerOfTen,
 }
 
-/// A NormalizedAmount is just like an Amount except that count is a Big Integer.
-/// So sum or difference of any two Amounts sharing the same unit can be represented
-/// with a NormalizedAmount.
+/// A NormalizedAmount is just like an Amount except that count is a u128
+/// So sum or difference of any two compatible Amounts sharing the same unit can
+/// be represented with a NormalizedAmount.
 ///
 /// For now, have this only for internal use/ops.
 #[derive(Debug, Default)]
@@ -173,15 +169,6 @@ impl Amount {
         // represented by denominations.
         debug_assert!(10u32.pow(Self::COUNT_MAX_TEN_POW as u32) == Self::COUNT_MAX);
         PowerOfTen::MIN + Self::COUNT_MAX_TEN_POW
-    }
-
-    /// Converts Amount to a rug::Rational number.
-    //
-    // todo: we should think about if we want to expose rug::Rational
-    //       in our public API or not. Possibly this could be exposed
-    //       in a companion helper crate.
-    pub fn to_rational(self) -> Rational {
-        Rational::from(10).pow(self.unit as i32) * Rational::from(self.count)
     }
 
     /// generates a mapping of PowerOfTen to SI names.
@@ -308,7 +295,7 @@ impl Amount {
         let mut unit = self.unit;
         while count % 10 == 0 && unit < Self::unit_max() {
             unit += 1;
-            count = count.div_ceil(10);
+            count /= 10;
         }
 
         debug_assert!(count <= Self::counter_max());
@@ -328,7 +315,7 @@ impl Amount {
     // count = 255,  unit = 1    = 2550.
     //
     // Because count can overflow in one of the Amount, we return
-    // NormalizedAmount that uses a big rug::Integer for the count.
+    // NormalizedAmount that uses a u128 for the count.
     fn normalize(a: Self, b: Self) -> Result<(NormalizedAmount, NormalizedAmount)> {
         let a = a.to_highest_unit();
         let b = b.to_highest_unit();
@@ -390,7 +377,7 @@ impl Amount {
     /// performs addition operation and returns error if operands are incompatible.
     pub fn checked_add(self, other: Self) -> Result<Self> {
         // steps:
-        // 1. normalize to same units.  use rug:Integer to represent count.
+        // 1. normalize to same units.  use u128 to represent count.
         // 2. add counts.
         // 3. find unit in which count is less than Self::counter_max()
         // 4. Amount::new()
@@ -424,7 +411,7 @@ impl Amount {
         }
 
         // steps:
-        // 1. normalize to same units.  use rug:Integer to represent count.
+        // 1. normalize to same units.  use u128 to represent count.
         // 2. subtract count.
         // 3. find unit in which count is less than Self::counter_max()
         // 4. Amount::new()
@@ -462,14 +449,6 @@ impl Amount {
     // attempts to parse u128 into Amount
     fn from_str_u128(s: &str) -> Result<Self> {
         match s.parse::<u128>() {
-            Ok(v) => Self::try_from(v),
-            Err(_) => Err(Error::AmountUnparseable),
-        }
-    }
-
-    // attempts to parse rug::Rational into Amount
-    fn from_str_rational(s: &str) -> Result<Self> {
-        match s.parse::<Rational>() {
             Ok(v) => Self::try_from(v),
             Err(_) => Err(Error::AmountUnparseable),
         }
@@ -536,17 +515,8 @@ impl FromStr for Amount {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // note: from_str_u128 is an optimization to avoid calling
-        //       presumed slower from_str_rational() if not necessary.
-        //       perhaps the optimization is not worth the extra
-        //       code/complexity.
+        // parses eg 2345322200000000
         if let Ok(v) = Self::from_str_u128(s) {
-            return Ok(v);
-        }
-
-        // parses eg 0, 1, 10, 1/10, 1/5, 2/5
-        //           15000000000000000000000000000000000000000000000000000000000000000
-        if let Ok(v) = Self::from_str_rational(s) {
             return Ok(v);
         }
 
@@ -566,68 +536,6 @@ impl FromStr for Amount {
         }
 
         Err(Error::AmountUnparseable)
-    }
-}
-
-// todo: we should think about if we want to expose rug::Integer
-//       in our public API or not.  Possibly this could live in
-//       a companion helper crate.
-impl TryFrom<Integer> for Amount {
-    type Error = Error;
-
-    fn try_from(n: Integer) -> Result<Self, Self::Error> {
-        let (unit, count) = calc_exponent_bigint(n).ok_or(Error::AmountUnparseable)?;
-
-        let count = AmountCounter::try_from(count).map_err(|_| Error::AmountUnparseable)?;
-        Amount::new(count, unit)
-    }
-}
-
-// todo: we should think about if we want to expose rug::Rational
-//       in our public API or not.  Possibly this could live in
-//       a companion helper crate.
-impl TryFrom<Rational> for Amount {
-    type Error = Error;
-
-    fn try_from(n: Rational) -> Result<Self, Self::Error> {
-        let mut d = n.denom().clone();
-        let mut numer = n.numer().clone();
-
-        match d.cmp(&Integer::from(1)) {
-            Ordering::Greater => {
-                // denominator is > 1, so we have a fraction.
-                // we analyze denominator to find a multiplier such that
-                // denominator * multiplier is a power of ten.
-                match find_denominator_multiplier(&d) {
-                    Some(powten) => {
-                        // multiply numerator and denominator by multiplier
-                        numer *= &powten;
-                        d *= &powten;
-
-                        // calc exp for 10^exp == d
-                        let (exp, rem) =
-                            calc_exponent_bigint(d.clone()).ok_or(Error::AmountUnparseable)?;
-
-                        if rem != 1 {
-                            return Err(Error::AmountUnparseable);
-                        }
-
-                        // convert numerator into AmountCounter, if it fits.
-                        let count =
-                            AmountCounter::try_from(numer).map_err(|_| Error::AmountUnparseable)?;
-
-                        // ::new() will check that count <= ::counter_max()
-                        Amount::new(count, -exp)
-                    }
-                    None => Err(Error::AmountUnparseable),
-                }
-            }
-            Ordering::Equal => {
-                // numerator is a rug::Integer
-                Self::try_from(numer)
-            }
-            _ => Err(Error::AmountUnparseable),
-        }
     }
 }
 
@@ -721,16 +629,8 @@ impl Hash for Amount {
 
 impl Ord for Amount {
     // We perform the comparison without calculating exponent, which could be
-    // very large.  Converting to Rational also works, but is slower.
-    // Doubtless this could be optimized further.
+    // very large.  Doubtless this could be optimized further.
     fn cmp(&self, other: &Self) -> Ordering {
-        let use_rational_impl = false;
-
-        // note: converting to rationals is slower than our custom code below.
-        if use_rational_impl {
-            return self.to_rational().cmp(&other.to_rational());
-        }
-
         match self.count {
             0 if other.count != 0 => return Ordering::Less,
             0 if other.count == 0 => return Ordering::Equal,
@@ -799,28 +699,6 @@ impl Arbitrary for Amount {
 
 // calculates largest power-of-ten exponent that is less than amt
 // and also returns the remainder
-//
-// todo: we should think about if we want to expose rug::Integer
-//       in our public API or not.  Possibly this could live in
-//       a companion helper crate.
-fn calc_exponent_bigint(mut amt: Integer) -> Option<(PowerOfTen, Integer)> {
-    let mut cnt: PowerOfTen = 0;
-    let ten = Integer::from(10);
-    while amt.mod_u(10) == 0 && amt > 1 {
-        // bail if we would overflow cnt
-        if cnt == PowerOfTen::MAX {
-            return None;
-        }
-        // already verified amount is divisible by ten
-        amt = amt.div_exact(&ten);
-        cnt += 1;
-    }
-    // count, remainder
-    Some((cnt, amt))
-}
-
-// calculates largest power-of-ten exponent that is less than amt
-// and also returns the remainder
 fn calc_exponent_u128(mut amt: u128) -> Option<(PowerOfTen, u128)> {
     let mut cnt: PowerOfTen = 0;
 
@@ -851,51 +729,12 @@ pub(crate) fn digits(n: AmountCounter) -> Vec<u8> {
     xs
 }
 
-// analyzes an input denominator to find a multiplier such that
-// denominator * multiplier is a power of ten.
-//
-// todo: there is probably a better/faster way to impl this.
-//
-// todo: we should think about if we want to expose rug::Rational
-//       in our public API or not.  Possibly this could live in
-//       a companion helper crate.
-fn find_denominator_multiplier(i: &Integer) -> Option<Integer> {
-    // 1. convert integer to string.
-    let digits = i.to_string();
-
-    // 2. strip trailing zeros.
-    let leadstr = digits.trim_end_matches('0');
-    let leadnum: Integer = match leadstr.parse() {
-        Ok(n) => n,
-        Err(_) => return None,
-    };
-
-    // if 1, we are done.
-    if leadnum == 1 {
-        return Some(Integer::from(1));
-    }
-
-    // 3. increase powers of ten until we find pten into which
-    //    leadnum divides evenly
-    for j in leadstr.chars().count() as PowerOfTen..=Amount::unit_max() {
-        let pten = Integer::from(10).pow(j as u32);
-
-        // todo: Can we get rid of this clone somehow?
-        if pten.is_divisible(&leadnum) {
-            let unit_big = pten.div_exact(&leadnum);
-            return Some(unit_big);
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::Amount;
     use crate::{Error, Result};
     use quickcheck_macros::quickcheck;
     use std::collections::BTreeMap;
-    use std::convert::TryFrom;
 
     // tests that if a == b then hash(a) == hash(b)
     //        and if a != b then hash(a) != hash(b)
@@ -996,7 +835,6 @@ mod tests {
 
         match result {
             Ok(sum) => {
-                assert_eq!(a.to_rational() + b.to_rational(), sum.to_rational());
                 assert!(a.add_compatible(b));
                 println!("{:?} - {:?} --> {:?}", a, b, sum);
             }
@@ -1010,8 +848,7 @@ mod tests {
     }
 
     // Sorts amounts and then verifies that order is lowest
-    // to highest, using both Amount and rug::Rational comparison
-    // operators.
+    // to highest
     #[quickcheck]
     fn amount_sort(mut amounts: Vec<Amount>) -> Result<()> {
         amounts.sort();
@@ -1024,7 +861,6 @@ mod tests {
                 (Some(a), Some(b)) => {
                     println!("a: {:?}, b: {:?}", a, b);
                     assert!(a <= b);
-                    assert!(a.to_rational() <= b.to_rational());
                 }
                 _ => break,
             }
@@ -1039,7 +875,6 @@ mod tests {
         for amt in amounts.into_iter() {
             let new: Amount = amt.to_string().parse()?;
             assert_eq!(amt, new);
-            assert_eq!(amt.to_rational(), new.to_rational());
         }
         Ok(())
     }
@@ -1051,7 +886,6 @@ mod tests {
             println!("{}", amt.to_si_string());
             let new: Amount = amt.to_si_string().parse()?;
             assert_eq!(amt, new);
-            assert_eq!(amt.to_rational(), new.to_rational());
         }
         Ok(())
     }
@@ -1063,7 +897,6 @@ mod tests {
             let new: Amount = amt.to_notation_string().parse()?;
             println!("{}", amt.to_notation_string());
             assert_eq!(amt, new);
-            assert_eq!(amt.to_rational(), new.to_rational());
         }
         Ok(())
     }
@@ -1074,40 +907,29 @@ mod tests {
         for amt in amounts.into_iter() {
             let new = amt.to_highest_unit();
             assert_eq!(amt, new);
-            assert_eq!(amt.to_rational(), new.to_rational());
         }
         Ok(())
     }
 
-    // tests that ::to_rational() result can be converted back into Amount
-    #[quickcheck]
-    fn prop_to_rational_then_from(amounts: Vec<Amount>) -> Result<()> {
-        for amt in amounts.into_iter() {
-            println!("{:?} --> {}", amt, amt.to_rational());
-            let new = Amount::try_from(amt.to_rational())?;
-            assert_eq!(amt, new);
-            assert_eq!(amt.to_rational(), new.to_rational());
-        }
-        Ok(())
-    }
-
-    // Verifies that Amount comparison operators agree with
-    // rug::Rational comparison operators.  So this is testing
-    // the Amount::cmp() fn.
-    #[allow(clippy::comparison_chain)]
-    #[quickcheck]
-    fn prop_ord(amounts: Vec<(Amount, Amount)>) -> Result<()> {
-        for (a, b) in amounts.iter() {
-            if a > b {
-                assert!(a.to_rational() > b.to_rational())
-            } else if a < b {
-                assert!(a.to_rational() < b.to_rational())
-            } else {
-                assert!(a.to_rational() == b.to_rational())
+    /*
+        // Verifies that Amount comparison operators agree with
+        // rug::Rational comparison operators.  So this is testing
+        // the Amount::cmp() fn.
+        #[allow(clippy::comparison_chain)]
+        #[quickcheck]
+        fn prop_ord(amounts: Vec<(Amount, Amount)>) -> Result<()> {
+            for (a, b) in amounts.iter() {
+                if a > b {
+                    assert!(a.to_rational() > b.to_rational())
+                } else if a < b {
+                    assert!(a.to_rational() < b.to_rational())
+                } else {
+                    assert!(a.to_rational() == b.to_rational())
+                }
             }
+            Ok(())
         }
-        Ok(())
-    }
+    */
 
     // not really a test.  this just prints SI strings.
     #[quickcheck]
@@ -1163,30 +985,12 @@ mod tests {
             (Amount::new_unchecked(1, 2), "10^2"),
             (Amount::new_unchecked(3, 3), "3*10^3"),
             (Amount::new_unchecked(0, 3), "0*10^3"),
-            (Amount::new_unchecked(1, -1), "1/10"),
-            (Amount::new_unchecked(2, -1), "2/10"),
-            (Amount::new_unchecked(3, -1), "3/10"),
-            (Amount::new_unchecked(4, -1), "4/10"),
-            (Amount::new_unchecked(5, -1), "5/10"),
-            (Amount::new_unchecked(6, -1), "6/10"),
-            (Amount::new_unchecked(7, -1), "7/10"),
-            (Amount::new_unchecked(8, -1), "8/10"),
-            (Amount::new_unchecked(9, -1), "9/10"),
-            (Amount::new_unchecked(2, -1), "1/5"),
-            (Amount::new_unchecked(4, -1), "2/5"),
-            (Amount::new_unchecked(6, -1), "3/5"),
-            (Amount::new_unchecked(8, -1), "4/5"),
-            (Amount::new_unchecked(1, 0), "5/5"),
-            (Amount::new_unchecked(5, -1), "1/2"),
-            (Amount::new_unchecked(1, -2), "1/100"),
-            (Amount::new_unchecked(2, -2), "2/100"),
-            (Amount::new_unchecked(2, -2), "1/50"),
         ]
         .iter()
         .cloned()
         .collect();
 
-        let mut v = gen_to_si_vector();
+        let mut v = gen_to_string_vector();
         v.append(&mut m);
         v
     }
@@ -1203,14 +1007,13 @@ mod tests {
         m.insert("1000000000000000*10^5", Error::AmountUnparseable);
         m.insert("1/10*10^5", Error::AmountUnparseable);
         m.insert("-1", Error::AmountUnparseable);
+        m.insert("1/10", Error::AmountUnparseable);
         m.insert("-1/10", Error::AmountUnparseable);
         m.insert("0.25", Error::AmountUnparseable);
         m.insert(".25", Error::AmountUnparseable);
 
         // Todo:
         // would be nice if we could parse exact decimal like these.
-        // Unfortunately rug::Rational does not support it.
-        // We could possibly parse as float, then convert to Rational.
         // But for now, we just verify that parser gives an error.
         // I'm not wanting to introduce floats anywhere.
         m.insert("0.1", Error::AmountUnparseable);
