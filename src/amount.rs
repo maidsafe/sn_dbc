@@ -99,7 +99,7 @@ pub struct Amount {
 /// For now, have this only for internal use/ops.
 #[derive(Debug, Default)]
 struct NormalizedAmount {
-    count: Integer,
+    count: u128,
     unit: PowerOfTen,
 }
 
@@ -287,7 +287,7 @@ impl Amount {
     //       should be also. might just be extra work when not required though.
     fn to_normalized(self) -> NormalizedAmount {
         NormalizedAmount {
-            count: Integer::from(self.count),
+            count: u128::from(self.count),
             unit: self.unit,
         }
     }
@@ -329,24 +329,24 @@ impl Amount {
     //
     // Because count can overflow in one of the Amount, we return
     // NormalizedAmount that uses a big rug::Integer for the count.
-    fn normalize(a: Self, b: Self) -> (NormalizedAmount, NormalizedAmount) {
+    fn normalize(a: Self, b: Self) -> Result<(NormalizedAmount, NormalizedAmount)> {
         let a = a.to_highest_unit();
         let b = b.to_highest_unit();
 
-        if a.unit == b.unit {
+        let r = if a.unit == b.unit {
             (a.to_normalized(), b.to_normalized())
         } else if b.count == 0 {
             (
                 a.to_normalized(),
                 NormalizedAmount {
-                    count: Integer::from(0),
+                    count: 0,
                     unit: a.unit,
                 },
             )
         } else if a.count == 0 {
             (
                 NormalizedAmount {
-                    count: Integer::from(0),
+                    count: 0,
                     unit: b.unit,
                 },
                 b.to_normalized(),
@@ -360,28 +360,31 @@ impl Amount {
             // note: this unwrap_or() can never fail because there are two items.
             let unit_base = *[a.unit, b.unit].iter().min().unwrap_or(&0);
 
-            let mut pair: Vec<NormalizedAmount> = [a, b]
-                .iter()
-                .rev()
-                .map(|v| {
-                    let count = if v.unit == unit_base {
-                        Integer::from(v.count)
-                    } else {
-                        Integer::from(10).pow(unit_distance) * v.count
-                    };
-                    NormalizedAmount {
-                        count,
-                        unit: unit_base,
-                    }
-                })
-                .collect();
+            let mut pair: Vec<NormalizedAmount> = Default::default();
+            for v in [b, a].iter() {
+                let count = if v.unit == unit_base {
+                    v.count.into()
+                } else {
+                    10_u128
+                        .checked_pow(unit_distance)
+                        .ok_or(Error::AmountIncompatible)?
+                        .checked_mul(v.count.into())
+                        .ok_or(Error::AmountIncompatible)?
+                };
+                let na = NormalizedAmount {
+                    count,
+                    unit: unit_base,
+                };
+                pair.push(na);
+            }
 
             // note: these unwrap_or_default() can never fail because there are two items.
             (
                 pair.pop().unwrap_or_default(),
                 pair.pop().unwrap_or_default(),
             )
-        }
+        };
+        Ok(r)
     }
 
     /// performs addition operation and returns error if operands are incompatible.
@@ -392,19 +395,18 @@ impl Amount {
         // 3. find unit in which count is less than Self::counter_max()
         // 4. Amount::new()
 
-        let (a, b) = Self::normalize(self, other);
+        let (a, b) = Self::normalize(self, other)?;
 
         let mut count_sum = a.count + b.count;
         let mut unit = a.unit;
         if count_sum > 0 {
-            let ten = Integer::from(10);
-            while count_sum.is_divisible(&ten) {
+            while count_sum % 10 == 0 {
                 // avoid overflowing unit
                 if unit == Self::unit_max() {
                     return Err(Error::AmountIncompatible);
                 }
                 unit += 1;
-                count_sum = count_sum.div_exact(&ten);
+                count_sum /= 10;
             }
         }
 
@@ -426,7 +428,7 @@ impl Amount {
         // 2. subtract count.
         // 3. find unit in which count is less than Self::counter_max()
         // 4. Amount::new()
-        let (a, b) = Self::normalize(self, rhs);
+        let (a, b) = Self::normalize(self, rhs)?;
         let count_diff = a.count - b.count;
 
         match AmountCounter::try_from(count_diff) {
