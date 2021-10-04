@@ -1,5 +1,6 @@
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
+use std::cmp;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
@@ -13,7 +14,9 @@ pub type PowerOfTen = i8;
 // defines size of unsigned counter for an Amount.
 pub type AmountCounter = u32;
 
-/// Represents a numeric amount as a count of a power of 10 unit.
+/// Represents a numeric amount as a count (multiple) of 10^unit
+/// where amount is unsigned and unit represents a signed exponent.
+///
 /// eg:  1530 could be represented as any of:
 ///     Amount{count: 153, unit: 1}
 ///     Amount{count: 1530, unit: 0}
@@ -61,19 +64,20 @@ pub type AmountCounter = u32;
 /// enough together, the Mint will not be able to sum inputs or outputs
 /// that are too far apart and will issue an error.
 ///
-/// This prevents users/wallets from generating huge amounts
-/// of change with very unlike denominations, eg by subtracting 1 10^-30 from 1 10^3
-/// This is a problem when using eg u128 to represent Amounts.  In the worst case with
-/// u128 approx 40 outputs can be created when subtracting 1u128 from u128::MAX.
+/// This prevents users/wallets from generating huge amounts of change with very
+/// unlike denominations, eg by subtracting 1 10^-30 from 1 10^3.
+/// This is a problem when using eg u128 to represent Amounts.  In the worst
+/// case with u128 approx 40 outputs can be created when subtracting 1u128 from
+/// u128::MAX.
 ///
 /// By comparison, using this Amount scheme with 1 billion max count, the max
 /// change outputs is 9.
 ///
 /// Unfortunately when using random number generators for quicktest test cases,
-/// the common case becomes near the worst case.  Also, large numbers of inputs and
-/// outputs create load on our system, in particular for signing and verifying.
-/// Thus we are incentivized to keep the number of change coins as low as we
-/// reasonably can.
+/// the common case becomes near the worst case.  Also, large numbers of inputs
+/// and outputs create load on our system, in particular for signing and
+/// verifying. Thus we are incentivized to keep the number of change coins as
+/// low as we reasonably can.
 ///
 /// In effect, this Amount scheme makes it hard for users to generate essentially
 /// worthless dust amounts by accident. It is possible to do if one really tries
@@ -100,11 +104,9 @@ struct NormalizedAmount {
 }
 
 impl Amount {
-    /// maximum value for Self::count. MUST equal 10^COUNT_MAX_TEN_POW
-    //  note: we define these separately to avoid unnecessary runtime 10.pow() call.
-    const COUNT_MAX: AmountCounter = 1000000000;
-
     /// power-of-ten exponent representing COUNT_MAX
+    /// max value for Self::count is 10^9
+    //  nine digits per tx ought to be enough for anybody! -- danda 2021.
     const COUNT_MAX_TEN_POW: PowerOfTen = 9;
 
     /// creates a new Amount.
@@ -112,6 +114,7 @@ impl Amount {
     ///   unit:  power-of-ten exponent, as used in 10^unit
     ///
     /// Returns Error::AmountInvalid if count > Self::counter_max()
+    #[inline]
     pub fn new(count: AmountCounter, unit: PowerOfTen) -> Result<Self> {
         if count > Self::counter_max() {
             return Err(Error::AmountInvalid);
@@ -128,11 +131,13 @@ impl Amount {
     }
 
     // returns count of 10^unit
+    #[inline]
     pub fn count(&self) -> AmountCounter {
         self.count
     }
 
     // returns unit - the power-of-ten exponent, as used in 10^unit
+    #[inline]
     pub fn unit(&self) -> PowerOfTen {
         self.unit
     }
@@ -144,36 +149,39 @@ impl Amount {
     //       two outputs: [1, GenesisAmount - 1] and must instead reissue to
     //       larger denoms/units.  not a big deal, but can be confusing when
     //       writing test cases.
+    #[inline]
     pub fn counter_max() -> AmountCounter {
-        // One billion units per tx ought to be enough for anybody! -- danda 2021.
-        Self::COUNT_MAX
+        // Clippy thinks we should just use 10_u32,
+        // but the cast preserves AmountCounter abstraction
+        #[allow(clippy::unnecessary_cast)]
+        (10 as AmountCounter).pow(Self::COUNT_MAX_TEN_POW as u32)
     }
 
     /// returns maximum possible value for unit field
+    #[inline]
     pub fn unit_max() -> PowerOfTen {
         // We decreate max unit by size of counter max so that
         // the largest count of largest Amount unit will always be representable
         // by at most COUNT_MAX_TEN_POW denominations.  In other words, so that
         // it is impossible to create an Amount that cannot be efficiently
         // represented by denominations.
-        debug_assert!(10u32.pow(Self::COUNT_MAX_TEN_POW as u32) == Self::COUNT_MAX);
         PowerOfTen::MAX - Self::COUNT_MAX_TEN_POW
     }
 
     /// returns minimum possible value for unit field
+    #[inline]
     pub fn unit_min() -> PowerOfTen {
-        // We increase max unit by size of counter max so that
+        // We increase min unit by size of counter max so that
         // the largest count of smallest Amount unit will always be representable
         // by at most COUNT_MAX_TEN_POW denominations.  In other words, so that
         // it is impossible to create an Amount that cannot be efficiently
         // represented by denominations.
-        debug_assert!(10u32.pow(Self::COUNT_MAX_TEN_POW as u32) == Self::COUNT_MAX);
         PowerOfTen::MIN + Self::COUNT_MAX_TEN_POW
     }
 
     /// generates a mapping of PowerOfTen to SI names.
     fn si_map() -> BTreeMap<PowerOfTen, &'static str> {
-        [
+        vec![
             (24, "yotta"),
             (21, "zetta"),
             (18, "exa"),
@@ -196,8 +204,7 @@ impl Amount {
             (-21, "zepto"),
             (-24, "yocto"),
         ]
-        .iter()
-        .cloned()
+        .into_iter()
         .collect()
     }
 
@@ -206,21 +213,22 @@ impl Amount {
     // SI units obtained from:
     //  http://www.knowledgedoor.com/2/units_and_constants_handbook/power_prefixes.html
     //
-    // note: we special case count == 0.
-    //       So it prints 0 instead of eg 0*10^25 or 0*10^2.
-    //       This hides the unit information, but is easier
-    //       to read.  Anyway, the two cases are equally zero.
+    // note: There is no SI name for 10^0, so those are just formatted
+    //       as regular integer values via ::to_string()
+    // note: SI names only extend from 10^-24..10^24.  Outside that range
+    //       we fallback to formatting with ::to_string()
     pub fn to_si_string(self) -> String {
         let map = Self::si_map();
         // note: this unwrap_or can never fail because map always contains values.
+        // note: we use max+2 to account for eg 10 yotta, 100 yotta.
         let min = map.keys().min().unwrap_or(&0);
-        let max = map.keys().max().unwrap_or(&0);
+        let max = map.keys().max().unwrap_or(&0) + 2;
 
         //   25 giga  = 25 * 10^9,   count = 25, unit =  9
         //  250 giga  = 25 * 10^10,  count = 25, unit = 10
         // 2500 giga  = 25 * 10^11,  count = 25, unit = 11
 
-        if self.unit >= *min && self.unit <= *max && self.count != 0 {
+        if self.unit >= *min && self.unit <= max && self.count != 0 {
             let mut unit = self.unit;
             loop {
                 if let Some(name) = map.get(&unit) {
@@ -247,11 +255,13 @@ impl Amount {
     }
 
     /// generates a notation string, eg: "3*10^-25"
+    #[inline]
     pub fn to_notation_string(self) -> String {
         format!("{}*10^{}", self.count, self.unit)
     }
 
     /// returns maximum possible Amount
+    #[inline]
     pub fn max() -> Self {
         Self {
             count: Self::counter_max(),
@@ -260,22 +270,11 @@ impl Amount {
     }
 
     /// returns minimum possible Amount
+    #[inline]
     pub fn min() -> Self {
         Self {
             count: 1,
             unit: Self::unit_min(),
-        }
-    }
-
-    // creates a normalized Amount from an Amount.
-    //
-    // todo: perhaps the normalized amount should always be instantiated
-    //       with calling ::to_highest_unit() first.  Or maybe all Amount
-    //       should be also. might just be extra work when not required though.
-    fn to_normalized(self) -> NormalizedAmount {
-        NormalizedAmount {
-            count: u128::from(self.count),
-            unit: self.unit,
         }
     }
 
@@ -303,75 +302,58 @@ impl Amount {
     }
 
     // we want to normalize these:
-    // count = 25,  unit = 2    = 2500
-    // count = 255, unit = 1    = 2550.
+    // count = 25,  unit = 2   -->  25 * 100 = 2500
+    // count = 255, unit = 1   --> 255 *  10 = 2550
     //
     // if we normalize to highest unit:
-    // count = 25, unit = 2    = 25 * 100 = 2500
-    // count = 25, unit = 2    = 25 * 10 = 2500    <---- loses information. can't do this.
+    // count = 25, unit = 2    -->  25 * 100 = 2500
+    // count = 25, unit = 2    -->  25 * 100 = 2500  <---- loses information. can't do this.
     //
     // if we normalize to lowest unit:
-    // count = 250,  unit = 1    = 2500  <--- works.  but count can overflow.
-    // count = 255,  unit = 1    = 2550.
+    // count = 250,  unit = 1  -->  25 * 100 = 2500  <--- works. but count can overflow.
+    // count = 255,  unit = 1  --> 255 *  10 = 2550
     //
     // Because count can overflow in one of the Amount, we return
     // NormalizedAmount that uses a u128 for the count.
+    #[inline]
     fn normalize(a: Self, b: Self) -> Result<(NormalizedAmount, NormalizedAmount)> {
         let a = a.to_highest_unit();
         let b = b.to_highest_unit();
 
-        let r = if a.unit == b.unit {
-            (a.to_normalized(), b.to_normalized())
-        } else if b.count == 0 {
-            (
-                a.to_normalized(),
-                NormalizedAmount {
-                    count: 0,
-                    unit: a.unit,
-                },
-            )
-        } else if a.count == 0 {
-            (
-                NormalizedAmount {
-                    count: 0,
-                    unit: b.unit,
-                },
-                b.to_normalized(),
-            )
+        // find lowest unit, and normalize both amounts to it.
+        let base = cmp::min_by(a.unit, b.unit, PowerOfTen::cmp);
+        Ok((a.mk_normal(base)?, b.mk_normal(base)?))
+    }
+
+    // converts an Amount plus target unit to a NormalizedAmount
+    //
+    // Example:
+    //   self:  Amount{count = 25, unit = 2}      (25 * 100 = 2500)
+    //   unit:  -1
+    //
+    // Result:  NormalizedAmount(count = 25000, unit = -1)
+    //          (25000 * 10^-1 = 2500)
+    //
+    // This function will return AmountIncompatible error if the value
+    // of count would exceed capacity of a u128
+    #[inline]
+    fn mk_normal(self, unit: PowerOfTen) -> Result<NormalizedAmount> {
+        let distance = (self.unit as i32 - unit as i32).abs() as u32;
+
+        if self.count == 0 {
+            return Ok(NormalizedAmount { count: 0, unit });
+        }
+
+        let count = if distance == 0 {
+            self.count.into()
         } else {
-            let unit_distance = if a.unit < b.unit {
-                (a.unit..b.unit).len() as u32
-            } else {
-                (b.unit..a.unit).len() as u32
-            };
-            // note: this unwrap_or() can never fail because there are two items.
-            let unit_base = *[a.unit, b.unit].iter().min().unwrap_or(&0);
-
-            let mut pair: Vec<NormalizedAmount> = Default::default();
-            for v in [b, a].iter() {
-                let count = if v.unit == unit_base {
-                    v.count.into()
-                } else {
-                    10_u128
-                        .checked_pow(unit_distance)
-                        .ok_or(Error::AmountIncompatible)?
-                        .checked_mul(v.count.into())
-                        .ok_or(Error::AmountIncompatible)?
-                };
-                let na = NormalizedAmount {
-                    count,
-                    unit: unit_base,
-                };
-                pair.push(na);
-            }
-
-            // note: these unwrap_or_default() can never fail because there are two items.
-            (
-                pair.pop().unwrap_or_default(),
-                pair.pop().unwrap_or_default(),
-            )
+            10_u128
+                .checked_pow(distance)
+                .ok_or(Error::AmountIncompatible)?
+                .checked_mul(self.count.into())
+                .ok_or(Error::AmountIncompatible)?
         };
-        Ok(r)
+        Ok(NormalizedAmount { count, unit })
     }
 
     /// performs addition operation and returns error if operands are incompatible.
@@ -384,9 +366,13 @@ impl Amount {
 
         let (a, b) = Self::normalize(self, other)?;
 
-        let mut count_sum = a.count + b.count;
+        let mut count_sum = a
+            .count
+            .checked_add(b.count)
+            .ok_or(Error::AmountIncompatible)?;
+
         let mut unit = a.unit;
-        if count_sum > 0 {
+        if count_sum > Self::counter_max() as u128 {
             while count_sum % 10 == 0 {
                 // avoid overflowing unit
                 if unit == Self::unit_max() {
@@ -413,10 +399,14 @@ impl Amount {
         // steps:
         // 1. normalize to same units.  use u128 to represent count.
         // 2. subtract count.
-        // 3. find unit in which count is less than Self::counter_max()
+        // 3. verify that count is <= ::counter_max()
         // 4. Amount::new()
         let (a, b) = Self::normalize(self, rhs)?;
-        let count_diff = a.count - b.count;
+
+        let count_diff = a
+            .count
+            .checked_sub(b.count)
+            .ok_or(Error::AmountIncompatible)?;
 
         match AmountCounter::try_from(count_diff) {
             Ok(v) if v <= Self::counter_max() => Ok(Amount::new(v, a.unit)?),
@@ -425,11 +415,13 @@ impl Amount {
     }
 
     /// returns true if operands are compatible for subtraction
+    #[inline]
     pub fn sub_compatible(self, other: Amount) -> bool {
         self.checked_sub(other).is_ok()
     }
 
     /// returns true if operands are compatible for addition
+    #[inline]
     pub fn add_compatible(self, other: Amount) -> bool {
         self.checked_add(other).is_ok()
     }
@@ -447,6 +439,7 @@ impl Amount {
     }
 
     // attempts to parse u128 into Amount
+    #[inline]
     fn from_str_u128(s: &str) -> Result<Self> {
         match s.parse::<u128>() {
             Ok(v) => Self::try_from(v),
@@ -733,8 +726,8 @@ pub(crate) fn digits(n: AmountCounter) -> Vec<u8> {
 mod tests {
     use super::Amount;
     use crate::{Error, Result};
+    use quickcheck::TestResult;
     use quickcheck_macros::quickcheck;
-    use std::collections::BTreeMap;
 
     fn amount_to_f64(amount: Amount) -> f64 {
         // note: f64 (double) max is 10^308.
@@ -751,6 +744,14 @@ mod tests {
         use std::hash::Hash;
         use std::hash::Hasher;
 
+        // mess with the count and unit a bit so that sometimes
+        // we will have two equal amounts (but with diff unit)
+        // and sometimes will be unequal.
+        //
+        // if we just accept two random input Amount, they are almost
+        // never equal, except when zero.
+        //
+        // todo: make this random.
         let count = if a.count < Amount::counter_max() / 10 {
             a.count * 10
         } else if a.count % 10 == 0 {
@@ -812,43 +813,398 @@ mod tests {
         Ok(())
     }
 
-    // Subtracts amounts with checked_sub(). If an Incompatible error occurs,
-    // verifies that difference between amounts exceeds nearness limit.
+    // Subtracts amounts with checked_sub().
+    // Verifies that ::sub_compatible() agrees with result.
     // If an Underflow error occurs, verifies that left < right.
     #[quickcheck]
-    fn prop_amount_checked_sub(a: Amount, b: Amount) -> Result<()> {
+    fn prop_amount_checked_sub_no_zeros(a: Amount, b: Amount) -> TestResult {
+        // quickcheck/arbitrary generates too many zero amounts, so we filter them out.
+        if a.count() == 0 || b.count() == 0 {
+            return TestResult::discard();
+        }
+
         let result = a.checked_sub(b);
 
         match result {
             Ok(diff) => {
                 assert!(a.sub_compatible(b));
-                println!("{:?} - {:?} --> {:?}", a, b, diff);
+                println!("{:>17} - {:>17} --> {:>17}", a, b, diff);
+                TestResult::passed()
             }
-            Err(Error::AmountUnderflow) => assert!(a < b),
+            Err(Error::AmountUnderflow) => {
+                assert!(a < b);
+                println!("{:>17} - {:>17} --> Underflow", a, b);
+                TestResult::passed()
+            }
             Err(Error::AmountIncompatible) => {
                 assert!(!a.sub_compatible(b));
-                println!("{:?} - {:?} --> Incompatible", a, b);
+                println!("{:>17} - {:>17} --> Incompatible", a, b);
+                TestResult::discard()
             }
             Err(_e) => panic!("Unexpected error"),
         }
-        Ok(())
     }
 
-    // Adds amounts with checked_add(). If an Incompatible error occurs,
-    // verifies that add_compatible() returns false
+    // Adds amounts with checked_add().
+    // verifies that ::add_compatible() agrees with result.
     #[quickcheck]
-    fn prop_amount_checked_add(a: Amount, b: Amount) -> Result<()> {
+    fn prop_amount_checked_add_no_zeros(a: Amount, b: Amount) -> TestResult {
+        // quickcheck/arbitrary generates too many zero amounts, so we filter them out.
+        if a.count() == 0 || b.count() == 0 {
+            return TestResult::discard();
+        }
+
         let result = a.checked_add(b);
 
         match result {
             Ok(sum) => {
                 assert!(a.add_compatible(b));
-                println!("{:?} - {:?} --> {:?}", a, b, sum);
+                println!("{:>17} - {:>17} --> {:>17}", a, b, sum);
+                TestResult::passed()
             }
             Err(Error::AmountIncompatible) => {
-                println!("{:?} - {:?} --> Incompatible", a, b);
+                println!("{:>17} - {:>17} --> Incompatible", a, b);
+                return TestResult::discard();
             }
             Err(_e) => panic!("Unexpected error"),
+        }
+    }
+
+    // generates test vector for ::checked_add()
+    fn gen_checked_sub_vector() -> Vec<((Amount, Amount), Amount)> {
+        // note: These are sorted low --> high by third column (difference)
+        #[rustfmt::skip]
+        let v = [
+            // A                  - B                   = C
+            (("651475011*10^-119",         "1*10^-115"), "651465011*10^-119"),
+            (("124124546*10^-103", "850563121*10^-104"), "390682339*10^-104"),
+            (("581180198*10^-102",  "97178235*10^-102"), "484001963*10^-102"),
+            (("119472035*10^-101", "327940883*10^-102"), "866779467*10^-102"),
+            (( "384480126*10^-96",          "1*10^-96"),  "384480125*10^-96"),
+            (( "841033543*10^-79",  "543667133*10^-79"),  "297366410*10^-79"),
+            (( "105820672*10^-77",          "1*10^-69"),    "5820672*10^-77"),
+            (( "790040192*10^-71",          "1*10^-64"),  "780040192*10^-71"),
+            ((         "1*10^-57",  "594686611*10^-66"),  "405313389*10^-66"),
+            (( "113245384*10^-62",  "168531878*10^-63"),  "963921962*10^-63"),
+            ((         "1*10^-49",          "1*10^-53"),       "9999*10^-53"),
+            (( "825918110*10^-52",  "542469245*10^-52"),  "283448865*10^-52"),
+            (( "499543991*10^-24",          "1*10^-19"),  "499443991*10^-24"),
+            (( "426549552*10^-23",  "248879390*10^-24"),  "401661613*10^-23"),
+            (( "955550153*10^-16",           "1*10^-9"),  "945550153*10^-16"),
+            ((   "302188006*10^0",     "85405682*10^0"),    "216782324*10^0"),
+            ((   "554779653*10^0",    "199023686*10^0"),    "355755967*10^0"),
+            ((   "798161306*10^0",     "40473285*10^0"),    "757688021*10^0"),
+            ((   "298859784*10^1",     "17017476*10^1"),    "281842308*10^1"),
+            ((   "865560126*10^3",    "407339784*10^3"),    "458220342*10^3"),
+            ((   "315326177*10^9",           "1*10^14"),    "315226177*10^9"),
+            ((  "108985003*10^13",     "8034075*10^13"),   "100950928*10^13"),
+            ((  "386106028*10^14",           "1*10^20"),   "385106028*10^14"),
+            ((          "1*10^28",   "853053039*10^19"),   "146946961*10^19"),
+            ((  "902455929*10^19",   "680586535*10^19"),   "221869394*10^19"),
+            ((          "1*10^30",           "1*10^28"),          "99*10^28"),
+            ((  "753051559*10^23",           "1*10^31"),   "653051559*10^23"),
+            ((  "994704150*10^39",    "28781295*10^39"),   "965922855*10^39"),
+            ((  "899926001*10^43",   "283466451*10^43"),   "616459550*10^43"),
+            ((   "77195691*10^44",           "1*10^46"),    "77195591*10^44"),
+            ((  "847957552*10^46",   "581743615*10^46"),   "266213937*10^46"),
+            ((  "957415774*10^46",   "220587596*10^46"),   "736828178*10^46"),
+            ((   "10532920*10^50",   "611614002*10^48"),   "441677998*10^48"),
+            ((  "294967295*10^49",           "1*10^53"),   "294957295*10^49"),
+            ((          "1*10^62",   "992581964*10^53"),     "7418036*10^53"),
+            ((  "563254525*10^57",   "294967295*10^57"),   "268287230*10^57"),
+            ((  "797877051*10^80",           "1*10^82"),   "797876951*10^80"),
+            ((  "294967295*10^93",           "1*10^94"),   "294967285*10^93"),
+            ((  "954861654*10^99",   "416126464*10^99"),   "538735190*10^99"),
+            (( "178673192*10^100",          "1*10^100"),  "178673191*10^100"),
+            (( "222287542*10^112",  "165295741*10^112"),   "56991801*10^112"),
+            (( "424920327*10^114",  "991928370*10^113"),  "325727490*10^114"),
+            (( "183059974*10^118",  "393684150*10^117"),  "143691559*10^118"),
+            // tricky/edge cases
+            (("1000000000*10^118",          "1*10^118"),  "999999999*10^118"),
+            ((         "1*10^118",        "100*10^115"),          "9*10^117"),
+            ((         "2*10^118",         "10*10^117"),         "10*10^117"),
+            ((                "0",                 "0"),                 "0"),
+            ((        "1*10^-118",                 "0"),         "1*10^-118"),
+            ((         "1*10^118",                 "0"),          "1*10^118"),
+            ((   "100000000*10^1",    "999999990*10^0"),           "10*10^0"),
+            ((   "100000001*10^1",    "999999990*10^0"),           "20*10^0"),
+            ((           "5*10^1",           "5*10^-1"),         "495*10^-1"),
+            ((           "5*10^1",            "6*10^0"),           "44*10^0"),
+            ((        "2*10^-128",         "1*10^-128"),         "1*10^-128"),
+        ]
+        .iter()
+        .map(|((a, b), c)| {
+            (
+                (a.parse::<Amount>().unwrap(), b.parse::<Amount>().unwrap()),
+                c.parse::<Amount>().unwrap(),
+            )
+        })
+        .collect();
+        v
+    }
+
+    // tests vector for ::checked_sub()
+    #[test]
+    fn checked_sub_vector() -> Result<()> {
+        let vec = gen_checked_sub_vector();
+
+        for ((a, b), expect) in vec.into_iter() {
+            let diff = a.checked_sub(b)?;
+            assert_eq!(diff, expect);
+
+            println!(
+                "{:>17} + {:>17} --> {:>17},",
+                a.to_notation_string(),
+                b.to_notation_string(),
+                diff.to_notation_string()
+            );
+        }
+
+        Ok(())
+    }
+
+    // generates test vector for ::to_string()
+    fn gen_checked_sub_error_vector() -> Vec<((Amount, Amount), Error)> {
+        #[rustfmt::skip]
+        let v = vec![
+            //   A                  - B                 --> C
+            (( "494072970*10^-91",    "192760731*10^0"), Error::AmountUnderflow),
+            ((  "920940182*10^-6",    "826951931*10^0"), Error::AmountUnderflow),
+            (( "117340781*10^-94",    "26479897*10^74"), Error::AmountUnderflow),
+            ((          "1*10^66",    "20946173*10^98"), Error::AmountUnderflow),
+            (( "523159626*10^-61",  "924123698*10^-42"), Error::AmountUnderflow),
+            (("213763769*10^-113",   "440776080*10^32"), Error::AmountUnderflow),
+            (( "542714871*10^-53",   "294967295*10^60"), Error::AmountUnderflow),
+            (( "770965679*10^-22",   "302356584*10^55"), Error::AmountUnderflow),
+            (( "226513277*10^-49",   "678788396*10^-8"), Error::AmountUnderflow),
+            (("354334406*10^-109",   "826220143*10^71"), Error::AmountUnderflow),
+            ((          "1*10^-4",   "415794090*10^74"), Error::AmountUnderflow),
+            ((  "100331464*10^51",   "847293049*10^52"), Error::AmountUnderflow),
+            ((  "998408154*10^97",  "973666229*10^107"), Error::AmountUnderflow),
+            (( "579734442*10^-97",   "900878761*10^25"), Error::AmountUnderflow),
+            (( "432278289*10^-65",   "838134323*10^57"), Error::AmountUnderflow),
+            (( "299916732*10^-36", "369167752*10^-113"), Error::AmountIncompatible),
+            ((  "825227752*10^94",   "959296681*10^53"), Error::AmountIncompatible),
+            (( "509952579*10^107",  "141328710*10^-14"), Error::AmountIncompatible),
+            (( "828673183*10^101",    "768573847*10^0"), Error::AmountIncompatible),
+            ((  "600999783*10^-6",  "444697781*10^-35"), Error::AmountIncompatible),
+            ((   "53568465*10^92",  "548646014*10^-14"), Error::AmountIncompatible),
+            ((  "627501920*10^99",   "388396516*10^17"), Error::AmountIncompatible),
+            ((   "295589053*10^0", "695066944*10^-113"), Error::AmountIncompatible),
+            (( "151251573*10^-63",  "414869522*10^-65"), Error::AmountIncompatible),
+            (( "346019301*10^-48", "596110845*10^-112"), Error::AmountIncompatible),
+            (( "367034410*10^-19", "152237207*10^-101"), Error::AmountIncompatible),
+            ((  "273148774*10^90",   "69799112*10^-90"), Error::AmountIncompatible),
+            (( "940727335*10^-84", "714229449*10^-108"), Error::AmountIncompatible),
+            (( "294967295*10^-75", "139739274*10^-106"), Error::AmountIncompatible),
+            ((          "1*10^-6", "205781738*10^-103"), Error::AmountIncompatible),
+        ]
+        .into_iter()
+        .map(|((a, b), c)| {
+            (
+                (a.parse::<Amount>().unwrap(), b.parse::<Amount>().unwrap()),
+                c,
+            )
+        })
+        .collect();
+        v
+    }
+
+    // tests error vector for ::checked_sub()
+    #[test]
+    fn checked_sub_error_vector() -> Result<()> {
+        let vector = gen_checked_sub_error_vector();
+
+        for ((a, b), expect) in vector.into_iter() {
+            let result = a.checked_sub(b);
+
+            let actual = format!("{}", result.unwrap_err());
+            let expected = format!("{}", expect);
+
+            assert_eq!(actual, expected);
+            println!("{:>17} - {:>17} --> {}", a, b, actual);
+        }
+        Ok(())
+    }
+
+    // generates test vector for ::checked_add()
+    fn gen_checked_add_vector() -> Vec<((Amount, Amount), Amount)> {
+        // note: These are sorted low --> high by third column (sum)
+        #[rustfmt::skip]
+        let v = vec![
+            // A                  + B                   = C
+            (("938165607*10^-117", "990539793*10^-117"),  "19287054*10^-115"),
+            (("173590211*10^-109", "642442040*10^-109"), "816032251*10^-109"),
+            (("360755221*10^-106",         "1*10^-102"), "360765221*10^-106"),
+            (("945525020*10^-100",  "252541240*10^-99"),  "347093742*10^-99"),
+            (( "516169476*10^-95",  "942493040*10^-96"),   "61041878*10^-94"),
+            (( "115745991*10^-90",  "563529348*10^-90"),  "679275339*10^-90"),
+            (( "265558524*10^-88",  "139828367*10^-88"),  "405386891*10^-88"),
+            (( "131054936*10^-84",   "22493479*10^-84"),  "153548415*10^-84"),
+            ((         "1*10^-82",  "216188463*10^-84"),  "216188563*10^-84"),
+            ((         "1*10^-79",  "782826374*10^-81"),  "782826474*10^-81"),
+            (( "423819324*10^-77",   "43335124*10^-76"),  "857170564*10^-77"),
+            ((  "85611183*10^-72",  "347880770*10^-74"),  "890899907*10^-73"),
+            ((         "1*10^-61",  "524343241*10^-66"),  "524443241*10^-66"),
+            (( "680292810*10^-64",          "1*10^-64"),  "680292811*10^-64"),
+            ((  "53230187*10^-60",  "139021710*10^-60"),  "192251897*10^-60"),
+            ((  "86250552*10^-58",  "538655403*10^-58"),  "624905955*10^-58"),
+            ((         "1*10^-50",  "663234066*10^-57"),  "673234066*10^-57"),
+            ((  "13531180*10^-55",  "234060802*10^-56"),  "369372602*10^-56"),
+            ((  "52593244*10^-45",          "1*10^-39"),   "53593244*10^-45"),
+            (( "824380262*10^-42",  "793494620*10^-43"),  "903729724*10^-42"),
+            ((   "5235158*10^-41",   "69065906*10^-40"),  "695894218*10^-41"),
+            (( "281279041*10^-35",   "48120914*10^-34"),  "762488181*10^-35"),
+            (( "192868174*10^-35",  "653592856*10^-35"),   "84646103*10^-34"),
+            (( "462540316*10^-33",          "1*10^-28"),  "462640316*10^-33"),
+            (( "294967295*10^-31",  "400653445*10^-31"),   "69562074*10^-30"),
+            (( "192984279*10^-20",  "276162893*10^-20"),  "469147172*10^-20"),
+            ((  "25866909*10^-14",  "714902465*10^-15"),  "973571555*10^-15"),
+            (( "569186002*10^-13",  "282465874*10^-13"),  "851651876*10^-13"),
+            ((  "247352205*10^-1",     "52239257*10^0"),   "769744775*10^-1"),
+            ((   "107019934*10^0",     "22828630*10^0"),    "129848564*10^0"),
+            ((    "24350153*10^1",     "57906096*10^0"),    "301407626*10^0"),
+            ((   "71003420*10^-1",    "312585042*10^0"),    "319685384*10^0"),
+            ((    "22673845*10^0",    "298808629*10^0"),    "321482474*10^0"),
+            ((   "340152542*10^0",      "2013998*10^0"),     "34216654*10^1"),
+            ((   "691533898*10^0",            "1*10^0"),    "691533899*10^0"),
+            ((   "350484762*10^0",    "801247478*10^0"),    "115173224*10^1"),
+            ((  "389718541*10^10",   "350087368*10^10"),   "739805909*10^10"),
+            ((          "1*10^20",   "661988544*10^18"),   "661988644*10^18"),
+            ((   "27013950*10^17",   "847790491*10^18"),   "850491886*10^18"),
+            ((    "4235611*10^29",   "450670616*10^27"),   "874231716*10^27"),
+            ((  "381468754*10^34",   "117762019*10^34"),   "499230773*10^34"),
+            ((          "1*10^43",   "513266233*10^36"),   "523266233*10^36"),
+            ((          "1*10^44",   "294967295*10^41"),   "294968295*10^41"),
+            ((  "189296927*10^44",    "18151593*10^44"),    "20744852*10^45"),
+            ((  "137442082*10^47",           "1*10^47"),   "137442083*10^47"),
+            ((          "1*10^54",   "752568998*10^47"),   "762568998*10^47"),
+            ((  "399993680*10^50",      "603549*10^50"),   "400597229*10^50"),
+            ((    "7585699*10^55",   "141737806*10^53"),   "900307706*10^53"),
+            ((  "419547882*10^54",   "303433078*10^54"),    "72298096*10^55"),
+            ((  "176848236*10^58",           "1*10^61"),   "176849236*10^58"),
+            ((  "786425213*10^58",   "267744407*10^58"),   "105416962*10^59"),
+            ((          "1*10^62",    "80742399*10^60"),    "80742499*10^60"),
+            ((          "1*10^70",   "524346560*10^61"),   "152434656*10^62"),
+            ((  "441971350*10^69",   "433907359*10^70"),   "478104494*10^70"),
+            ((   "25545542*10^72",   "306908811*10^72"),   "332454353*10^72"),
+            ((  "753477419*10^72",   "187814622*10^72"),   "941292041*10^72"),
+            ((   "53246615*10^75",   "612614723*10^75"),   "665861338*10^75"),
+            ((          "1*10^79",   "843142711*10^77"),   "843142811*10^77"),
+            ((   "27627723*10^80",   "424205556*10^80"),   "451833279*10^80"),
+            ((  "285042670*10^80",   "375296222*10^80"),   "660338892*10^80"),
+            ((  "417025259*10^83",   "773774900*10^82"),   "494402749*10^83"),
+            ((  "693604442*10^83",    "15701102*10^83"),   "709305544*10^83"),
+            ((  "228111367*10^88",   "693317473*10^88"),    "92142884*10^89"),
+            ((  "659729761*10^97",          "1*10^101"),   "659739761*10^97"),
+            (( "102084121*10^104",  "488031111*10^104"),  "590115232*10^104"),
+            (( "551234637*10^105",  "616253840*10^104"),  "612860021*10^105"),
+            ((         "1*10^113",  "718164965*10^108"),  "718264965*10^108"),
+            // tricky/edge cases
+            ((          "1*10^118", "999999999*10^118"), "1000000000*10^118"),
+            ((        "100*10^115",         "9*10^117"),          "1*10^118"),
+            ((         "10*10^117",        "10*10^117"),          "2*10^118"),
+            ((                 "0",                "0"),                 "0"),
+            ((        "1*10^-118",                 "0"),         "1*10^-118"),
+            ((         "1*10^118",                 "0"),          "1*10^118"),
+            ((    "999999990*10^0",           "10*10^0"),   "100000000*10^1"),
+            ((    "999999990*10^0",           "20*10^0"),   "100000001*10^1"),
+            ((         "495*10^-1",           "5*10^-1"),           "5*10^1"),
+            ((         "495*10^-1",           "5*10^-1"),               "50"),
+            ((            "5*10^1",           "5*10^-1"),        "505*10^-1"),
+        ]
+        .iter()
+        .map(|((a, b), c)| {
+            (
+                (a.parse::<Amount>().unwrap(), b.parse::<Amount>().unwrap()),
+                c.parse::<Amount>().unwrap(),
+            )
+        })
+        .collect();
+        v
+    }
+
+    #[test]
+    fn checked_add_vector() -> Result<()> {
+        let vec = gen_checked_add_vector();
+        // vec.sort_by(|a, b| a.1.cmp(&b.1));
+
+        for ((a, b), expect) in vec.into_iter() {
+            let sum = a.checked_add(b)?;
+            assert_eq!(sum, expect);
+
+            println!(
+                "{:>17} + {:>17} --> {:>17},",
+                a.to_notation_string(),
+                b.to_notation_string(),
+                sum.to_notation_string()
+            );
+        }
+
+        Ok(())
+    }
+
+    // generates test vector for ::to_string()
+    fn gen_checked_add_error_vector() -> Vec<((Amount, Amount), Error)> {
+        #[rustfmt::skip]
+        let v = vec![
+            // A                  + B                   = C
+            (("360704521*10^-107", "452410098*10^-110"), Error::AmountIncompatible),
+            ((  "113557174*10^75",   "495126115*10^69"), Error::AmountIncompatible),
+            ((  "217991394*10^47",  "992000263*10^-68"), Error::AmountIncompatible),
+            (( "915559338*10^-69",  "811702086*10^106"), Error::AmountIncompatible),
+            (("941622180*10^-116",  "211638313*10^-75"), Error::AmountIncompatible),
+            (( "172684922*10^105",    "483381463*10^5"), Error::AmountIncompatible),
+            (( "266288213*10^-57",  "806640837*10^-72"), Error::AmountIncompatible),
+            ((   "316203356*10^8",   "673308207*10^49"), Error::AmountIncompatible),
+            ((  "501396086*10^80",  "811096306*10^-85"), Error::AmountIncompatible),
+            ((   "759603018*10^0",   "181086985*10^-4"), Error::AmountIncompatible),
+            (( "514653915*10^-43",   "79876350*10^-36"), Error::AmountIncompatible),
+            ((   "712210175*10^0",  "539345477*10^109"), Error::AmountIncompatible),
+            (( "291385938*10^-11",   "449763562*10^35"), Error::AmountIncompatible),
+            ((  "61234822*10^-23",          "1*10^-71"), Error::AmountIncompatible),
+            (("673995615*10^-107",   "585495885*10^34"), Error::AmountIncompatible),
+            ((  "35413871*10^-39",  "519773903*10^104"), Error::AmountIncompatible),
+            (( "216862042*10^107",   "64012125*10^-59"), Error::AmountIncompatible),
+            (( "883447290*10^-69",  "820338543*10^110"), Error::AmountIncompatible),
+            ((         "1*10^-81",   "425316421*10^32"), Error::AmountIncompatible),
+            (("587414876*10^-116",  "621367814*10^-82"), Error::AmountIncompatible),
+            (( "203698426*10^-74",   "526273353*10^68"), Error::AmountIncompatible),
+            ((   "239493867*10^7",    "893155458*10^1"), Error::AmountIncompatible),
+            ((  "80387444*10^-85",  "294967295*10^-77"), Error::AmountIncompatible),
+            (( "339350117*10^-49",   "118709534*10^28"), Error::AmountIncompatible),
+            ((  "322587613*10^28",  "156428109*10^-46"), Error::AmountIncompatible),
+            (( "474086011*10^-45",  "553914268*10^-17"), Error::AmountIncompatible),
+            ((  "762225810*10^-4",   "201440872*10^17"), Error::AmountIncompatible),
+            ((  "975280533*10^32",    "762368334*10^9"), Error::AmountIncompatible),
+            ((  "354176969*10^91",  "486887185*10^-89"), Error::AmountIncompatible),
+            ((  "752985535*10^44",  "572236868*10^106"), Error::AmountIncompatible),
+            ((         "2*10^118",  "999999999*10^118"), Error::AmountIncompatible),
+            ((    "999999999*10^0",           "2*10^0"), Error::AmountIncompatible),
+        ]
+        .into_iter()
+        .map(|((a, b), c)| {
+            (
+                (a.parse::<Amount>().unwrap(), b.parse::<Amount>().unwrap()),
+                c,
+            )
+        })
+        .collect();
+        v
+    }
+
+    #[test]
+    fn checked_add_error_vector() -> Result<()> {
+        let vector = gen_checked_add_error_vector();
+
+        for ((a, b), expect) in vector.into_iter() {
+            let result = a.checked_add(b);
+
+            let actual = format!("{}", result.unwrap_err());
+            let expected = format!("{}", expect);
+
+            assert_eq!(actual, expected);
+            println!("{:>17} - {:>17} --> {}", a, b, actual);
         }
         Ok(())
     }
@@ -856,7 +1212,7 @@ mod tests {
     // Sorts amounts and then verifies that order is lowest
     // to highest
     #[quickcheck]
-    fn amount_sort(mut amounts: Vec<Amount>) -> Result<()> {
+    fn prop_amount_sort(mut amounts: Vec<Amount>) -> Result<()> {
         amounts.sort();
 
         let mut iter = amounts.iter().peekable();
@@ -942,20 +1298,18 @@ mod tests {
     }
 
     // not really a test.  this just prints SI strings.
-    #[quickcheck]
-    fn prop_to_si_string(mut amounts: Vec<Amount>) -> Result<()> {
-        amounts.sort();
-
-        for a in amounts.into_iter() {
-            println!("{} \t\t<----- {:?}", a.to_si_string(), a);
+    #[test]
+    fn list_to_si_string() -> Result<()> {
+        for i in -24..27 {
+            let amt = Amount::new(1, i)?;
+            println!("{:<8} -- {:>10}", amt, amt.to_si_string());
         }
-
         Ok(())
     }
 
     // generates test vector for ::to_string()
-    fn gen_to_string_vector() -> BTreeMap<Amount, &'static str> {
-        [
+    fn gen_to_string_vector() -> Vec<(Amount, &'static str)> {
+        vec![
             // 10^0 values.
             (Amount::new_unchecked(1, 24), "10^24"),
             (Amount::new_unchecked(1, 0), "1"),
@@ -966,7 +1320,7 @@ mod tests {
             (Amount::new_unchecked(500, 0), "500"),
             (Amount::new_unchecked(999999999, 0), "999999999"),
             // other powers, count == 1
-            (Amount::new_unchecked(1, 1), "10"),
+            (Amount::new_unchecked(1, 1), "10^1"),
             (Amount::new_unchecked(1, -1), "10^-1"),
             (Amount::new_unchecked(1, -2), "10^-2"),
             (Amount::new_unchecked(1, -24), "10^-24"),
@@ -982,53 +1336,44 @@ mod tests {
             (Amount::new_unchecked(0, 3), "0"),
             (Amount::new_unchecked(0, 0), "0"),
         ]
-        .iter()
-        .cloned()
-        .collect()
     }
 
     // generates test vector for ::from_str()
-    fn gen_from_string_vector() -> BTreeMap<Amount, &'static str> {
-        let mut m: BTreeMap<Amount, &'static str> = [
+    fn gen_from_string_vector() -> Vec<(Amount, &'static str)> {
+        let mut v = gen_to_string_vector();
+        v.append(&mut vec![
             (Amount::new_unchecked(1, 0), "10^0"),
             (Amount::new_unchecked(1, 1), "10^1"),
             (Amount::new_unchecked(1, 2), "10^2"),
             (Amount::new_unchecked(3, 3), "3*10^3"),
             (Amount::new_unchecked(0, 3), "0*10^3"),
-        ]
-        .iter()
-        .cloned()
-        .collect();
-
-        let mut v = gen_to_string_vector();
-        v.append(&mut m);
+        ]);
         v
     }
 
     // generates error cases test vector for ::from_str()
-    fn gen_from_string_error_vector() -> BTreeMap<&'static str, Error> {
-        let mut m: BTreeMap<&'static str, Error> = Default::default();
-        m.insert("1*10^5 ", Error::AmountUnparseable);
-        m.insert("1*10^128", Error::AmountUnparseable);
-        m.insert("1*10^-129", Error::AmountUnparseable);
-        m.insert("1 *10^5", Error::AmountUnparseable);
-        m.insert("1**10^5", Error::AmountUnparseable);
-        m.insert("1*10^^5", Error::AmountUnparseable);
-        m.insert("1000000000000000*10^5", Error::AmountUnparseable);
-        m.insert("1/10*10^5", Error::AmountUnparseable);
-        m.insert("-1", Error::AmountUnparseable);
-        m.insert("1/10", Error::AmountUnparseable);
-        m.insert("-1/10", Error::AmountUnparseable);
-        m.insert("0.25", Error::AmountUnparseable);
-        m.insert(".25", Error::AmountUnparseable);
-
-        // Todo:
-        // would be nice if we could parse exact decimal like these.
-        // But for now, we just verify that parser gives an error.
-        // I'm not wanting to introduce floats anywhere.
-        m.insert("0.1", Error::AmountUnparseable);
-        m.insert("0.2", Error::AmountUnparseable);
-        m
+    fn gen_from_string_error_vector() -> Vec<(&'static str, Error)> {
+        vec![
+            ("1*10^5 ", Error::AmountUnparseable),
+            ("1*10^128", Error::AmountUnparseable),
+            ("1*10^-129", Error::AmountUnparseable),
+            ("1 *10^5", Error::AmountUnparseable),
+            ("1**10^5", Error::AmountUnparseable),
+            ("1*10^^5", Error::AmountUnparseable),
+            ("1000000000000000*10^5", Error::AmountUnparseable),
+            ("1/10*10^5", Error::AmountUnparseable),
+            ("-1", Error::AmountUnparseable),
+            ("1/10", Error::AmountUnparseable),
+            ("-1/10", Error::AmountUnparseable),
+            ("0.25", Error::AmountUnparseable),
+            (".25", Error::AmountUnparseable),
+            // Todo:
+            // would be nice if we could parse exact decimal like these.
+            // But for now, we just verify that parser gives an error.
+            // I'm not wanting to introduce floats anywhere.
+            ("0.1", Error::AmountUnparseable),
+            ("0.2", Error::AmountUnparseable),
+        ]
     }
 
     // tests error cases vector for ::from_str()
@@ -1075,8 +1420,8 @@ mod tests {
     }
 
     // generates test vector for ::to_si_string()
-    fn gen_to_si_vector() -> BTreeMap<Amount, &'static str> {
-        [
+    fn gen_to_si_vector() -> Vec<(Amount, &'static str)> {
+        vec![
             // Basic values.
             (Amount::new_unchecked(1, 24), "1 yotta"),
             (Amount::new_unchecked(1, 21), "1 zetta"),
@@ -1099,6 +1444,13 @@ mod tests {
             (Amount::new_unchecked(1, -18), "1 atto"),
             (Amount::new_unchecked(1, -21), "1 zepto"),
             (Amount::new_unchecked(1, -24), "1 yocto"),
+            // 10s, 100s
+            (Amount::new_unchecked(1, 4), "10 kilo"),
+            (Amount::new_unchecked(1, 5), "100 kilo"),
+            (Amount::new_unchecked(1, -22), "100 yocto"),
+            (Amount::new_unchecked(1, -23), "10 yocto"),
+            (Amount::new_unchecked(1, 25), "10 yotta"),
+            (Amount::new_unchecked(1, 26), "100 yotta"),
             // counted values
             (Amount::new_unchecked(10, 24), "10 yotta"),
             (Amount::new_unchecked(100, 24), "100 yotta"),
@@ -1110,47 +1462,40 @@ mod tests {
             (Amount::new_unchecked(1001, 24), "1001 yotta"),
             (Amount::new_unchecked(10000, 3), "10000 kilo"),
             // zero
-            (Amount::new_unchecked(0, 3), "0 kilo"),
+            (Amount::new_unchecked(0, 3), "0"),
+            (Amount::new_unchecked(0, -118), "0"),
             (Amount::new_unchecked(0, 0), "0"),
         ]
-        .iter()
-        .cloned()
-        .collect()
     }
 
     // generates test vector for ::from_si_str()
-    fn gen_from_si_vector() -> BTreeMap<Amount, &'static str> {
-        let mut m: BTreeMap<Amount, &'static str> = [
+    fn gen_from_si_vector() -> Vec<(Amount, &'static str)> {
+        let mut v = gen_to_si_vector();
+        v.append(&mut vec![
             // case insensitive
             (Amount::new_unchecked(1, -21), "1 zEpto"),
             (Amount::new_unchecked(1, -21), "1 ZEPTO"),
             (Amount::new_unchecked(1, -21), "1 zeptO"),
-        ]
-        .iter()
-        .cloned()
-        .collect();
-
-        let mut v = gen_to_si_vector();
-        v.append(&mut m);
+        ]);
         v
     }
 
     // generates error cases test vector for ::from_si_str()
-    fn gen_from_si_error_vector() -> BTreeMap<&'static str, Error> {
-        let mut m: BTreeMap<&'static str, Error> = Default::default();
-        m.insert("1 yotto", Error::AmountUnparseable);
-        m.insert("-2 yotta", Error::AmountUnparseable);
-        m.insert("2/5 yotta", Error::AmountUnparseable);
-        m.insert("stuff", Error::AmountUnparseable);
-        m.insert("yotta", Error::AmountUnparseable);
-        m.insert("5       yotta", Error::AmountUnparseable);
-        m.insert(" 5 yotta ", Error::AmountUnparseable);
-        m.insert("5 yotta ", Error::AmountUnparseable);
-        m.insert(" 5 yotta", Error::AmountUnparseable);
-        m.insert("5 \nyotta", Error::AmountUnparseable);
-        m.insert("2000000000 yotta", Error::AmountUnparseable);
-        m.insert("10000000000000000000000000 yotta", Error::AmountUnparseable);
-        m
+    fn gen_from_si_error_vector() -> Vec<(&'static str, Error)> {
+        vec![
+            ("1 yotto", Error::AmountUnparseable),
+            ("-2 yotta", Error::AmountUnparseable),
+            ("2/5 yotta", Error::AmountUnparseable),
+            ("stuff", Error::AmountUnparseable),
+            ("yotta", Error::AmountUnparseable),
+            ("5       yotta", Error::AmountUnparseable),
+            (" 5 yotta ", Error::AmountUnparseable),
+            ("5 yotta ", Error::AmountUnparseable),
+            (" 5 yotta", Error::AmountUnparseable),
+            ("5 \nyotta", Error::AmountUnparseable),
+            ("2000000000 yotta", Error::AmountUnparseable),
+            ("10000000000000000000000000 yotta", Error::AmountUnparseable),
+        ]
     }
 
     // tests vector for ::to_si_string()
