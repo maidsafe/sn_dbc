@@ -41,7 +41,7 @@ pub trait KeyManager {
         signature: &Signature,
     ) -> Result<(), Self::Error>;
 
-    fn verify_known_key(&self, key: &PublicKey, derive_idx: &[u8]) -> Result<(), Self::Error>;
+    fn verify_known_key(&self, key: &PublicKey) -> Result<(), Self::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -145,8 +145,8 @@ impl KeyManager for SimpleKeyManager {
             .verify_envelope(envelope, derive_idx, key, signature)
     }
 
-    fn verify_known_key(&self, key: &PublicKey, derive_idx: &[u8]) -> Result<()> {
-        self.cache.verify_known_key(key, derive_idx)
+    fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
+        self.cache.verify_known_key(key)
     }
 }
 
@@ -172,8 +172,9 @@ impl Keys {
         key: &PublicKey,
         sig: &Signature,
     ) -> Result<()> {
-        self.verify_known_key(key, derive_idx)?;
-        if SignatureExaminer::verify_signature_on_slip(slip, sig, key) {
+        self.verify_known_key(key)?;
+        let derived_key = key.derive_child(derive_idx);
+        if SignatureExaminer::verify_signature_on_slip(slip, sig, &derived_key) {
             Ok(())
         } else {
             Err(Error::FailedMintSignature)
@@ -187,8 +188,10 @@ impl Keys {
         key: &PublicKey,
         sig: &Signature,
     ) -> Result<()> {
-        self.verify_known_key(key, derive_idx)?;
-        let is_verified = SignatureExaminer::verify_signature_on_envelope(envelope, sig, key);
+        self.verify_known_key(key)?;
+        let derived_key = key.derive_child(derive_idx);
+        let is_verified =
+            SignatureExaminer::verify_signature_on_envelope(envelope, sig, &derived_key);
         if is_verified {
             Ok(())
         } else {
@@ -196,14 +199,14 @@ impl Keys {
         }
     }
 
-    fn verify_known_key(&self, key: &PublicKey, derive_idx: &[u8]) -> Result<()> {
+    fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
         // note: if we are caching many keys (eg after many section churns), this could get slow.
         // It would be faster to store/lookup denomination keys for each master key.
         // Alternatively, if we included the mint's derivation root in the DBC, then we
         // could just "know" it.  Though that increases DBC size and wire usage.
 
         for pk in self.0.iter() {
-            if pk.derive_child(derive_idx) == *key {
+            if pk == key {
                 return Ok(());
             }
         }

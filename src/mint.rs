@@ -251,6 +251,7 @@ mod tests {
         Denomination::One(8)
     }
 
+    #[allow(clippy::type_complexity)]    // for now
     fn genesis() -> Result<(
         Dbc,
         MintNode<SimpleKeyManager, Arc<Mutex<SimpleSpendBook>>>,
@@ -273,18 +274,19 @@ mod tests {
 
         let mint_signature = genesis
             .public_key_set
+            .derive_child(&genesis_denomination().to_bytes())
             .combine_signatures(vec![(
                 ses.signature_share_index(),
                 &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
             )])
             .unwrap();
 
-        let denom_idx = genesis.dbc_content.denomination().to_bytes();
-        let mint_derived_pks = genesis.public_key_set.derive_child(&denom_idx);
+        // let denom_idx = genesis.dbc_content.denomination().to_bytes();
+        // let mint_derived_pks = genesis.public_key_set.derive_child(&denom_idx);
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_public_key: mint_derived_pks.public_key(),
+            mint_root_public_key: genesis.public_key_set.public_key(),
             mint_signature,
         };
 

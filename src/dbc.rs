@@ -10,10 +10,15 @@ use crate::{DbcContent, Denomination, Error, KeyManager, PublicKey, Result, Sign
 use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
 
+/// mint_root_public_key is the root pubkey, from which
+/// denomination-specific pubkeys are derived.
+///
+/// mint_signature is a signature that can be verified with:
+/// mint_root_public_key.derive_child(&self.denomination().to_bytes()).verify(self.mint_signature)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Dbc {
     pub content: DbcContent,
-    pub mint_public_key: PublicKey,
+    pub mint_root_public_key: PublicKey,
     pub mint_signature: Signature,
 }
 
@@ -34,7 +39,7 @@ impl Dbc {
         let mut sha3 = Sha3::v256();
 
         sha3.update(&self.content.hash().0);
-        sha3.update(&self.mint_public_key.to_bytes());
+        sha3.update(&self.mint_root_public_key.to_bytes());
         sha3.update(&self.mint_signature.to_bytes());
 
         let mut hash = [0u8; 32];
@@ -52,7 +57,7 @@ impl Dbc {
             .verify_slip(
                 &self.content.slip(),
                 &self.content.denomination().to_bytes(),
-                &self.mint_public_key,
+                &self.mint_root_public_key,
                 &self.mint_signature,
             )
             .map_err(|e| Error::Signing(e.to_string()))
