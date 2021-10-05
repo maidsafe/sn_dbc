@@ -240,6 +240,7 @@ mod tests {
 
         let genesis_sig = genesis
             .public_key_set
+            .derive_child(&GENESIS_DENOMINATION.to_bytes())
             .combine_signatures(vec![(
                 ses.signature_share_index(),
                 &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
@@ -248,7 +249,7 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_public_key: genesis.public_key_set.public_key(),
+            mint_root_public_key: genesis.public_key_set.public_key(),
             mint_signature: genesis_sig,
         };
 
@@ -289,7 +290,7 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_public_key: genesis.public_key_set.public_key(),
+            mint_root_public_key: genesis.public_key_set.public_key(),
             mint_signature: genesis_sig,
         };
 
@@ -387,7 +388,7 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_public_key: genesis.public_key_set.public_key(),
+            mint_root_public_key: genesis.public_key_set.public_key(),
             mint_signature: genesis_sig,
         };
 
@@ -504,7 +505,7 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_public_key: genesis.public_key_set.public_key(),
+            mint_root_public_key: genesis.public_key_set.public_key(),
             mint_signature: genesis_sig,
         };
 
@@ -669,7 +670,7 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_public_key: genesis_node.key_manager.public_key_set()?.public_key(),
+            mint_root_public_key: genesis_node.key_manager.public_key_set()?.public_key(),
             mint_signature: genesis_sig,
         };
 
@@ -928,7 +929,7 @@ mod tests {
 
         let in_dbc = Dbc {
             content: input_content,
-            mint_public_key: input_owner.public_key_set.public_key(),
+            mint_root_public_key: input_owner.public_key_set.public_key(),
             mint_signature: input_owner
                 .public_key_set
                 .combine_signatures([(0, input_owner.secret_key_share.sign(&[0u8; 32]))])?,
