@@ -864,7 +864,7 @@ mod tests {
             }
             Err(Error::AmountIncompatible) => {
                 println!("{:>17} - {:>17} --> Incompatible", a, b);
-                return TestResult::discard();
+                TestResult::discard()
             }
             Err(_e) => panic!("Unexpected error"),
         }
@@ -1290,7 +1290,7 @@ mod tests {
                 assert!(af < bf);
                 println!("{} < {},  {} < {}", a, b, af, bf);
             } else {
-                assert!(af == bf);
+                assert!(af.to_string() == bf.to_string());
                 println!("{} == {},  {} == {}", a, b, af, bf);
             }
         }
