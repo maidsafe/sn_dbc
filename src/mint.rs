@@ -251,7 +251,7 @@ mod tests {
         Denomination::One(8)
     }
 
-    #[allow(clippy::type_complexity)]    // for now
+    #[allow(clippy::type_complexity)] // for now
     fn genesis() -> Result<(
         Dbc,
         MintNode<SimpleKeyManager, Arc<Mutex<SimpleSpendBook>>>,
