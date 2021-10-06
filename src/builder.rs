@@ -240,7 +240,7 @@ impl DbcBuilder {
         if pk_set.len() != 1 {
             return Err(Error::ReissueSharePublicKeySetMismatch);
         }
-        let mint_root_public_key_set = match pk_set.iter().next() {
+        let mint_public_key_set = match pk_set.iter().next() {
             Some(pks) => pks,
             None => return Err(Error::ReissueSharePublicKeySetMismatch),
         };
@@ -262,15 +262,17 @@ impl DbcBuilder {
             }
 
             // Combine signatures from all the mint nodes to obtain Mint's Signature.
-            let mint_signature = mint_root_public_key_set
-                .derive_child(&dbc_envelope.denomination.to_bytes())
+            // note: logically speaking, it seems we should derive the denomination
+            //       pubkey here (and it works) however that turns out not to be
+            //       necessary, so we skip the extra ::derive_child() call.
+            let mint_denomination_signature = mint_public_key_set
                 .combine_signatures(&mint_sig_shares)?;
 
             // Form the final output DBCs, with Mint's Signature for each.
             let dbc = Dbc {
                 content: output_secret.dbc_content,
-                mint_root_public_key: mint_root_public_key_set.public_key(),
-                mint_signature,
+                mint_public_key: mint_public_key_set.public_key(),
+                mint_denomination_signature,
             };
 
             output_dbcs.push(dbc);
