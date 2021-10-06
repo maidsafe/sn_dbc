@@ -60,17 +60,19 @@ impl Denomination {
     pub fn amount(&self) -> Amount {
         // note: we use new_unchecked because we know the count is less
         // than Amount::counter_max() and we don't wish to return a Result.
-        match *self {
-            Self::One(p) => Amount::new_unchecked(1, p),
-            Self::Two(p) => Amount::new_unchecked(2, p),
+        #[rustfmt::skip]
+        let amt = match *self {
+            Self::One(p)   => Amount::new_unchecked(1, p),
+            Self::Two(p)   => Amount::new_unchecked(2, p),
             Self::Three(p) => Amount::new_unchecked(3, p),
-            Self::Four(p) => Amount::new_unchecked(4, p),
-            Self::Five(p) => Amount::new_unchecked(5, p),
-            Self::Six(p) => Amount::new_unchecked(6, p),
+            Self::Four(p)  => Amount::new_unchecked(4, p),
+            Self::Five(p)  => Amount::new_unchecked(5, p),
+            Self::Six(p)   => Amount::new_unchecked(6, p),
             Self::Seven(p) => Amount::new_unchecked(7, p),
             Self::Eight(p) => Amount::new_unchecked(8, p),
-            Self::Nine(p) => Amount::new_unchecked(9, p),
-        }
+            Self::Nine(p)  => Amount::new_unchecked(9, p),
+        };
+        amt
     }
 
     pub fn increment(&self) -> Option<Self> {

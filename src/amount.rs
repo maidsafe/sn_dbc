@@ -221,18 +221,18 @@ impl Amount {
         let map = Self::si_map();
         // note: this unwrap_or can never fail because map always contains values.
         // note: we use max+2 to account for eg 10 yotta, 100 yotta.
-        let min = map.keys().min().unwrap_or(&0);
-        let max = map.keys().max().unwrap_or(&0) + 2;
+        let min_si_unit = map.keys().min().unwrap_or(&0);
+        let max_si_unit = map.keys().max().unwrap_or(&0) + 2;
 
         //   25 giga  = 25 * 10^9,   count = 25, unit =  9
         //  250 giga  = 25 * 10^10,  count = 25, unit = 10
         // 2500 giga  = 25 * 10^11,  count = 25, unit = 11
 
-        if self.unit >= *min && self.unit <= max && self.count != 0 {
+        if self.unit >= *min_si_unit && self.unit <= max_si_unit && self.count != 0 {
             let mut unit = self.unit;
             loop {
                 if let Some(name) = map.get(&unit) {
-                    let diff = (self.unit.abs() - unit.abs()).abs();
+                    let diff = (self.unit - unit).abs();
                     let udiff = 10u128.pow(diff as u32);
                     let newcount = self.count as u128 * udiff;
 
