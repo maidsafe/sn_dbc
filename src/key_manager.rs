@@ -262,11 +262,6 @@ impl Keys {
     }
 
     fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
-        // note: if we are caching many keys (eg after many section churns), this could get slow.
-        // It would be faster to store/lookup denomination keys for each master key.
-        // Alternatively, if we included the mint's derivation root in the DBC, then we
-        // could just "know" it.  Though that increases DBC size and wire usage.
-
         for pk in self.0.iter() {
             if pk == key {
                 return Ok(());

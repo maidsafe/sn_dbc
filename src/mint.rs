@@ -238,9 +238,11 @@ mod tests {
 
         let ses = &genesis.signed_envelope_share;
 
-        let genesis_sig = genesis
+        // note: logically speaking, it seems we should derive the denomination
+        //       pubkey here (and it works) however that turns out not to be
+        //       necessary, so we skip the extra ::derive_child() call.
+        let mint_denomination_signature = genesis
             .public_key_set
-            .derive_child(&GENESIS_DENOMINATION.to_bytes())
             .combine_signatures(vec![(
                 ses.signature_share_index(),
                 &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
@@ -249,8 +251,8 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_root_public_key: genesis.public_key_set.public_key(),
-            mint_signature: genesis_sig,
+            mint_public_key: genesis.public_key_set.public_key(),
+            mint_denomination_signature,
         };
 
         assert_eq!(genesis_dbc.denomination(), GENESIS_DENOMINATION);
@@ -290,8 +292,8 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_root_public_key: genesis.public_key_set.public_key(),
-            mint_signature: genesis_sig,
+            mint_public_key: genesis.public_key_set.public_key(),
+            mint_denomination_signature: genesis_sig,
         };
 
         let output_owner = crate::bls_dkg_id();
@@ -388,8 +390,8 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_root_public_key: genesis.public_key_set.public_key(),
-            mint_signature: genesis_sig,
+            mint_public_key: genesis.public_key_set.public_key(),
+            mint_denomination_signature: genesis_sig,
         };
 
         assert!(genesis_dbc
@@ -505,8 +507,8 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_root_public_key: genesis.public_key_set.public_key(),
-            mint_signature: genesis_sig,
+            mint_public_key: genesis.public_key_set.public_key(),
+            mint_denomination_signature: genesis_sig,
         };
 
         // 1. Reissue Genesis DBC to A
@@ -670,8 +672,8 @@ mod tests {
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_root_public_key: genesis_node.key_manager.public_key_set()?.public_key(),
-            mint_signature: genesis_sig,
+            mint_public_key: genesis_node.key_manager.public_key_set()?.public_key(),
+            mint_denomination_signature: genesis_sig,
         };
 
         let owner_denominations_and_keys =
@@ -929,8 +931,8 @@ mod tests {
 
         let in_dbc = Dbc {
             content: input_content,
-            mint_root_public_key: input_owner.public_key_set.public_key(),
-            mint_signature: input_owner
+            mint_public_key: input_owner.public_key_set.public_key(),
+            mint_denomination_signature: input_owner
                 .public_key_set
                 .combine_signatures([(0, input_owner.secret_key_share.sign(&[0u8; 32]))])?,
         };
