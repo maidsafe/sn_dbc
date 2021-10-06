@@ -1,11 +1,9 @@
-
-use crate::{Amount, AmountCounter, PowerOfTen, Result, Error};
 use crate::amount::digits;
+use crate::{Amount, AmountCounter, Error, PowerOfTen, Result};
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use std::convert::TryFrom;
 use std::fmt;
-
+use std::str::FromStr;
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Denomination {
@@ -32,19 +30,19 @@ impl Denomination {
     }
 
     pub fn amount(&self) -> Amount {
-
         // note: we use new_unchecked because we know the count is less
         // than Amount::counter_max() and we don't wish to return a Result.
+        #[rustfmt::skip]
         match *self {
-            Self::One(p)               => Amount::new_unchecked(1, p),
-            Self::Two(p)               => Amount::new_unchecked(2, p),
-            Self::Three(p)             => Amount::new_unchecked(3, p),
-            Self::Four(p)              => Amount::new_unchecked(4, p),
-            Self::Five(p)              => Amount::new_unchecked(5, p),
-            Self::Six(p)               => Amount::new_unchecked(6, p),
-            Self::Seven(p)             => Amount::new_unchecked(7, p),
-            Self::Eight(p)             => Amount::new_unchecked(8, p),
-            Self::Nine(p)              => Amount::new_unchecked(9, p),
+            Self::One(p)   => Amount::new_unchecked(1, p),
+            Self::Two(p)   => Amount::new_unchecked(2, p),
+            Self::Three(p) => Amount::new_unchecked(3, p),
+            Self::Four(p)  => Amount::new_unchecked(4, p),
+            Self::Five(p)  => Amount::new_unchecked(5, p),
+            Self::Six(p)   => Amount::new_unchecked(6, p),
+            Self::Seven(p) => Amount::new_unchecked(7, p),
+            Self::Eight(p) => Amount::new_unchecked(8, p),
+            Self::Nine(p)  => Amount::new_unchecked(9, p),
         }
     }
 
@@ -113,7 +111,7 @@ impl Denomination {
         //  0 --> skip
         //  2 --> 2*10^(6-1-4+7) --> 2*10^8
         //  1 --> 2*10^(6-1-5+7) --> 1*10^7
- 
+
         let mut chosen = vec![];
 
         let digits = digits(target.count());
@@ -143,10 +141,9 @@ impl TryFrom<Amount> for Denomination {
     type Error = Error;
 
     fn try_from(amt: Amount) -> Result<Self> {
-
         let a = amt.to_highest_unit();
         let exp = a.unit();
-       
+
         let denom = match a.count() {
             1 => Self::One(exp),
             2 => Self::Two(exp),

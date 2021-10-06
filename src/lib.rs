@@ -14,8 +14,6 @@ mod builder;
 mod dbc;
 mod dbc_content;
 mod dbc_transaction;
-//we skip because denomination.rs is auto-generated and we want to preserve whitespace.
-#[rustfmt::skip]
 mod denomination;
 mod error;
 mod key_manager;
