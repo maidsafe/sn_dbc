@@ -272,22 +272,21 @@ mod tests {
 
         let ses = &genesis.signed_envelope_share;
 
-        let mint_signature = genesis
+        // note: logically speaking, it seems we should derive the denomination
+        //       pubkey here (and it works) however that turns out not to be
+        //       necessary, so we skip the extra ::derive_child() call.
+        let mint_denomination_signature = genesis
             .public_key_set
-            .derive_child(&genesis_denomination().to_bytes())
             .combine_signatures(vec![(
                 ses.signature_share_index(),
                 &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
             )])
             .unwrap();
 
-        // let denom_idx = genesis.dbc_content.denomination().to_bytes();
-        // let mint_derived_pks = genesis.public_key_set.derive_child(&denom_idx);
-
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
-            mint_root_public_key: genesis.public_key_set.public_key(),
-            mint_signature,
+            mint_public_key: genesis.public_key_set.public_key(),
+            mint_denomination_signature,
         };
 
         Ok((genesis_dbc, genesis_node, genesis_owner))
