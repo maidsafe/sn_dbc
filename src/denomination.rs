@@ -33,7 +33,7 @@ impl Denomination {
         // note: we use new_unchecked because we know the count is less
         // than Amount::counter_max() and we don't wish to return a Result.
         #[rustfmt::skip]
-        match *self {
+        let amt = match *self {
             Self::One(p)   => Amount::new_unchecked(1, p),
             Self::Two(p)   => Amount::new_unchecked(2, p),
             Self::Three(p) => Amount::new_unchecked(3, p),
@@ -43,7 +43,8 @@ impl Denomination {
             Self::Seven(p) => Amount::new_unchecked(7, p),
             Self::Eight(p) => Amount::new_unchecked(8, p),
             Self::Nine(p)  => Amount::new_unchecked(9, p),
-        }
+        };
+        amt
     }
 
     pub fn all() -> Vec<Self> {

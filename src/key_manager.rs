@@ -200,7 +200,6 @@ impl Keys {
     }
 
     fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
-
         for pk in self.0.iter() {
             if pk == key {
                 return Ok(());

@@ -265,8 +265,8 @@ impl DbcBuilder {
             // note: logically speaking, it seems we should derive the denomination
             //       pubkey here (and it works) however that turns out not to be
             //       necessary, so we skip the extra ::derive_child() call.
-            let mint_denomination_signature = mint_public_key_set
-                .combine_signatures(&mint_sig_shares)?;
+            let mint_denomination_signature =
+                mint_public_key_set.combine_signatures(&mint_sig_shares)?;
 
             // Form the final output DBCs, with Mint's Signature for each.
             let dbc = Dbc {
