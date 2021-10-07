@@ -17,10 +17,10 @@ mod dbc_transaction;
 mod error;
 mod key_manager;
 mod mint;
-mod spend_book;
+mod spent_proof;
 
 pub use crate::{
-    builder::{DbcBuilder, Output, TransactionBuilder},
+    builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,
     dbc_content::{Amount, AmountSecrets, DbcContent},
     dbc_transaction::DbcTransaction,
@@ -30,10 +30,10 @@ pub use crate::{
         SimpleSigner,
     },
     mint::{
-        genesis_dbc_input, GenesisDbcShare, MintNode, MintNodeSignatures, ReissueShare,
-        ReissueTransaction,
+        genesis_dbc_input, GenesisDbcShare, MintNode, MintNodeSignatures, ReissueRequest,
+        ReissueShare, ReissueTransaction,
     },
-    spend_book::{SimpleSpendBook, SpendBookVerifier, SpendKey},
+    spent_proof::{SpendKey, SpentProof, SpentProofShare},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

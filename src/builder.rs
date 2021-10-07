@@ -1,12 +1,12 @@
 use blsttc::{PublicKeySet, SignatureShare};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
 use curve25519_dalek_ng::scalar::Scalar;
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, Error, NodeSignature, PublicKey, ReissueShare,
-    ReissueTransaction, Result, SpendKey,
+    Amount, AmountSecrets, Dbc, DbcContent, Error, NodeSignature, PublicKey, ReissueRequest,
+    ReissueShare, ReissueTransaction, Result, SpendKey, SpentProof, SpentProofShare,
 };
 
 ///! Unblinded data for creating sn_dbc::DbcContent
@@ -92,6 +92,78 @@ impl TransactionBuilder {
         let inputs = HashSet::from_iter(self.inputs.into_keys());
         let outputs = HashSet::from_iter(outputs_and_owners.into_iter().map(|(o, _)| o));
         Ok(ReissueTransaction { inputs, outputs })
+    }
+}
+
+/// Builds a ReissueRequest from a ReissueTransaction and
+/// any number of (input) DBC spent proof shares.
+#[derive(Debug)]
+pub struct ReissueRequestBuilder {
+    pub reissue_transaction: ReissueTransaction,
+    pub spent_proof_shares: BTreeMap<SpendKey, HashSet<SpentProofShare>>,
+}
+
+impl ReissueRequestBuilder {
+    /// Create a new ReissueRequestBuilder from a ReissueTransaction
+    pub fn new(reissue_transaction: ReissueTransaction) -> Self {
+        Self {
+            reissue_transaction,
+            spent_proof_shares: Default::default(),
+        }
+    }
+
+    /// Add a SpentProofShare for the given spend_key
+    pub fn add_spent_proof_share(mut self, spend_key: SpendKey, share: SpentProofShare) -> Self {
+        let shares = self.spent_proof_shares.entry(spend_key).or_default();
+        shares.insert(share);
+
+        self
+    }
+
+    pub fn build(&self) -> Result<ReissueRequest> {
+        let spent_proofs: BTreeMap<SpendKey, SpentProof> = self
+            .spent_proof_shares
+            .iter()
+            .map(|(spend_key, shares)| {
+                let any_share = shares
+                    .iter()
+                    .next()
+                    .ok_or(Error::ReissueRequestMissingSpentProofShare(*spend_key))?;
+
+                if shares
+                    .iter()
+                    .map(SpentProofShare::spentbook_pks)
+                    .any(|pks| pks != any_share.spentbook_pks())
+                {
+                    return Err(Error::ReissueRequestPublicKeySetMismatch);
+                }
+
+                let spend_sig = any_share.spend_sig.clone();
+                let spentbook_pub_key = any_share.spentbook_public_key();
+                let spentbook_sig = any_share.spentbook_pks.combine_signatures(
+                    shares
+                        .iter()
+                        .map(SpentProofShare::spentbook_sig_share)
+                        .map(NodeSignature::threshold_crypto),
+                )?;
+
+                let spent_proof = SpentProof {
+                    spend_sig,
+                    spentbook_pub_key,
+                    spentbook_sig,
+                };
+
+                Ok((*spend_key, spent_proof))
+            })
+            .collect::<Result<_>>()?;
+
+        let transaction = self.reissue_transaction.clone();
+
+        let rr = ReissueRequest {
+            transaction,
+            spent_proofs,
+        };
+        Ok(rr)
     }
 }
 

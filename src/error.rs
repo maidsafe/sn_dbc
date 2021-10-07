@@ -5,9 +5,10 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
-use std::collections::BTreeMap;
 use std::io;
 use thiserror::Error;
+
+use crate::SpendKey;
 
 /// Specialisation of `std::Result`.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -19,12 +20,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub enum Error {
     #[error("An error occured when signing {0}")]
     Signing(String),
-    #[error("Attempted an invalid operation {0}")]
-    InvalidOperation(String),
     #[error("This input has a signature, but it doesn't appear in the transaction")]
     UnknownInput,
-    #[error("Filtered input doesn't appear in the transaction")]
-    FilteredInputNotPresent,
     #[error("Failed signature check.")]
     FailedSignature,
     #[error("Unrecognised authority.")]
@@ -33,21 +30,12 @@ pub enum Error {
     MissingReissueTransaction,
     #[error("At least one transaction input is missing a signature.")]
     MissingSignatureForInput,
-    #[error("At least one input is missing an ownership proof")]
-    MissingInputOwnerProof,
+    #[error("At least one input is missing a spent proof for {0:?}")]
+    MissingSpentProof(SpendKey),
+    #[error("Invalid SpentProof Signature for {0:?}")]
+    InvalidSpentProofSignature(SpendKey),
     #[error("Mint request doesn't balance out sum(input) == sum(output)")]
     DbcReissueRequestDoesNotBalance,
-    #[error("Failed to unblind an input DBC")]
-    FailedUnblinding,
-    #[error("DBC already spent in transaction: {transaction:?}")]
-    DbcAlreadySpent {
-        transaction: crate::DbcTransaction,
-        transaction_sigs: BTreeMap<crate::SpendKey, (crate::PublicKeySet, crate::NodeSignature)>,
-    },
-    #[error("Genesis Input has already been spent in a different transaction")]
-    GenesisInputAlreadySpent,
-    #[error("This node is not a genesis node")]
-    NotGenesisNode,
     #[error("The DBC transaction must have at least one input")]
     TransactionMustHaveAnInput,
     #[error("Dbc Content is not a member of transaction outputs")]
@@ -57,6 +45,8 @@ pub enum Error {
 
     #[error("The PublicKeySet differs between ReissueRequest entries")]
     ReissueRequestPublicKeySetMismatch,
+    #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
+    ReissueRequestMissingSpentProofShare(SpendKey),
 
     #[error("The PublicKeySet differs between ReissueShare entries")]
     ReissueSharePublicKeySetMismatch,
@@ -94,8 +84,6 @@ pub enum Error {
     /// JSON serialisation error.
     #[error("JSON serialisation error: {0}")]
     JsonSerialisation(#[from] serde_json::Error),
-    #[error("SpendBook error {0}")]
-    SpendBook(String),
 
     #[error("Infallible.  Can never fail")]
     Infallible(#[from] std::convert::Infallible),

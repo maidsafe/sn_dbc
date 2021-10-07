@@ -83,14 +83,13 @@ mod tests {
 
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
-    use std::sync::{Arc, Mutex};
 
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, MintNode, ReissueTransaction,
-        SimpleKeyManager, SimpleSigner, SimpleSpendBook,
+        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, MintNode, ReissueRequest,
+        ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SpentProof, SpentProofShare,
     };
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
@@ -107,12 +106,13 @@ mod tests {
         dbc_owner: &bls_dkg::outcome::Outcome,
         dbc: Dbc,
         n_ways: u8,
-        output_owner: blsttc::PublicKey,
-    ) -> Result<ReissueTransaction, Error> {
+        output_owner: PublicKey,
+        spentbook_node: &MintNode<SimpleKeyManager>,
+    ) -> Result<ReissueRequest> {
         let amount_secrets = DbcHelper::decrypt_amount_secrets(dbc_owner, &dbc.content)?;
 
-        let tx = crate::TransactionBuilder::default()
-            .add_input(dbc, amount_secrets)
+        let reissue_tx = crate::TransactionBuilder::default()
+            .add_input(dbc.clone(), amount_secrets)
             .add_outputs(
                 divide(amount_secrets.amount, n_ways).map(|amount| crate::Output {
                     amount,
@@ -121,7 +121,32 @@ mod tests {
             )
             .build()?;
 
-        Ok(tx)
+        let tx_hash = reissue_tx.blinded().hash();
+
+        let spend_sig = dbc_owner.public_key_set.combine_signatures([(
+            dbc_owner.index,
+            dbc_owner
+                .secret_key_share
+                .derive_child(&dbc.spend_key_index())
+                .sign(tx_hash),
+        )])?;
+        let spentbook_pks = spentbook_node.key_manager.public_key_set()?;
+        let spentbook_sig_share = spentbook_node
+            .key_manager
+            .sign(&SpentProof::proof_msg(&tx_hash, &spend_sig))?;
+
+        let rr = ReissueRequestBuilder::new(reissue_tx)
+            .add_spent_proof_share(
+                dbc.spend_key(),
+                SpentProofShare {
+                    spend_sig,
+                    spentbook_pks,
+                    spentbook_sig_share,
+                },
+            )
+            .build()?;
+
+        Ok(rr)
     }
 
     #[test]
@@ -178,8 +203,7 @@ mod tests {
             SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
         );
-        let spend_book = Arc::new(Mutex::new(SimpleSpendBook::new()));
-        let mut genesis_node = MintNode::new(key_manager, spend_book.clone());
+        let mut genesis_node = MintNode::new(key_manager);
 
         let genesis = genesis_node.issue_genesis_dbc(amount).unwrap();
 
@@ -198,23 +222,17 @@ mod tests {
         };
 
         let input_owner = crate::bls_dkg_id();
-        let tx = prepare_even_split(
+        let reissue_request = prepare_even_split(
             &genesis_owner,
-            genesis_dbc.clone(),
+            genesis_dbc,
             n_inputs.coerce(),
             input_owner.public_key_set.public_key(),
+            &genesis_node,
         )?;
 
-        spend_book
-            .lock()
-            .unwrap()
-            .log_spent(genesis_dbc.spend_key(), tx.blinded());
+        let split_reissue_share = genesis_node.reissue(reissue_request.clone()).unwrap();
 
-        let split_reissue_share = genesis_node
-            .reissue(tx.clone(), tx.blinded().inputs)
-            .unwrap();
-
-        let mut dbc_builder = DbcBuilder::new(tx);
+        let mut dbc_builder = DbcBuilder::new(reissue_request.transaction);
         dbc_builder = dbc_builder.add_reissue_share(split_reissue_share);
         let output_dbcs = dbc_builder.build()?;
 
@@ -233,17 +251,35 @@ mod tests {
             })
             .build()?;
 
+        let tx_blinded = reissue_tx.blinded();
+
+        let mut rr_builder = ReissueRequestBuilder::new(reissue_tx.clone());
         for input in reissue_tx.inputs.iter() {
-            spend_book
-                .lock()
-                .unwrap()
-                .log_spent(input.spend_key(), reissue_tx.blinded());
+            let spend_sig = input_owner.public_key_set.combine_signatures([(
+                input_owner.index,
+                input_owner
+                    .secret_key_share
+                    .derive_child(&input.spend_key_index())
+                    .sign(tx_blinded.hash()),
+            )])?;
+            let spentbook_pks = genesis_node.key_manager.public_key_set()?;
+            let spentbook_sig_share = genesis_node
+                .key_manager
+                .sign(&SpentProof::proof_msg(&tx_blinded.hash(), &spend_sig))?;
+
+            rr_builder = rr_builder.add_spent_proof_share(
+                input.spend_key(),
+                SpentProofShare {
+                    spend_sig,
+                    spentbook_pks,
+                    spentbook_sig_share,
+                },
+            );
         }
 
-        let reissue_share = genesis_node
-            .reissue(reissue_tx.clone(), reissue_tx.blinded().inputs)
-            .unwrap();
-        assert_eq!(reissue_tx.blinded(), reissue_share.dbc_transaction);
+        let rr = rr_builder.build()?;
+        let reissue_share = genesis_node.reissue(rr).unwrap();
+        assert_eq!(tx_blinded, reissue_share.dbc_transaction);
 
         let (mint_key_set, mint_sig_share) =
             reissue_share.mint_node_signatures.values().next().unwrap();
