@@ -138,7 +138,7 @@ impl ReissueRequestBuilder {
                     return Err(Error::ReissueRequestPublicKeySetMismatch);
                 }
 
-                let spend_sig = any_share.spend_sig.clone();
+                let spent_sig = any_share.spent_sig.clone();
                 let spentbook_pub_key = any_share.spentbook_public_key();
                 let spentbook_sig = any_share.spentbook_pks.combine_signatures(
                     shares
@@ -148,7 +148,7 @@ impl ReissueRequestBuilder {
                 )?;
 
                 let spent_proof = SpentProof {
-                    spend_sig,
+                    spent_sig,
                     spentbook_pub_key,
                     spentbook_sig,
                 };

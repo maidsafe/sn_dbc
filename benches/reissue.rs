@@ -71,7 +71,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    let spend_sig = genesis_owner
+    let spent_sig = genesis_owner
         .public_key_set
         .combine_signatures([(
             genesis_owner.index,
@@ -86,7 +86,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .key_manager
         .sign(&SpentProof::proof_msg(
             &reissue_tx.blinded().hash(),
-            &spend_sig,
+            &spent_sig,
         ))
         .unwrap();
 
@@ -94,7 +94,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .add_spent_proof_share(
             genesis_dbc.spend_key(),
             SpentProofShare {
-                spend_sig,
+                spent_sig,
                 spentbook_pks,
                 spentbook_sig_share,
             },
@@ -135,7 +135,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         (out_dbc.owner, owner)
     }));
 
-    let spend_sig = genesis_owner
+    let spent_sig = genesis_owner
         .public_key_set
         .combine_signatures([(
             genesis_owner.index,
@@ -150,7 +150,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .key_manager
         .sign(&SpentProof::proof_msg(
             &reissue_tx.blinded().hash(),
-            &spend_sig,
+            &spent_sig,
         ))
         .unwrap();
 
@@ -158,7 +158,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .add_spent_proof_share(
             genesis_dbc.spend_key(),
             SpentProofShare {
-                spend_sig,
+                spent_sig,
                 spentbook_pks,
                 spentbook_sig_share,
             },
@@ -207,7 +207,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     for dbc in dbcs.iter() {
         let owner = &dbc_owners[&dbc.owner()];
-        let spend_sig = owner
+        let spent_sig = owner
             .public_key_set
             .combine_signatures([(
                 owner.index,
@@ -222,14 +222,14 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
             .key_manager
             .sign(&SpentProof::proof_msg(
                 &merge_tx.blinded().hash(),
-                &spend_sig,
+                &spent_sig,
             ))
             .unwrap();
 
         rr_builder = rr_builder.add_spent_proof_share(
             dbc.spend_key(),
             SpentProofShare {
-                spend_sig,
+                spent_sig,
                 spentbook_pks,
                 spentbook_sig_share,
             },
