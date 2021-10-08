@@ -322,7 +322,7 @@ mod tests {
             .build()?;
         let tx_hash = reissue_tx.blinded().hash();
 
-        let spend_sig = genesis_owner.public_key_set.combine_signatures([(
+        let spent_sig = genesis_owner.public_key_set.combine_signatures([(
             genesis_owner.index,
             genesis_owner
                 .secret_key_share
@@ -332,13 +332,13 @@ mod tests {
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
         let spentbook_sig_share = genesis_node
             .key_manager
-            .sign(&SpentProof::proof_msg(&tx_hash, &spend_sig))?;
+            .sign(&SpentProof::proof_msg(&tx_hash, &spent_sig))?;
 
         let rr = ReissueRequestBuilder::new(reissue_tx.clone())
             .add_spent_proof_share(
                 genesis_dbc.spend_key(),
                 SpentProofShare {
-                    spend_sig,
+                    spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                 },
@@ -389,9 +389,9 @@ mod tests {
         output_amounts: TinyVec<TinyInt>,
         // Controls which output dbc's will receive extra parent hashes
         extra_output_parents: TinyVec<TinyInt>,
-        // Include a valid SpendProof for the following inputs
+        // Include a valid SpentProof for the following inputs
         valid_spent_proofs: TinyVec<TinyInt>,
-        // Include an invalid SpendProofs for the following inputs
+        // Include an invalid SpentProofs for the following inputs
         invalid_spent_proofs: TinyVec<TinyInt>,
     ) -> Result<(), Error> {
         let input_amounts =
@@ -458,7 +458,7 @@ mod tests {
             )
             .build()?;
 
-        let spend_sig = genesis_owner.public_key_set.combine_signatures(vec![(
+        let spent_sig = genesis_owner.public_key_set.combine_signatures(vec![(
             genesis_owner.index,
             genesis_owner
                 .secret_key_share
@@ -468,14 +468,14 @@ mod tests {
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
         let spentbook_sig_share = genesis_node.key_manager.sign(&SpentProof::proof_msg(
             &reissue_tx.blinded().hash(),
-            &spend_sig,
+            &spent_sig,
         ))?;
 
         let rr1 = ReissueRequestBuilder::new(reissue_tx)
             .add_spent_proof_share(
                 genesis_dbc.spend_key(),
                 SpentProofShare {
-                    spend_sig,
+                    spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                 },
@@ -556,7 +556,7 @@ mod tests {
         {
             let (_, input_owner) = &owner_amounts_and_keys[&in_dbc.owner()];
 
-            let spend_sig = input_owner.public_key_set.combine_signatures([(
+            let spent_sig = input_owner.public_key_set.combine_signatures([(
                 input_owner.index,
                 input_owner
                     .secret_key_share
@@ -566,13 +566,13 @@ mod tests {
             let spentbook_pks = genesis_node.key_manager.public_key_set()?;
             let spentbook_sig_share = genesis_node.key_manager.sign(&SpentProof::proof_msg(
                 &reissue_tx.blinded().hash(),
-                &spend_sig,
+                &spent_sig,
             ))?;
 
             rr2_builder = rr2_builder.add_spent_proof_share(
                 in_dbc.spend_key(),
                 SpentProofShare {
-                    spend_sig,
+                    spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                 },
@@ -592,7 +592,7 @@ mod tests {
                 crate::bls_dkg_id()
             };
 
-            let spend_sig = input_owner.public_key_set.combine_signatures([(
+            let spent_sig = input_owner.public_key_set.combine_signatures([(
                 input_owner.index,
                 input_owner
                     .secret_key_share
@@ -609,12 +609,12 @@ mod tests {
             let spentbook_pks = genesis_node.key_manager.public_key_set()?;
             let spentbook_sig_share = genesis_node
                 .key_manager
-                .sign(&SpentProof::proof_msg(&tx_hash, &spend_sig))?;
+                .sign(&SpentProof::proof_msg(&tx_hash, &spent_sig))?;
 
             rr2_builder = rr2_builder.add_spent_proof_share(
                 in_dbc.spend_key(),
                 SpentProofShare {
-                    spend_sig,
+                    spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                 },
@@ -853,7 +853,7 @@ mod tests {
         // or guess it.  And that's assuming the secret blinding_factor is correct, which it is in this
         // case, but might not be in the wild.  So the output DBC could be considered to be in a
         // semi-unspendable state.
-        let spend_sig = genesis_owner.public_key_set.combine_signatures(vec![(
+        let spent_sig = genesis_owner.public_key_set.combine_signatures(vec![(
             genesis_owner.index,
             genesis_owner
                 .secret_key_share
@@ -863,12 +863,12 @@ mod tests {
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
         let spentbook_sig_share = genesis_node
             .key_manager
-            .sign(&SpentProof::proof_msg(&tx.blinded().hash(), &spend_sig))?;
+            .sign(&SpentProof::proof_msg(&tx.blinded().hash(), &spent_sig))?;
         let rr = ReissueRequestBuilder::new(tx.clone())
             .add_spent_proof_share(
                 genesis_dbc.spend_key(),
                 SpentProofShare {
-                    spend_sig,
+                    spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                 },
@@ -933,7 +933,7 @@ mod tests {
             })
             .build()?;
 
-        let spend_sig = genesis_owner.public_key_set.combine_signatures(vec![(
+        let spent_sig = genesis_owner.public_key_set.combine_signatures(vec![(
             genesis_owner.index,
             genesis_owner
                 .secret_key_share
@@ -943,12 +943,12 @@ mod tests {
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
         let spentbook_sig_share = genesis_node
             .key_manager
-            .sign(&SpentProof::proof_msg(&tx.blinded().hash(), &spend_sig))?;
+            .sign(&SpentProof::proof_msg(&tx.blinded().hash(), &spent_sig))?;
         let rr = ReissueRequestBuilder::new(tx)
             .add_spent_proof_share(
                 genesis_dbc.spend_key(),
                 SpentProofShare {
-                    spend_sig,
+                    spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                 },
@@ -975,7 +975,7 @@ mod tests {
             })
             .build()?;
 
-        let spend_sig = outputs_owner.public_key_set.combine_signatures(vec![(
+        let spent_sig = outputs_owner.public_key_set.combine_signatures(vec![(
             outputs_owner.index,
             outputs_owner
                 .secret_key_share
@@ -986,12 +986,12 @@ mod tests {
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
         let spentbook_sig_share = genesis_node
             .key_manager
-            .sign(&SpentProof::proof_msg(&tx.blinded().hash(), &spend_sig))?;
+            .sign(&SpentProof::proof_msg(&tx.blinded().hash(), &spent_sig))?;
         let rr = ReissueRequestBuilder::new(tx)
             .add_spent_proof_share(
                 input_dbc.spend_key(),
                 SpentProofShare {
-                    spend_sig,
+                    spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                 },

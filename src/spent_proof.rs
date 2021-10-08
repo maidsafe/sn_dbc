@@ -17,6 +17,12 @@ impl std::fmt::Debug for SpendKey {
     }
 }
 
+impl SpendKey {
+    pub fn to_bytes(self) -> [u8; 48] {
+        self.0.to_bytes()
+    }
+}
+
 #[cfg(test)]
 use rand::distributions::{Distribution, Standard};
 #[cfg(test)]
@@ -39,7 +45,7 @@ impl Distribution<SpendKey> for Standard {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SpentProofShare {
     /// Signature from dbc.spend_key() over the transaction
-    pub spend_sig: Signature,
+    pub spent_sig: Signature,
 
     /// The Spentbook who notarized that this DBC was spent.
     pub spentbook_pks: PublicKeySet,
@@ -65,7 +71,7 @@ impl SpentProofShare {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SpentProof {
     /// Signature from dbc.spend_key() over the transaction
-    pub spend_sig: Signature,
+    pub spent_sig: Signature,
 
     /// The Spentbook who notarized that this DBC was spent.
     pub spentbook_pub_key: PublicKey,
@@ -76,22 +82,22 @@ pub struct SpentProof {
 
 impl SpentProof {
     pub fn validate<K: KeyManager>(&self, dbc: &Dbc, tx: Hash, verifier: &K) -> Result<()> {
-        if !dbc.spend_key().0.verify(&self.spend_sig, tx) {
+        if !dbc.spend_key().0.verify(&self.spent_sig, tx) {
             return Err(Error::FailedSignature);
         }
-        let msg = Self::proof_msg(&tx, &self.spend_sig);
+        let msg = Self::proof_msg(&tx, &self.spent_sig);
         verifier
             .verify(&msg, &self.spentbook_pub_key, &self.spentbook_sig)
             .map_err(|_| Error::InvalidSpentProofSignature(dbc.spend_key()))?;
         Ok(())
     }
 
-    pub fn proof_msg(tx: &Hash, spend_sig: &Signature) -> Hash {
+    pub fn proof_msg(tx: &Hash, spent_sig: &Signature) -> Hash {
         use tiny_keccak::{Hasher, Sha3};
         let mut sha3 = Sha3::v256();
 
         sha3.update(&tx.0);
-        sha3.update(&spend_sig.to_bytes());
+        sha3.update(&spent_sig.to_bytes());
 
         let mut hash = [0u8; 32];
         sha3.finalize(&mut hash);
