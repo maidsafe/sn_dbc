@@ -145,7 +145,7 @@ pub struct MintNode<K>
 where
     K: KeyManager,
 {
-    pub(crate) key_manager: K,
+    pub key_manager: K,
 }
 
 impl<K: KeyManager> MintNode<K> {
