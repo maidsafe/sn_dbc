@@ -78,6 +78,9 @@ pub enum Error {
     #[error("Invalid Amount Commitment")]
     AmountCommitmentInvalid,
 
+    #[error("Double spend detected")]
+    DoubleSpend,
+
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),

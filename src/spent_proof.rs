@@ -17,6 +17,12 @@ impl std::fmt::Debug for SpendKey {
     }
 }
 
+impl SpendKey {
+    pub fn to_bytes(self) -> [u8; 48] {
+        self.0.to_bytes()
+    }
+}
+
 #[cfg(test)]
 use rand::distributions::{Distribution, Standard};
 #[cfg(test)]
