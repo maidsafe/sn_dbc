@@ -14,6 +14,7 @@ mod amount;
 mod builder;
 mod dbc;
 mod dbc_content;
+mod dbc_packet;
 mod dbc_transaction;
 mod denomination;
 mod error;
@@ -26,6 +27,7 @@ pub use crate::{
     builder::{DbcBuilder, Output, OutputSecret, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,
     dbc_content::DbcContent,
+    dbc_packet::{DbcPacket, DerivedKeySet},
     dbc_transaction::{DbcEnvelope, DbcTransaction},
     denomination::Denomination,
     error::{Error, Result},

@@ -68,6 +68,9 @@ pub enum Error {
     #[error("No reissue shares")]
     NoReissueShares,
 
+    #[error("Derived owner key does not match")]
+    DerivedOwnerKeyDoesNotMatch,
+
     #[error("Unknown denomination")]
     DenominationUnknown,
 
