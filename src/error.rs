@@ -66,6 +66,9 @@ pub enum Error {
     #[error("RangeProof error: {0}")]
     RangeProof(#[from] bulletproofs::ProofError),
 
+    #[error("Derived owner key does not match")]
+    DerivedOwnerKeyDoesNotMatch,
+
     #[error("Decryption error: {0}")]
     DecryptionBySharesFailed(#[from] blsttc::error::Error),
 
