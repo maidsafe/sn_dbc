@@ -13,6 +13,7 @@ use std::fmt;
 mod builder;
 mod dbc;
 mod dbc_content;
+mod dbc_packet;
 mod dbc_transaction;
 mod error;
 mod key_manager;
@@ -23,6 +24,7 @@ pub use crate::{
     builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,
     dbc_content::{Amount, AmountSecrets, DbcContent},
+    dbc_packet::{DbcPacket, DerivedKeySet},
     dbc_transaction::DbcTransaction,
     error::{Error, Result},
     key_manager::{
