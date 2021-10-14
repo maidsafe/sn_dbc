@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.8.0](https://github.com/maidsafe/sn_dbc/compare/v2.7.1...v2.8.0) (2021-10-14)
+
+
+### Features
+
+* **client-writes-spentbook:** move reissue flow to SpentProofs ([fb7635c](https://github.com/maidsafe/sn_dbc/commit/fb7635c0a74cee9bb6202b220033da1b9da8ae5d))
+* **spentproofs:** mint-repl is working again ([930b643](https://github.com/maidsafe/sn_dbc/commit/930b64319c8eb542abf62abe4fe3f28dfdb621c1))
+* **spentproofs:** update benches ([482cb97](https://github.com/maidsafe/sn_dbc/commit/482cb9774a11fdef259b82535c28452d410048fa))
+
 ### [2.7.1](https://github.com/maidsafe/sn_dbc/compare/v2.7.0...v2.7.1) (2021-09-21)
 
 ## [2.7.0](https://github.com/maidsafe/sn_dbc/compare/v2.6.0...v2.7.0) (2021-09-16)
