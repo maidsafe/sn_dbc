@@ -224,7 +224,6 @@ mod tests {
     }
 
     #[quickcheck]
-    #[ignore]
     fn prop_genesis() -> Result<(), Error> {
         let genesis_owner = crate::bls_dkg_id();
 
@@ -241,13 +240,10 @@ mod tests {
         // note: logically speaking, it seems we should derive the denomination
         //       pubkey here (and it works) however that turns out not to be
         //       necessary, so we skip the extra ::derive_child() call.
-        let mint_denomination_signature = genesis
-            .public_key_set
-            .combine_signatures(vec![(
-                ses.signature_share_index(),
-                &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
-            )])
-            .unwrap();
+        let mint_denomination_signature = genesis.public_key_set.combine_signatures(vec![(
+            ses.signature_share_index(),
+            &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
+        )])?;
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
@@ -262,7 +258,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore]
     #[quickcheck]
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
         let output_denominations = Vec::from_iter(
@@ -271,7 +266,6 @@ mod tests {
                 .map(TinyInt::coerce::<PowerOfTen>)
                 .map(Denomination::One),
         );
-        let n_outputs = output_denominations.len();
         let output_amount =
             Amount::checked_sum(output_denominations.iter().map(Denomination::amount))?;
 
@@ -282,6 +276,7 @@ mod tests {
         let mut genesis_node = MintNode::new(key_manager.clone());
 
         let genesis_denomination = Denomination::least_upper_bound(output_amount).unwrap();
+
         let genesis = genesis_node.issue_genesis_dbc(genesis_denomination)?;
         let ses = &genesis.signed_envelope_share;
 
@@ -299,13 +294,29 @@ mod tests {
         let output_owner = crate::bls_dkg_id();
         let output_owner_pk = output_owner.public_key_set.public_key();
 
-        let (reissue_tx, output_secrets) = crate::TransactionBuilder::default()
+        let mut tx_builder = crate::TransactionBuilder::default()
             .add_input(genesis_dbc.clone())
             .add_outputs(output_denominations.iter().map(|d| crate::Output {
                 denomination: *d,
                 owner: output_owner_pk,
-            }))
-            .build()?;
+            }));
+
+        let mut change_amount = Amount::new_unchecked(0, 1);
+        let change_denominations = if genesis_denomination.amount() > output_amount {
+            change_amount = genesis_denomination.amount().checked_sub(output_amount)?;
+            let change_denominations = Denomination::make_change(change_amount);
+            let change_outputs =
+                Vec::from_iter(change_denominations.iter().map(|d| crate::Output {
+                    denomination: *d,
+                    owner: genesis_key,
+                }));
+            tx_builder = tx_builder.add_outputs(change_outputs);
+            change_denominations
+        } else {
+            Default::default()
+        };
+
+        let (reissue_tx, output_secrets) = tx_builder.build()?;
         let tx_hash = reissue_tx.blinded().hash();
 
         let spent_sig = genesis_owner.public_key_set.combine_signatures([(
@@ -334,13 +345,8 @@ mod tests {
         let reissue_share = match genesis_node.reissue(rr) {
             Ok(rs) => {
                 // Verify that at least one output was present.
-                assert_ne!(n_outputs, 0);
+                assert_ne!(reissue_tx.outputs.len(), 0);
                 rs
-            }
-            Err(Error::DbcReissueRequestDoesNotBalance) => {
-                // Verify that no outputs were present and we got correct validation error.
-                assert_eq!(n_outputs, 0);
-                return Ok(());
             }
             Err(e) => return Err(e),
         };
@@ -351,15 +357,27 @@ mod tests {
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
         let output_dbcs = dbc_builder.build()?;
 
+        let mut expected_denom_count: BTreeMap<Denomination, i64> = Default::default();
+
+        for d in output_denominations.into_iter().chain(change_denominations) {
+            let c = expected_denom_count.entry(d).or_default();
+            *c += 1;
+        }
+
         for dbc in output_dbcs.iter() {
-            assert!(output_denominations
-                .iter()
-                .any(|d| *d == dbc.denomination()));
+            let count = expected_denom_count.entry(dbc.denomination()).or_default();
+            *count -= 1;
+
             assert!(dbc.confirm_valid(&key_manager).is_ok());
         }
 
+        for (_, count) in expected_denom_count {
+            assert_eq!(count, 0)
+        }
+
         assert_eq!(
-            Amount::checked_sum(output_dbcs.iter().map(|dbc| dbc.denomination().amount()))?,
+            Amount::checked_sum(output_dbcs.iter().map(|dbc| dbc.denomination().amount()))?
+                .checked_sub(change_amount)?,
             output_amount
         );
 
@@ -380,13 +398,10 @@ mod tests {
 
         let ses = &genesis.signed_envelope_share;
 
-        let genesis_sig = genesis
-            .public_key_set
-            .combine_signatures(vec![(
-                ses.signature_share_index(),
-                &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
-            )])
-            .unwrap();
+        let genesis_sig = genesis.public_key_set.combine_signatures(vec![(
+            ses.signature_share_index(),
+            &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
+        )])?;
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
@@ -400,7 +415,6 @@ mod tests {
 
         let pay_amt = Amount::new(1, 1)?;
         let pay_denoms = Denomination::make_change(pay_amt);
-        println!("pay: {:#?}", pay_denoms);
         let pay_outputs: Vec<Output> = pay_denoms
             .iter()
             .map(|d| Output {
@@ -417,7 +431,6 @@ mod tests {
                 owner: genesis_owner.public_key_set.public_key(),
             })
             .collect();
-        println!("change: {:#?}", change_denoms);
 
         let num_outputs = pay_outputs.len() + change_outputs.len();
 
@@ -450,12 +463,6 @@ mod tests {
                 },
             )
             .build()?;
-
-        // genesis_node
-        //     .spendbook
-        //     .lock()
-        //     .unwrap()
-        //     .log_spent(genesis_dbc.spend_key(), reissue_tx.blinded());
 
         let rs = genesis_node.reissue(rr)?;
 
@@ -490,20 +497,14 @@ mod tests {
         );
         let mut genesis_node = MintNode::new(key_manager);
 
-        let genesis = genesis_node
-            .issue_genesis_dbc(GENESIS_DENOMINATION)
-            .unwrap();
+        let genesis = genesis_node.issue_genesis_dbc(GENESIS_DENOMINATION)?;
 
         let ses = &genesis.signed_envelope_share;
 
-        let genesis_sig = genesis
-            .public_key_set
-            .combine_signatures(vec![(
-                ses.signature_share_index(),
-                &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())
-                    .unwrap(),
-            )])
-            .unwrap();
+        let genesis_sig = genesis.public_key_set.combine_signatures(vec![(
+            ses.signature_share_index(),
+            &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
+        )])?;
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,
@@ -515,57 +516,6 @@ mod tests {
 
         let (tx, output_secrets) = TransactionBuilder::default()
             .add_input(genesis_dbc.clone())
-            .add_output(Output {
-                denomination: GENESIS_DENOMINATION,
-                owner: genesis_owner.public_key_set.public_key(),
-            })
-            .build()
-            .unwrap();
-
-        let tx_hash = tx.blinded().hash();
-
-        let spent_sig = genesis_owner
-            .public_key_set
-            .combine_signatures([(
-                genesis_owner.index,
-                genesis_owner
-                    .secret_key_share
-                    .derive_child(&genesis_dbc.spend_key_index())
-                    .sign(tx_hash),
-            )])
-            .unwrap();
-        let spentbook_pks = genesis_node.key_manager.public_key_set().unwrap();
-        let spentbook_sig_share = genesis_node
-            .key_manager
-            .sign(&SpentProof::proof_msg(&tx_hash, &spent_sig))
-            .unwrap();
-
-        let rr = ReissueRequestBuilder::new(tx.clone())
-            .add_spent_proof_share(
-                genesis_dbc.spend_key(),
-                SpentProofShare {
-                    spent_sig,
-                    spentbook_pks,
-                    spentbook_sig_share,
-                },
-            )
-            .build()
-            .unwrap();
-
-        let rs = genesis_node.reissue(rr).unwrap();
-
-        let dbcs = DbcBuilder::new(tx)
-            .add_output_secrets(output_secrets)
-            .add_reissue_share(rs)
-            .build()
-            .unwrap();
-
-        // 2. Reissue A to B
-
-        let dbc_a = &dbcs[0];
-
-        let (tx, output_secrets) = TransactionBuilder::default()
-            .add_input(dbc_a.clone())
             .add_output(Output {
                 denomination: GENESIS_DENOMINATION,
                 owner: genesis_owner.public_key_set.public_key(),
@@ -589,6 +539,50 @@ mod tests {
         let rr = ReissueRequestBuilder::new(tx.clone())
             .add_spent_proof_share(
                 genesis_dbc.spend_key(),
+                SpentProofShare {
+                    spent_sig,
+                    spentbook_pks,
+                    spentbook_sig_share,
+                },
+            )
+            .build()?;
+
+        let rs = genesis_node.reissue(rr)?;
+
+        let dbcs = DbcBuilder::new(tx)
+            .add_output_secrets(output_secrets)
+            .add_reissue_share(rs)
+            .build()?;
+
+        // 2. Reissue A to B
+
+        let dbc_a = &dbcs[0];
+
+        let (tx, output_secrets) = TransactionBuilder::default()
+            .add_input(dbc_a.clone())
+            .add_output(Output {
+                denomination: GENESIS_DENOMINATION,
+                owner: genesis_owner.public_key_set.public_key(),
+            })
+            .build()?;
+
+        let tx_hash = tx.blinded().hash();
+
+        let spent_sig = genesis_owner.public_key_set.combine_signatures([(
+            genesis_owner.index,
+            genesis_owner
+                .secret_key_share
+                .derive_child(&dbc_a.spend_key_index())
+                .sign(tx_hash),
+        )])?;
+        let spentbook_pks = genesis_node.key_manager.public_key_set()?;
+        let spentbook_sig_share = genesis_node
+            .key_manager
+            .sign(&SpentProof::proof_msg(&tx_hash, &spent_sig))?;
+
+        let rr = ReissueRequestBuilder::new(tx.clone())
+            .add_spent_proof_share(
+                dbc_a.spend_key(),
                 SpentProofShare {
                     spent_sig,
                     spentbook_pks,
@@ -662,13 +656,10 @@ mod tests {
 
         let ses = &genesis.signed_envelope_share;
 
-        let genesis_sig = genesis
-            .public_key_set
-            .combine_signatures(vec![(
-                ses.signature_share_index(),
-                &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
-            )])
-            .unwrap();
+        let genesis_sig = genesis.public_key_set.combine_signatures(vec![(
+            ses.signature_share_index(),
+            &ses.signature_share_for_slip(genesis.slip_preparer.blinding_factor())?,
+        )])?;
 
         let genesis_dbc = Dbc {
             content: genesis.dbc_content,

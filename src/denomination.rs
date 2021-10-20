@@ -189,7 +189,7 @@ impl Denomination {
     pub fn least_upper_bound(amount: Amount) -> Option<Self> {
         if let Some(largest_denom) = Self::make_change(amount).into_iter().max() {
             for lub in std::iter::successors(Some(largest_denom), Self::increment) {
-                if lub.amount() > amount {
+                if lub.amount() >= amount {
                     return Some(lub);
                 }
             }
