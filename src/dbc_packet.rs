@@ -76,8 +76,6 @@ impl From<SecretKeySet> for DerivedKeySet {
     }
 }
 
-type Memo = Option<[u8; 32]>;
-
 /// Represents a DBC plus some metadata that is useful
 /// for transporting DBCs between individuals, but is not
 /// necessary for Mint operations.  As such, this is a
@@ -96,31 +94,18 @@ type Memo = Option<[u8; 32]>;
 ///
 /// After reissue, the client constructs the Dbc and then
 /// puts it into a DbcPacket along with the DerivedKeySet
-/// and an optional memo for the recipient.
 ///
 #[derive(Clone, Deserialize, Serialize)]
 pub struct DbcPacket {
     dbc: Dbc,
     owner_keyset: DerivedKeySet,
-
-    // todo/tbd:
-    //   1. Do we actually need/want a memo field for each DBC?  Or only at Payment level?
-    //   2. Given that this is "text", should we use a (utf-8) String instead of raw bytes?
-    //   3. is it better to use a variable length Vec<u8> than fixed byte array?
-    //   4. If using a String or Vec<u8>, how do we enforce a max-len when deserializing?
-    //      Perhaps requires a custom deserializer, eg serde deserialize_with="fn"
-    memo: Memo,
 }
 
 impl DbcPacket {
     /// Create a new DbcPacket.
     /// validates that the DerivedKeySet matches the Dbc owner
-    pub fn new(dbc: Dbc, owner_keyset: DerivedKeySet, memo: Memo) -> Result<Self> {
-        let dp = DbcPacket {
-            dbc,
-            owner_keyset,
-            memo,
-        };
+    pub fn new(dbc: Dbc, owner_keyset: DerivedKeySet) -> Result<Self> {
+        let dp = DbcPacket { dbc, owner_keyset };
         dp.verify_owner_derivation_index()?;
         Ok(dp)
     }
@@ -144,13 +129,6 @@ impl DbcPacket {
     /// derivation index.
     pub fn owner_keyset(&self) -> &DerivedKeySet {
         &self.owner_keyset
-    }
-
-    /// memo getter
-    ///
-    /// Returns the memo, which may be empty
-    pub fn memo(&self) -> &Memo {
-        &self.memo
     }
 }
 
