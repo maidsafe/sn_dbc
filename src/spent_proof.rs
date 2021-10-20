@@ -32,9 +32,11 @@ use rand::Rng;
 #[cfg(test)]
 impl Distribution<SpendKey> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SpendKey {
+        use blsttc::group::CurveProjective;
+        let gen_bytes = blsttc::convert::g1_to_be_bytes(blsttc::G1::one());
         SpendKey(
-            crate::genesis_dbc_input()
-                .0
+            PublicKey::from_bytes(gen_bytes)
+                .unwrap()
                 .derive_child(&rng.gen::<[u8; 32]>()),
         )
     }

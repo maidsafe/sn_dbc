@@ -15,7 +15,7 @@
 
 use crate::{
     Amount, Dbc, DbcContent, DbcEnvelope, DbcTransaction, Denomination, Error, KeyManager,
-    PublicKey, PublicKeySet, Result, SpendKey, SpentProof,
+    PublicKeySet, Result, SpendKey, SpentProof,
 };
 use blsbs::{SignedEnvelopeShare, SlipPreparer};
 use serde::{Deserialize, Serialize};
@@ -24,16 +24,9 @@ use std::{
     iter::FromIterator,
 };
 
-pub fn genesis_dbc_input() -> SpendKey {
-    use blsttc::group::CurveProjective;
-    let gen_bytes = blsttc::convert::g1_to_be_bytes(blsttc::G1::one());
-    SpendKey(PublicKey::from_bytes(gen_bytes).unwrap())
-}
-
 #[derive(Debug, Clone)]
 pub struct GenesisDbcShare {
     pub dbc_content: DbcContent,
-    pub transaction: DbcTransaction,
     pub slip_preparer: SlipPreparer,
     pub public_key_set: PublicKeySet,
     pub signed_envelope_share: SignedEnvelopeShare,
@@ -135,16 +128,10 @@ impl<K: KeyManager> MintNode<K> {
             denomination: dbc_content.denomination(),
         };
 
-        let transaction = DbcTransaction {
-            inputs: BTreeSet::from_iter([genesis_dbc_input()]),
-            outputs: HashSet::from_iter([dbc_envelope.clone()]),
-        };
-
         let signed_envelope_share = self.sign_output_envelope(dbc_envelope)?;
 
         Ok(GenesisDbcShare {
             dbc_content,
-            transaction,
             slip_preparer,
             public_key_set: self
                 .key_manager
