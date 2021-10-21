@@ -389,8 +389,6 @@ mod tests {
         output_amounts: TinyVec<TinyInt>,
         // Controls which output dbc's will receive extra parent hashes
         extra_output_parents: TinyVec<TinyInt>,
-        // Include a valid SpentProof for the following inputs
-        valid_spent_proofs: TinyVec<TinyInt>,
         // Include an invalid SpentProofs for the following inputs
         invalid_spent_proofs: TinyVec<TinyInt>,
     ) -> Result<(), Error> {
@@ -405,9 +403,6 @@ mod tests {
                 .into_iter()
                 .map(TinyInt::coerce::<usize>),
         );
-
-        let valid_spent_proofs =
-            BTreeSet::from_iter(valid_spent_proofs.into_iter().map(TinyInt::coerce::<usize>));
 
         let invalid_spent_proofs = BTreeSet::from_iter(
             invalid_spent_proofs
@@ -548,48 +543,25 @@ mod tests {
 
         let mut rr2_builder = ReissueRequestBuilder::new(reissue_tx.clone());
 
-        for (_, in_dbc) in reissue_tx
-            .inputs
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| valid_spent_proofs.contains(i))
-        {
-            let (_, input_owner) = &owner_amounts_and_keys[&in_dbc.owner()];
+        for (i, in_dbc) in reissue_tx.inputs.iter().enumerate() {
+            let is_invalid_spent_proof = invalid_spent_proofs.contains(&i);
 
-            let spent_sig = input_owner.public_key_set.combine_signatures([(
-                input_owner.index,
-                input_owner
-                    .secret_key_share
-                    .derive_child(&in_dbc.spend_key_index())
-                    .sign(reissue_tx.blinded().hash()),
-            )])?;
-            let spentbook_pks = genesis_node.key_manager.public_key_set()?;
-            let spentbook_sig_share = genesis_node.key_manager.sign(&SpentProof::proof_msg(
-                &reissue_tx.blinded().hash(),
-                &spent_sig,
-            ))?;
+            if is_invalid_spent_proof && i % 3 == 0 {
+                // drop this spent proof
+                continue;
+            }
 
-            rr2_builder = rr2_builder.add_spent_proof_share(
-                in_dbc.spend_key(),
-                SpentProofShare {
-                    spent_sig,
-                    spentbook_pks,
-                    spentbook_sig_share,
-                },
-            );
-        }
-
-        for (i, in_dbc) in reissue_tx
-            .inputs
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| invalid_spent_proofs.contains(i))
-        {
-            let input_owner = if i % 2 == 0 {
+            let input_owner = if is_invalid_spent_proof && i % 3 == 1 {
+                crate::bls_dkg_id()
+            } else {
                 let (_, input_owner) = &owner_amounts_and_keys[&in_dbc.owner()];
                 input_owner.clone()
+            };
+
+            let tx_hash = if is_invalid_spent_proof && i % 3 == 2 {
+                crate::Hash([0u8; 32])
             } else {
-                crate::bls_dkg_id()
+                reissue_tx.blinded().hash()
             };
 
             let spent_sig = input_owner.public_key_set.combine_signatures([(
@@ -597,15 +569,8 @@ mod tests {
                 input_owner
                     .secret_key_share
                     .derive_child(&in_dbc.spend_key_index())
-                    .sign(reissue_tx.blinded().hash()),
+                    .sign(tx_hash),
             )])?;
-
-            let tx_hash = if i % 2 == 1 {
-                reissue_tx.blinded().hash()
-            } else {
-                crate::Hash([0u8; 32])
-            };
-
             let spentbook_pks = genesis_node.key_manager.public_key_set()?;
             let spentbook_sig_share = genesis_node
                 .key_manager
@@ -631,9 +596,6 @@ mod tests {
                 assert!(invalid_spent_proofs
                     .iter()
                     .all(|i| i >= &reissue_tx.inputs.len()));
-                assert!(
-                    BTreeSet::from_iter(0..reissue_tx.inputs.len()).is_subset(&valid_spent_proofs)
-                );
 
                 // The output amounts should correspond to the output_amounts
                 assert_eq!(
@@ -683,7 +645,10 @@ mod tests {
                     .iter()
                     .position(|i| i.spend_key() == key)
                     .unwrap();
-                assert!(!valid_spent_proofs.contains(&idx));
+                assert!(invalid_spent_proofs.contains(&idx));
+            }
+            Err(Error::FailedSignature) => {
+                assert!(!invalid_spent_proofs.is_empty());
             }
             Err(Error::InvalidSpentProofSignature(key)) => {
                 let idx = reissue_tx
