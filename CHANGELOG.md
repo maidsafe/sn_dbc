@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.9.0](https://github.com/maidsafe/sn_dbc/compare/v2.8.0...v2.9.0) (2021-10-21)
+
+
+### Features
+
+* add DbcPacket and DerivedKeySet ([1042a63](https://github.com/maidsafe/sn_dbc/commit/1042a634d85d76e8df9281f49d2f34a0cfd45394))
+
 ## [2.8.0](https://github.com/maidsafe/sn_dbc/compare/v2.7.1...v2.8.0) (2021-10-14)
 
 
