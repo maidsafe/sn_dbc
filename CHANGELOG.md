@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [2.9.1](https://github.com/maidsafe/sn_dbc/compare/v2.9.0...v2.9.1) (2021-10-22)
+
+
+### Bug Fixes
+
+* **tests:** fix many-to-many test handling of invalid + valid proofs ([8bbf2e7](https://github.com/maidsafe/sn_dbc/commit/8bbf2e7130834d2889c334f5fa517b70b6fa4827))
+
 ## [2.9.0](https://github.com/maidsafe/sn_dbc/compare/v2.8.0...v2.9.0) (2021-10-21)
 
 
