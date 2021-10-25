@@ -1,5 +1,6 @@
 use blsbs::{Envelope, Fr, SignedEnvelopeShare, SlipPreparer};
 use blsttc::{PublicKeySet, SignatureShare};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
@@ -28,7 +29,7 @@ impl Output {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputSecret {
     pub slip_preparer: SlipPreparer,
     pub dbc_content: DbcContent,
