@@ -6,11 +6,12 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Dbc, Error, PublicKey, Result};
+use crate::{Dbc, Error, Hash, PublicKey, Result};
 use blsttc::SecretKeySet;
 use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::Into;
+use tiny_keccak::{Hasher, Sha3};
 
 /// Represents a public key and optional
 /// secret key, plus a random derivation index.
@@ -27,6 +28,19 @@ pub struct DerivedKeySet {
 }
 
 impl DerivedKeySet {
+    pub fn hash(&self) -> Hash {
+        let mut sha3 = Sha3::v256();
+        sha3.update(&self.public_key.to_bytes());
+        sha3.update(&self.derivation_index);
+
+        if let Some(sks) = &self.secret_key_set {
+            sha3.update(&sks.to_bytes());
+        }
+        let mut hash = [0u8; 32];
+        sha3.finalize(&mut hash);
+        Hash(hash)
+    }
+
     /// public_key getter
     pub fn public_key(&self) -> &PublicKey {
         &self.public_key
@@ -102,6 +116,16 @@ pub struct DbcPacket {
 }
 
 impl DbcPacket {
+    pub fn hash(&self) -> Hash {
+        let mut sha3 = Sha3::v256();
+        sha3.update(&self.dbc.spend_key_index());
+        sha3.update(self.owner_keyset.hash().as_ref());
+
+        let mut hash = [0u8; 32];
+        sha3.finalize(&mut hash);
+        Hash(hash)
+    }
+
     /// Create a new DbcPacket.
     /// validates that the DerivedKeySet matches the Dbc owner
     pub fn new(dbc: Dbc, owner_keyset: DerivedKeySet) -> Result<Self> {
