@@ -88,7 +88,7 @@ mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, DbcBuilder, DbcHelper, Hash, KeyManager, MintNode, ReissueRequest,
+        Amount, AmountSecrets, DbcBuilder, DbcHelper, Hash, KeyManager, MintNode, ReissueRequest,
         ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SpentProof, SpentProofShare,
     };
 
@@ -155,7 +155,7 @@ mod tests {
             BTreeSet::new(),
             100,
             crate::bls_dkg_id().public_key_set.public_key(),
-            DbcContent::random_blinding_factor(),
+            AmountSecrets::random_blinding_factor(),
         )?;
 
         let input_owners = BTreeSet::from_iter([input_content.owner]);
@@ -306,7 +306,7 @@ mod tests {
             fuzzed_parents,
             amount + extra_output_amount.coerce::<Amount>(),
             crate::bls_dkg_id().public_key_set.public_key(),
-            DbcContent::random_blinding_factor(),
+            AmountSecrets::random_blinding_factor(),
         )?;
 
         let mut fuzzed_transaction_sigs: BTreeMap<SpendKey, (PublicKey, Signature)> =
