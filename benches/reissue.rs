@@ -1,6 +1,7 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
 use std::iter::FromIterator;
 
 use sn_dbc::{
@@ -15,8 +16,7 @@ fn decrypt_amount_secrets(
     dbcc: &DbcContent,
 ) -> Result<AmountSecrets, Error> {
     let shares = BTreeMap::from_iter([(0, owner.secret_key_share.clone())]);
-
-    dbcc.amount_secrets_by_secret_key_shares(&owner.public_key_set, &shares)
+    AmountSecrets::try_from((&owner.public_key_set, &shares, &dbcc.amount_secrets_cipher))
 }
 
 fn genesis(amount: Amount) -> (MintNode<SimpleKeyManager>, bls_dkg::outcome::Outcome, Dbc) {

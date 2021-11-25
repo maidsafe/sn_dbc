@@ -19,11 +19,12 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, GenesisDbcShare, MintNode, Output, ReissueRequest,
+    Amount, AmountSecrets, Dbc, DbcBuilder, GenesisDbcShare, MintNode, Output, ReissueRequest,
     ReissueRequestBuilder, ReissueTransaction, SimpleKeyManager as KeyManager,
     SimpleSigner as Signer, SpendKey, TransactionBuilder,
 };
 use std::collections::{BTreeMap, HashMap};
+use std::convert::TryFrom;
 use std::iter::FromIterator;
 
 #[cfg(unix)]
@@ -437,10 +438,9 @@ fn print_dbc_human(
 
     match keys {
         Some((public_key_set, secret_key_shares)) => {
-            let amount_secrets = dbc
-                .inner
-                .content
-                .amount_secrets_by_secret_key_shares(public_key_set, secret_key_shares)?;
+            let ciphertext = &dbc.inner.content.amount_secrets_cipher;
+            let amount_secrets =
+                AmountSecrets::try_from((public_key_set, secret_key_shares, ciphertext))?;
             println!("*** Secrets (decrypted) ***");
             println!("     amount: {}\n", amount_secrets.amount);
             println!(
@@ -645,10 +645,8 @@ fn prepare_tx() -> Result<ReissueTransactionUnblinded> {
             }
         }
 
-        let amount_secrets = dbc
-            .inner
-            .content
-            .amount_secrets_by_secret_key_shares(&dbc.owner, &secrets)?;
+        let ciphertext = &dbc.inner.content.amount_secrets_cipher;
+        let amount_secrets = AmountSecrets::try_from((&dbc.owner, &secrets, ciphertext))?;
 
         input_pk_pks.insert(dbc.inner.spend_key(), dbc.owner);
         tx_builder = tx_builder.add_input(dbc.inner, amount_secrets);

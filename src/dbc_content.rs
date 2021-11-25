@@ -12,12 +12,13 @@ use blsttc::{
     SecretKeyShare,
 };
 use bulletproofs::{BulletproofGens, PedersenGens, RangeProof};
-use curve25519_dalek_ng::ristretto::CompressedRistretto;
+use curve25519_dalek_ng::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek_ng::scalar::Scalar;
 use merlin::Transcript;
 use rand8::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
 use tiny_keccak::{Hasher, Sha3};
 
 use crate::{Error, Hash, SpendKey};
@@ -67,6 +68,14 @@ impl AmountSecrets {
         }
     }
 
+    pub fn to_pedersen_commitment(&self) -> RistrettoPoint {
+        PedersenGens::default().commit(Scalar::from(self.amount), self.blinding_factor)
+    }
+
+    pub fn to_pedersen_commitment_compressed(&self) -> CompressedRistretto {
+        self.to_pedersen_commitment().compress()
+    }
+
     /// build AmountSecrets from byte array reference
     pub fn from_bytes_ref(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() != AMT_SIZE + BF_SIZE {
@@ -86,6 +95,87 @@ impl AmountSecrets {
             amount,
             blinding_factor,
         })
+    }
+
+    pub fn encrypt(&self, public_key: &PublicKey) -> Ciphertext {
+        public_key.encrypt(self.to_bytes().as_slice())
+    }
+
+    pub fn random_blinding_factor() -> Scalar {
+        let mut csprng: OsRng = OsRng::default();
+        Scalar::random(&mut csprng)
+    }
+}
+
+impl From<Amount> for AmountSecrets {
+    fn from(amount: Amount) -> Self {
+        Self {
+            amount,
+            blinding_factor: Self::random_blinding_factor(),
+        }
+    }
+}
+
+impl TryFrom<(&SecretKey, &Ciphertext)> for AmountSecrets {
+    type Error = Error;
+
+    /// Decrypt AmountSecrets ciphertext using a SecretKey
+    fn try_from(params: (&SecretKey, &Ciphertext)) -> Result<Self, Error> {
+        let (secret_key, ciphertext) = params;
+        let bytes_vec = secret_key
+            .decrypt(ciphertext)
+            .ok_or(Error::DecryptionBySecretKeyFailed)?;
+        Self::from_bytes_ref(&bytes_vec)
+    }
+}
+
+impl TryFrom<(&SecretKeySet, &Ciphertext)> for AmountSecrets {
+    type Error = Error;
+
+    /// Decrypt AmountSecrets ciphertext using a SecretKeySet
+    fn try_from(params: (&SecretKeySet, &Ciphertext)) -> Result<Self, Error> {
+        let (secret_key_set, ciphertext) = params;
+        Self::try_from((&secret_key_set.secret_key(), ciphertext))
+    }
+}
+
+impl<I: IntoFr + Ord> TryFrom<(&PublicKeySet, &BTreeMap<I, SecretKeyShare>, &Ciphertext)>
+    for AmountSecrets
+{
+    type Error = Error;
+
+    /// Decrypt AmountSecrets ciphertext using threshold+1 SecretKeyShares
+    fn try_from(
+        params: (&PublicKeySet, &BTreeMap<I, SecretKeyShare>, &Ciphertext),
+    ) -> Result<Self, Error> {
+        let (public_key_set, secret_key_shares, ciphertext) = params;
+
+        let mut decryption_shares: BTreeMap<I, DecryptionShare> = Default::default();
+        for (idx, sec_share) in secret_key_shares.iter() {
+            let share = sec_share.decrypt_share_no_verify(ciphertext);
+            decryption_shares.insert(*idx, share);
+        }
+        Self::try_from((public_key_set, &decryption_shares, ciphertext))
+    }
+}
+
+impl<I: IntoFr + Ord> TryFrom<(&PublicKeySet, &BTreeMap<I, DecryptionShare>, &Ciphertext)>
+    for AmountSecrets
+{
+    type Error = Error;
+
+    /// Decrypt AmountSecrets using threshold+1 DecryptionShares
+    ///
+    /// This fn should be used when keys (SecretKeyShare) are distributed across multiple parties.
+    /// In which case each party will need to call SecretKeyShare::decrypt_share() or
+    /// decrypt_share_no_verify() to generate a DecryptionShare and one party will need to
+    /// obtain/aggregate all the shares together somehow.
+    fn try_from(
+        params: (&PublicKeySet, &BTreeMap<I, DecryptionShare>, &Ciphertext),
+    ) -> Result<Self, Error> {
+        let (public_key_set, decryption_shares, ciphertext) = params;
+        let bytes_vec = public_key_set.decrypt(decryption_shares, ciphertext)?;
+        Self::from_bytes_ref(&bytes_vec)
     }
 }
 
@@ -125,7 +215,7 @@ impl DbcContent {
             amount,
             blinding_factor,
         };
-        let amount_secrets_cipher = owner.encrypt(amount_secrets.to_bytes().as_slice());
+        let amount_secrets_cipher = amount_secrets.encrypt(&owner);
 
         Ok(DbcContent {
             parents,
@@ -136,72 +226,23 @@ impl DbcContent {
         })
     }
 
-    pub fn random_blinding_factor() -> Scalar {
-        let mut csprng: OsRng = OsRng::default();
-        Scalar::random(&mut csprng)
-    }
-
     pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
+
+        // note: fields are hashed in struct order.
 
         for parent in self.parents.iter() {
             sha3.update(&parent.0.to_bytes());
         }
 
         sha3.update(&self.amount_secrets_cipher.to_bytes());
+        sha3.update(&self.commitment.to_bytes());
+        sha3.update(&self.range_proof_bytes);
         sha3.update(&self.owner.to_bytes());
 
         let mut hash = [0; 32];
         sha3.finalize(&mut hash);
         Hash(hash)
-    }
-
-    /// Decrypt AmountSecrets using a SecretKey
-    pub fn amount_secret_by_secret_key(
-        &self,
-        secret_key: &SecretKey,
-    ) -> Result<AmountSecrets, Error> {
-        let bytes_vec = secret_key
-            .decrypt(&self.amount_secrets_cipher)
-            .ok_or(Error::DecryptionBySecretKeyFailed)?;
-        AmountSecrets::from_bytes_ref(&bytes_vec)
-    }
-
-    /// Decrypt AmountSecrets using a SecretKeySet
-    pub fn amount_secrets_by_secret_key_set(
-        &self,
-        secret_key_set: &SecretKeySet,
-    ) -> Result<AmountSecrets, Error> {
-        self.amount_secret_by_secret_key(&secret_key_set.secret_key())
-    }
-
-    /// Decrypt AmountSecrets using threshold+1 SecretKeyShares
-    pub fn amount_secrets_by_secret_key_shares<I: IntoFr + Ord>(
-        &self,
-        public_key_set: &PublicKeySet,
-        secret_key_shares: &BTreeMap<I, SecretKeyShare>,
-    ) -> Result<AmountSecrets, Error> {
-        let mut decryption_shares: BTreeMap<I, DecryptionShare> = Default::default();
-        for (idx, sec_share) in secret_key_shares.iter() {
-            let share = sec_share.decrypt_share_no_verify(&self.amount_secrets_cipher);
-            decryption_shares.insert(*idx, share);
-        }
-        self.amount_secrets_by_decryption_shares(public_key_set, &decryption_shares)
-    }
-
-    /// Decrypt AmountSecrets using threshold+1 DecryptionShares
-    ///
-    /// This fn should be used when keys (SecretKeyShare) are distributed across multiple parties.
-    /// In which case each party will need to call SecretKeyShare::decrypt_share() or
-    /// decrypt_share_no_verify() to generate a DecryptionShare and one party will need to
-    /// obtain/aggregate all the shares together somehow.
-    pub fn amount_secrets_by_decryption_shares<I: IntoFr + Ord>(
-        &self,
-        public_key_set: &PublicKeySet,
-        decryption_shares: &BTreeMap<I, DecryptionShare>,
-    ) -> Result<AmountSecrets, Error> {
-        let bytes_vec = public_key_set.decrypt(decryption_shares, &self.amount_secrets_cipher)?;
-        AmountSecrets::from_bytes_ref(&bytes_vec)
     }
 
     /// Verifies range proof, ie that the committed amount is a non-negative u64.
@@ -228,8 +269,11 @@ impl DbcContent {
         public_key_set: &PublicKeySet,
         decryption_shares: &BTreeMap<usize, DecryptionShare>,
     ) -> Result<bool, Error> {
-        let secrets =
-            self.amount_secrets_by_decryption_shares(public_key_set, decryption_shares)?;
+        let secrets = AmountSecrets::try_from((
+            public_key_set,
+            decryption_shares,
+            &self.amount_secrets_cipher,
+        ))?;
         Ok(self.confirm_provided_amount_matches_commitment(&secrets))
     }
 
@@ -253,7 +297,7 @@ impl DbcContent {
     ) -> Scalar {
         match is_last {
             true => inputs_bf_sum - outputs_bf_sum,
-            false => DbcContent::random_blinding_factor(),
+            false => AmountSecrets::random_blinding_factor(),
         }
     }
 }

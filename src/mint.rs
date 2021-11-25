@@ -14,8 +14,8 @@
 // Outputs <= input value
 
 use crate::{
-    Amount, Dbc, DbcContent, DbcTransaction, Error, KeyManager, NodeSignature, PublicKey,
-    PublicKeySet, Result, SpendKey, SpentProof,
+    Amount, AmountSecrets, Dbc, DbcContent, DbcTransaction, Error, KeyManager, NodeSignature,
+    PublicKey, PublicKeySet, Result, SpendKey, SpentProof,
 };
 use curve25519_dalek_ng::ristretto::RistrettoPoint;
 use serde::{Deserialize, Serialize};
@@ -162,7 +162,7 @@ impl<K: KeyManager> MintNode<K> {
                 .public_key_set()
                 .map_err(|e| Error::Signing(e.to_string()))?
                 .public_key(),
-            DbcContent::random_blinding_factor(),
+            AmountSecrets::random_blinding_factor(),
         )?;
         let transaction = DbcTransaction {
             inputs: BTreeSet::from_iter([genesis_dbc_input()]),
@@ -690,7 +690,7 @@ mod tests {
             Default::default(),
             100,
             input_owner.public_key_set.public_key(),
-            DbcContent::random_blinding_factor(),
+            AmountSecrets::random_blinding_factor(),
         )?;
         let input_owners = BTreeSet::from_iter([input_content.owner]);
 
@@ -712,7 +712,7 @@ mod tests {
                     in_dbc_spend_keys,
                     100,
                     crate::bls_dkg_id().public_key_set.public_key(),
-                    DbcContent::random_blinding_factor(),
+                    AmountSecrets::random_blinding_factor(),
                 )?]),
             },
             spent_proofs: Default::default(),
