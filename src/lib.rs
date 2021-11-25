@@ -62,6 +62,9 @@ impl AsRef<[u8]> for Hash {
 }
 
 #[cfg(feature = "dkg")]
+use std::convert::TryFrom;
+
+#[cfg(feature = "dkg")]
 pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
@@ -98,7 +101,7 @@ impl DbcHelper {
             Default::default();
         shares.insert(owner.index, owner.secret_key_share.clone());
 
-        dbcc.amount_secrets_by_secret_key_shares(&owner.public_key_set, &shares)
+        AmountSecrets::try_from((&owner.public_key_set, &shares, &dbcc.amount_secrets_cipher))
     }
 
     pub fn decrypt_amount(
