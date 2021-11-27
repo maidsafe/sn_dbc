@@ -68,14 +68,6 @@ impl AmountSecrets {
         }
     }
 
-    pub fn to_pedersen_commitment(&self) -> RistrettoPoint {
-        PedersenGens::default().commit(Scalar::from(self.amount), self.blinding_factor)
-    }
-
-    pub fn to_pedersen_commitment_compressed(&self) -> CompressedRistretto {
-        self.to_pedersen_commitment().compress()
-    }
-
     /// build AmountSecrets from byte array reference
     pub fn from_bytes_ref(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() != AMT_SIZE + BF_SIZE {
@@ -97,10 +89,17 @@ impl AmountSecrets {
         })
     }
 
+    /// generate a pedersen commitment
+    pub fn to_pedersen_commitment(&self) -> RistrettoPoint {
+        PedersenGens::default().commit(Scalar::from(self.amount), self.blinding_factor)
+    }
+
+    /// encrypt secrets to public_key producing Ciphertext
     pub fn encrypt(&self, public_key: &PublicKey) -> Ciphertext {
         public_key.encrypt(self.to_bytes().as_slice())
     }
 
+    /// generate a random blinding factor
     pub fn random_blinding_factor() -> Scalar {
         let mut csprng: OsRng = OsRng::default();
         Scalar::random(&mut csprng)
@@ -108,6 +107,7 @@ impl AmountSecrets {
 }
 
 impl From<Amount> for AmountSecrets {
+    /// create AmountSecrets from an amount and a randomly generated blinding factor
     fn from(amount: Amount) -> Self {
         Self {
             amount,
