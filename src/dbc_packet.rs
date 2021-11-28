@@ -28,14 +28,23 @@ pub struct DerivedKeySet {
 }
 
 impl DerivedKeySet {
-    pub fn hash(&self) -> Hash {
-        let mut sha3 = Sha3::v256();
-        sha3.update(&self.public_key.to_bytes());
-        sha3.update(&self.derivation_index);
+    /// represent as bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = Default::default();
+
+        v.extend(&self.public_key.to_bytes());
+        v.extend(&self.derivation_index);
 
         if let Some(sks) = &self.secret_key_set {
-            sha3.update(&sks.to_bytes());
+            v.extend(&sks.to_bytes());
         }
+        v
+    }
+
+    pub fn hash(&self) -> Hash {
+        let mut sha3 = Sha3::v256();
+        sha3.update(&self.to_bytes());
+
         let mut hash = [0u8; 32];
         sha3.finalize(&mut hash);
         Hash(hash)
@@ -116,6 +125,16 @@ pub struct DbcPacket {
 }
 
 impl DbcPacket {
+    /// represent as bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = Default::default();
+
+        v.extend(&self.dbc.to_bytes());
+        v.extend(&self.owner_keyset.to_bytes());
+
+        v
+    }
+
     pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
         sha3.update(&self.dbc.spend_key_index());

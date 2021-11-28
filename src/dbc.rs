@@ -33,18 +33,26 @@ impl Dbc {
         self.content.owner
     }
 
+    /// represent as bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = Default::default();
+
+        v.extend(&self.content.to_bytes());
+        v.extend(&self.transaction.to_bytes());
+
+        for (spendkey, (pk, sig)) in self.transaction_sigs.iter() {
+            v.extend(&spendkey.0.to_bytes());
+            v.extend(&pk.to_bytes());
+            v.extend(&sig.to_bytes());
+        }
+        v
+    }
+
     /// Calculate the spend key index, this index is used to derive the spend key.
     pub fn spend_key_index(&self) -> [u8; 32] {
         let mut sha3 = Sha3::v256();
 
-        sha3.update(&self.content.hash().0);
-        sha3.update(&self.transaction.hash().0);
-
-        for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
-            sha3.update(&in_key.0.to_bytes());
-            sha3.update(&mint_key.to_bytes());
-            sha3.update(&mint_sig.to_bytes());
-        }
+        sha3.update(&self.to_bytes());
 
         let mut hash = [0u8; 32];
         sha3.finalize(&mut hash);

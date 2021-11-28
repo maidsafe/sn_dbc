@@ -226,23 +226,30 @@ impl DbcContent {
         })
     }
 
+    /// represent as bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = Default::default();
+
+        for parent in self.parents.iter() {
+            v.extend(&parent.0.to_bytes());
+        }
+
+        v.extend(&self.amount_secrets_cipher.to_bytes());
+        v.extend(&self.commitment.to_bytes());
+        v.extend(&self.range_proof_bytes);
+        v.extend(&self.owner.to_bytes());
+        v
+    }
+
+    /// generate hash
     pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
 
-        // note: fields are hashed in struct order.
-
-        for parent in self.parents.iter() {
-            sha3.update(&parent.0.to_bytes());
-        }
-
-        sha3.update(&self.amount_secrets_cipher.to_bytes());
-        sha3.update(&self.commitment.to_bytes());
-        sha3.update(&self.range_proof_bytes);
-        sha3.update(&self.owner.to_bytes());
+        sha3.update(&self.to_bytes());
 
         let mut hash = [0; 32];
         sha3.finalize(&mut hash);
-        Hash(hash)
+        Hash::from(hash)
     }
 
     /// Verifies range proof, ie that the committed amount is a non-negative u64.

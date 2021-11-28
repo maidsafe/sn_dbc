@@ -25,19 +25,27 @@ impl DbcTransaction {
         Self { inputs, outputs }
     }
 
+    /// represent as bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = Default::default();
+        for sk in self.inputs.iter() {
+            v.extend(&sk.0.to_bytes());
+        }
+        for o in self.outputs.iter() {
+            v.extend(&o.to_bytes());
+        }
+        v
+    }
+
+    /// generate hash of DbcTransaction
     pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
-        for input in self.inputs.iter() {
-            sha3.update(&input.0.to_bytes());
-        }
 
-        for output in self.outputs.iter() {
-            sha3.update(&output.to_bytes());
-        }
+        sha3.update(&self.to_bytes());
 
         let mut hash = [0; 32];
         sha3.finalize(&mut hash);
-        Hash(hash)
+        Hash::from(hash)
     }
 }
 
