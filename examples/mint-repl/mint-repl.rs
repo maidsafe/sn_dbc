@@ -19,8 +19,8 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, AmountSecrets, Dbc, DbcBuilder, GenesisDbcShare, MintNode, Output, ReissueRequest,
-    ReissueRequestBuilder, ReissueTransaction, SimpleKeyManager as KeyManager,
+    Amount, AmountSecrets, ByteHash, Dbc, DbcBuilder, GenesisDbcShare, MintNode, Output,
+    ReissueRequest, ReissueRequestBuilder, ReissueTransaction, SimpleKeyManager as KeyManager,
     SimpleSigner as Signer, SpendKey, TransactionBuilder,
 };
 use std::collections::{BTreeMap, HashMap};

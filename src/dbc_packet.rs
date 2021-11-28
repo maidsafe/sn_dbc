@@ -6,12 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Dbc, Error, Hash, PublicKey, Result};
+use crate::{ByteHash, Dbc, Error, PublicKey, Result};
 use blsttc::SecretKeySet;
 use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::convert::Into;
-use tiny_keccak::{Hasher, Sha3};
 
 /// Represents a public key and optional
 /// secret key, plus a random derivation index.
@@ -28,28 +27,6 @@ pub struct DerivedKeySet {
 }
 
 impl DerivedKeySet {
-    /// represent as bytes
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut v: Vec<u8> = Default::default();
-
-        v.extend(&self.public_key.to_bytes());
-        v.extend(&self.derivation_index);
-
-        if let Some(sks) = &self.secret_key_set {
-            v.extend(&sks.to_bytes());
-        }
-        v
-    }
-
-    pub fn hash(&self) -> Hash {
-        let mut sha3 = Sha3::v256();
-        sha3.update(&self.to_bytes());
-
-        let mut hash = [0u8; 32];
-        sha3.finalize(&mut hash);
-        Hash(hash)
-    }
-
     /// public_key getter
     pub fn public_key(&self) -> &PublicKey {
         &self.public_key
@@ -85,6 +62,21 @@ impl From<PublicKey> for DerivedKeySet {
             derivation_index,
             secret_key_set: None,
         }
+    }
+}
+
+impl ByteHash for DerivedKeySet {
+    /// represent as bytes
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = Default::default();
+
+        v.extend(&self.public_key.to_bytes());
+        v.extend(&self.derivation_index);
+
+        if let Some(sks) = &self.secret_key_set {
+            v.extend(&sks.to_bytes());
+        }
+        v
     }
 }
 
@@ -125,26 +117,6 @@ pub struct DbcPacket {
 }
 
 impl DbcPacket {
-    /// represent as bytes
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut v: Vec<u8> = Default::default();
-
-        v.extend(&self.dbc.to_bytes());
-        v.extend(&self.owner_keyset.to_bytes());
-
-        v
-    }
-
-    pub fn hash(&self) -> Hash {
-        let mut sha3 = Sha3::v256();
-        sha3.update(&self.dbc.spend_key_index());
-        sha3.update(self.owner_keyset.hash().as_ref());
-
-        let mut hash = [0u8; 32];
-        sha3.finalize(&mut hash);
-        Hash(hash)
-    }
-
     /// Create a new DbcPacket.
     /// validates that the DerivedKeySet matches the Dbc owner
     pub fn new(dbc: Dbc, owner_keyset: DerivedKeySet) -> Result<Self> {
@@ -172,6 +144,18 @@ impl DbcPacket {
     /// derivation index.
     pub fn owner_keyset(&self) -> &DerivedKeySet {
         &self.owner_keyset
+    }
+}
+
+impl ByteHash for DbcPacket {
+    /// represent as bytes
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = Default::default();
+
+        v.extend(&self.dbc.to_bytes());
+        v.extend(&self.owner_keyset.to_bytes());
+
+        v
     }
 }
 

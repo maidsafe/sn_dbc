@@ -14,8 +14,8 @@
 // Outputs <= input value
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, DbcTransaction, Error, KeyManager, NodeSignature,
-    PublicKey, PublicKeySet, Result, SpendKey, SpentProof,
+    Amount, AmountSecrets, ByteHash, Dbc, DbcContent, DbcTransaction, Error, KeyManager,
+    NodeSignature, PublicKey, PublicKeySet, Result, SpendKey, SpentProof,
 };
 use curve25519_dalek_ng::ristretto::RistrettoPoint;
 use serde::{Deserialize, Serialize};

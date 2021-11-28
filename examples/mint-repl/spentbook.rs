@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Result};
 use sn_dbc::{
-    KeyManager, ReissueTransaction, Signature, SimpleKeyManager, SpendKey, SpentProof,
+    ByteHash, KeyManager, ReissueTransaction, Signature, SimpleKeyManager, SpendKey, SpentProof,
     SpentProofShare,
 };
 

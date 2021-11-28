@@ -6,10 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Hash, PublicKey, SpendKey};
+use crate::{ByteHash, PublicKey, SpendKey};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use tiny_keccak::{Hasher, Sha3};
 
 /// The spent identifier of the outputs created from this input
 /// Note these are hashes and not identifiers as the Dbc is not addressable on the network.
@@ -24,9 +23,11 @@ impl DbcTransaction {
     pub fn new(inputs: BTreeSet<SpendKey>, outputs: BTreeSet<PublicKey>) -> Self {
         Self { inputs, outputs }
     }
+}
 
+impl ByteHash for DbcTransaction {
     /// represent as bytes
-    pub fn to_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         for sk in self.inputs.iter() {
             v.extend(&sk.0.to_bytes());
@@ -35,17 +36,6 @@ impl DbcTransaction {
             v.extend(&o.to_bytes());
         }
         v
-    }
-
-    /// generate hash of DbcTransaction
-    pub fn hash(&self) -> Hash {
-        let mut sha3 = Sha3::v256();
-
-        sha3.update(&self.to_bytes());
-
-        let mut hash = [0; 32];
-        sha3.finalize(&mut hash);
-        Hash::from(hash)
     }
 }
 

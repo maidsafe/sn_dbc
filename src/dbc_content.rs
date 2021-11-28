@@ -19,9 +19,8 @@ use rand8::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
-use tiny_keccak::{Hasher, Sha3};
 
-use crate::{Error, Hash, SpendKey};
+use crate::{ByteHash, Error, SpendKey};
 
 pub(crate) const RANGE_PROOF_BITS: usize = 64; // note: Range Proof max-bits is 64. allowed are: 8, 16, 32, 64 (only)
                                                //       This limits our amount field to 64 bits also.
@@ -226,32 +225,6 @@ impl DbcContent {
         })
     }
 
-    /// represent as bytes
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut v: Vec<u8> = Default::default();
-
-        for parent in self.parents.iter() {
-            v.extend(&parent.0.to_bytes());
-        }
-
-        v.extend(&self.amount_secrets_cipher.to_bytes());
-        v.extend(&self.commitment.to_bytes());
-        v.extend(&self.range_proof_bytes);
-        v.extend(&self.owner.to_bytes());
-        v
-    }
-
-    /// generate hash
-    pub fn hash(&self) -> Hash {
-        let mut sha3 = Sha3::v256();
-
-        sha3.update(&self.to_bytes());
-
-        let mut hash = [0; 32];
-        sha3.finalize(&mut hash);
-        Hash::from(hash)
-    }
-
     /// Verifies range proof, ie that the committed amount is a non-negative u64.
     pub fn verify_range_proof(&self) -> Result<(), Error> {
         let bullet_gens = BulletproofGens::new(RANGE_PROOF_BITS, RANGE_PROOF_PARTIES);
@@ -306,5 +279,22 @@ impl DbcContent {
             true => inputs_bf_sum - outputs_bf_sum,
             false => AmountSecrets::random_blinding_factor(),
         }
+    }
+}
+
+impl ByteHash for DbcContent {
+    /// represent as bytes
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = Default::default();
+
+        for parent in self.parents.iter() {
+            v.extend(&parent.0.to_bytes());
+        }
+
+        v.extend(&self.amount_secrets_cipher.to_bytes());
+        v.extend(&self.commitment.to_bytes());
+        v.extend(&self.range_proof_bytes);
+        v.extend(&self.owner.to_bytes());
+        v
     }
 }

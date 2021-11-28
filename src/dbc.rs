@@ -7,12 +7,11 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    DbcContent, DbcTransaction, Error, KeyManager, PublicKey, Result, Signature, SpendKey,
+    ByteHash, DbcContent, DbcTransaction, Error, KeyManager, PublicKey, Result, Signature, SpendKey,
 };
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use tiny_keccak::{Hasher, Sha3};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Dbc {
@@ -33,30 +32,9 @@ impl Dbc {
         self.content.owner
     }
 
-    /// represent as bytes
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut v: Vec<u8> = Default::default();
-
-        v.extend(&self.content.to_bytes());
-        v.extend(&self.transaction.to_bytes());
-
-        for (spendkey, (pk, sig)) in self.transaction_sigs.iter() {
-            v.extend(&spendkey.0.to_bytes());
-            v.extend(&pk.to_bytes());
-            v.extend(&sig.to_bytes());
-        }
-        v
-    }
-
     /// Calculate the spend key index, this index is used to derive the spend key.
     pub fn spend_key_index(&self) -> [u8; 32] {
-        let mut sha3 = Sha3::v256();
-
-        sha3.update(&self.to_bytes());
-
-        let mut hash = [0u8; 32];
-        sha3.finalize(&mut hash);
-        hash
+        self.hash().0
     }
 
     // Check there exists a DbcTransaction with the output containing this Dbc
@@ -82,6 +60,23 @@ impl Dbc {
         } else {
             Ok(())
         }
+    }
+}
+
+impl ByteHash for Dbc {
+    /// represent as bytes
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut v: Vec<u8> = Default::default();
+
+        v.extend(&self.content.to_bytes());
+        v.extend(&self.transaction.to_bytes());
+
+        for (spendkey, (pk, sig)) in self.transaction_sigs.iter() {
+            v.extend(&spendkey.0.to_bytes());
+            v.extend(&pk.to_bytes());
+            v.extend(&sig.to_bytes());
+        }
+        v
     }
 }
 

@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 use std::iter::FromIterator;
 
 use sn_dbc::{
-    bls_dkg_id, Amount, AmountSecrets, Dbc, DbcContent, Error, KeyManager, MintNode,
+    bls_dkg_id, Amount, AmountSecrets, ByteHash, Dbc, DbcContent, Error, KeyManager, MintNode,
     ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SpentProof, SpentProofShare,
 };
 
