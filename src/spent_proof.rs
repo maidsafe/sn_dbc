@@ -1,27 +1,36 @@
 use crate::{
-    Dbc, Error, Hash, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, Signature,
+    Dbc, Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, Signature,
 };
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct SpendKey(pub PublicKey);
+// #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+// pub struct SpendKey(pub PublicKey);
+// pub struct SpendKey(pub KeyImage);
 
 // Display Hash value as hex in Debug output.  consolidates 36 lines to 3 for pretty output
 // and the hex value is the same as sn_dbc_mint display of DBC IDs.
-impl std::fmt::Debug for SpendKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("SpendKey")
-            .field(&hex::encode(self.0.to_bytes()))
-            .finish()
-    }
-}
+// impl std::fmt::Debug for SpendKey {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         f.debug_tuple("SpendKey")
+//             .field(&hex::encode(self.0.to_bytes()))
+//             .finish()
+//     }
+// }
 
-impl SpendKey {
-    pub fn to_bytes(self) -> [u8; 48] {
-        self.0.to_bytes()
-    }
-}
+// impl SpendKey {
+
+//     // KeyImage = G1Projective
+//     // G1Projective = blst_p1
+//     // blst_p1 = blst_fp, blst_fp, blst_fp
+//     // blst_fp = [limb_t; 6]
+//     // limb_t = u64
+//     // u64 = 8 bytes
+//     // so: 8 * 6 * 3 = 144.
+//     pub fn to_bytes(self) -> [u8; 144] {
+//         self.0.to_bytes()
+//     }
+// }
 
 #[cfg(test)]
 use rand::distributions::{Distribution, Standard};
@@ -70,7 +79,7 @@ impl SpentProofShare {
 /// SpentProof's are constructed when a DBC is logged to the spentbook.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SpentProof {
-    /// Signature from dbc.spend_key() over the transaction
+    /// Signature from KeyImage over the transaction
     pub spent_sig: Signature,
 
     /// The Spentbook who notarized that this DBC was spent.
@@ -81,14 +90,16 @@ pub struct SpentProof {
 }
 
 impl SpentProof {
-    pub fn validate<K: KeyManager>(&self, dbc: &Dbc, tx: Hash, verifier: &K) -> Result<()> {
-        if !dbc.spend_key().0.verify(&self.spent_sig, tx) {
-            return Err(Error::FailedSignature);
-        }
+    pub fn validate<K: KeyManager>(&self, key_image: KeyImage, tx: Hash, verifier: &K) -> Result<()> {
+        // unimplemented.
+        // if !key_image.verify(&self.spent_sig, tx) {
+        //     return Err(Error::FailedSignature);
+        // }
+
         let msg = Self::proof_msg(&tx, &self.spent_sig);
         verifier
             .verify(&msg, &self.spentbook_pub_key, &self.spentbook_sig)
-            .map_err(|_| Error::InvalidSpentProofSignature(dbc.spend_key()))?;
+            .map_err(|_| Error::InvalidSpentProofSignature(key_image))?;
         Ok(())
     }
 

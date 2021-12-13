@@ -14,129 +14,141 @@
 // Outputs <= input value
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, DbcTransaction, Error, KeyManager, NodeSignature,
-    PublicKey, PublicKeySet, Result, SpendKey, SpentProof,
+    Amount, Dbc, DbcContent, Error, KeyImage, KeyManager, NodeSignature,
+    PublicKey, PublicKeySet, Result, SpentProof,
 };
-use curve25519_dalek_ng::ristretto::RistrettoPoint;
+// use curve25519_dalek_ng::ristretto::RistrettoPoint;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     iter::FromIterator,
 };
+use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction, RevealedCommitment};
+use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
+use blst_ringct::{Output};
+use blstrs::Scalar;
 
-pub type MintNodeSignatures = BTreeMap<SpendKey, (PublicKeySet, NodeSignature)>;
+// pub type MintNodeSignatures = BTreeMap<SpendKey, (PublicKeySet, NodeSignature)>;
+pub type MintNodeSignatures = BTreeMap<KeyImage, (PublicKeySet, NodeSignature)>;
 
-pub fn genesis_dbc_input() -> SpendKey {
+pub fn genesis_dbc_input() -> KeyImage {
     use blsttc::group::CurveProjective;
     let gen_bytes = blsttc::convert::g1_to_be_bytes(blsttc::G1::one());
-    SpendKey(PublicKey::from_bytes(gen_bytes).unwrap())
+
+    // fixme: unwrap
+    KeyImage::from_bytes(gen_bytes).unwrap()
 }
 
 #[derive(Debug, Clone)]
 pub struct GenesisDbcShare {
+    pub signed_message: Vec<u8>,
     pub dbc_content: DbcContent,
-    pub transaction: DbcTransaction,
+    pub transaction: RingCtTransaction,
+    pub revealed_commitments: Vec<RevealedCommitment>,
     pub public_key_set: PublicKeySet,
-    pub transaction_sig: NodeSignature,
+    // pub transaction_sig: NodeSignature,
 }
 
-#[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
-pub struct ReissueTransaction {
-    pub inputs: HashSet<Dbc>,
-    pub outputs: HashSet<DbcContent>,
-}
+// replace ReissueTransaction with RingCtTransaction
 
-impl ReissueTransaction {
-    pub fn blinded(&self) -> DbcTransaction {
-        DbcTransaction {
-            inputs: BTreeSet::from_iter(self.inputs.iter().map(Dbc::spend_key)),
-            outputs: BTreeSet::from_iter(self.outputs.iter().map(|i| i.owner)),
-        }
-    }
+// #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
+// pub struct ReissueTransaction {
+//     pub inputs: HashSet<Dbc>,
+//     pub outputs: HashSet<DbcContent>,
+// }
 
-    pub fn validate<K: KeyManager>(&self, verifier: &K) -> Result<()> {
-        self.validate_balance()?;
-        self.validate_input_dbcs(verifier)?;
-        self.validate_outputs()?;
-        Ok(())
-    }
+// impl ReissueTransaction {
+//     pub fn blinded(&self) -> DbcTransaction {
+//         DbcTransaction {
+//             inputs: BTreeSet::from_iter(self.inputs.iter().map(Dbc::spend_key)),
+//             outputs: BTreeSet::from_iter(self.outputs.iter().map(|i| i.owner)),
+//         }
+//     }
 
-    fn validate_balance(&self) -> Result<()> {
-        // Calculate sum(input_commitments) and sum(output_commitments)
-        let inputs: RistrettoPoint = self
-            .inputs
-            .iter()
-            .map(|input| {
-                input
-                    .content
-                    .commitment
-                    .decompress()
-                    .ok_or(Error::AmountCommitmentInvalid)
-            })
-            .sum::<Result<RistrettoPoint, _>>()?;
-        let outputs: RistrettoPoint = self
-            .outputs
-            .iter()
-            .map(|output| {
-                output
-                    .commitment
-                    .decompress()
-                    .ok_or(Error::AmountCommitmentInvalid)
-            })
-            .sum::<Result<RistrettoPoint, _>>()?;
+//     pub fn validate<K: KeyManager>(&self, verifier: &K) -> Result<()> {
+//         self.validate_balance()?;
+//         self.validate_input_dbcs(verifier)?;
+//         self.validate_outputs()?;
+//         Ok(())
+//     }
 
-        // Verify the range proof for each output.  (bulletproof)
-        // This validates that the committed amount is a positive value.
-        // (somewhere in the range 0..u64::max)
-        //
-        // TODO: investigate is there some way we could use RangeProof::verify_multiple() instead?
-        // batched verifications should be faster.  It would seem to require that client call
-        // RangeProof::prove_multiple() over all output DBC amounts. But then where to store the aggregated
-        // RangeProof?  It corresponds to a set of outputs, not a single DBC. Would it make sense to store
-        // a dup copy in each?  Unlike eg Monero we do not have a long-lived Transaction to store such data.
-        for output in self.outputs.iter() {
-            output.verify_range_proof()?;
-        }
+//     fn validate_balance(&self) -> Result<()> {
+//         // Calculate sum(input_commitments) and sum(output_commitments)
+//         let inputs: RistrettoPoint = self
+//             .inputs
+//             .iter()
+//             .map(|input| {
+//                 input
+//                     .content
+//                     .commitment
+//                     .decompress()
+//                     .ok_or(Error::AmountCommitmentInvalid)
+//             })
+//             .sum::<Result<RistrettoPoint, _>>()?;
+//         let outputs: RistrettoPoint = self
+//             .outputs
+//             .iter()
+//             .map(|output| {
+//                 output
+//                     .commitment
+//                     .decompress()
+//                     .ok_or(Error::AmountCommitmentInvalid)
+//             })
+//             .sum::<Result<RistrettoPoint, _>>()?;
 
-        if inputs != outputs {
-            Err(Error::DbcReissueRequestDoesNotBalance)
-        } else {
-            Ok(())
-        }
-    }
+//         // Verify the range proof for each output.  (bulletproof)
+//         // This validates that the committed amount is a positive value.
+//         // (somewhere in the range 0..u64::max)
+//         //
+//         // TODO: investigate is there some way we could use RangeProof::verify_multiple() instead?
+//         // batched verifications should be faster.  It would seem to require that client call
+//         // RangeProof::prove_multiple() over all output DBC amounts. But then where to store the aggregated
+//         // RangeProof?  It corresponds to a set of outputs, not a single DBC. Would it make sense to store
+//         // a dup copy in each?  Unlike eg Monero we do not have a long-lived Transaction to store such data.
+//         for output in self.outputs.iter() {
+//             output.verify_range_proof()?;
+//         }
 
-    fn validate_input_dbcs<K: KeyManager>(&self, verifier: &K) -> Result<()> {
-        if self.inputs.is_empty() {
-            return Err(Error::TransactionMustHaveAnInput);
-        }
+//         if inputs != outputs {
+//             Err(Error::DbcReissueRequestDoesNotBalance)
+//         } else {
+//             Ok(())
+//         }
+//     }
 
-        for input in self.inputs.iter() {
-            input.confirm_valid(verifier)?;
-        }
+//     fn validate_input_dbcs<K: KeyManager>(&self, verifier: &K) -> Result<()> {
+//         if self.inputs.is_empty() {
+//             return Err(Error::TransactionMustHaveAnInput);
+//         }
 
-        Ok(())
-    }
+//         for input in self.inputs.iter() {
+//             input.confirm_valid(verifier)?;
+//         }
 
-    fn validate_outputs(&self) -> Result<()> {
-        // Validate output parents match the blinded inputs
-        let inputs = self.blinded().inputs;
-        if self.outputs.iter().any(|o| o.parents != inputs) {
-            return Err(Error::DbcContentParentsDifferentFromTransactionInputs);
-        }
+//         Ok(())
+//     }
 
-        Ok(())
-    }
-}
+//     fn validate_outputs(&self) -> Result<()> {
+//         // Validate output parents match the blinded inputs
+//         let inputs = self.blinded().inputs;
+//         if self.outputs.iter().any(|o| o.parents != inputs) {
+//             return Err(Error::DbcContentParentsDifferentFromTransactionInputs);
+//         }
+
+//         Ok(())
+//     }
+// }
 
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct ReissueRequest {
-    pub transaction: ReissueTransaction,
-    pub spent_proofs: BTreeMap<SpendKey, SpentProof>,
+    pub signed_message: Vec<u8>,
+    pub transaction: RingCtTransaction,
+    pub spent_proofs: BTreeMap<KeyImage, SpentProof>,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct ReissueShare {
-    pub dbc_transaction: DbcTransaction,
+    pub transaction: RingCtTransaction,
     pub mint_node_signatures: MintNodeSignatures,
 }
 
@@ -154,34 +166,59 @@ impl<K: KeyManager> MintNode<K> {
     }
 
     pub fn issue_genesis_dbc(&mut self, amount: Amount) -> Result<GenesisDbcShare> {
-        let parents = BTreeSet::from_iter([genesis_dbc_input()]);
-        let dbc_content = DbcContent::new(
-            parents,
-            amount,
-            self.key_manager
+        let mut rng = rand::thread_rng();
+        let public_key_set = self.key_manager
                 .public_key_set()
-                .map_err(|e| Error::Signing(e.to_string()))?
-                .public_key(),
-            AmountSecrets::random_blinding_factor(),
-        )?;
-        let transaction = DbcTransaction {
-            inputs: BTreeSet::from_iter([genesis_dbc_input()]),
-            outputs: BTreeSet::from_iter([dbc_content.owner]),
+                .map_err(|e| Error::Signing(e.to_string()))?;
+
+        // let secret_key = self.key_manager.secret_key;
+
+        // let parents = BTreeSet::from_iter([genesis_dbc_input()]);
+        let dbc_content = DbcContent::from(public_key_set.public_key());
+
+        let true_input = TrueInput {
+            secret_key: Scalar::random(&mut rng),  // fixme: where to get this from?
+            revealed_commitment: RevealedCommitment {
+                value: amount,
+                blinding: 5.into(),  // todo: choose Genesis blinding factor.
+            },
         };
 
-        let transaction_sig = self
-            .key_manager
-            .sign(&transaction.hash())
-            .map_err(|e| Error::Signing(e.to_string()))?;
+        let decoy_inputs = vec![];
+
+        let ring_ct = RingCtMaterial {
+            inputs: vec![MlsagMaterial {
+                true_input,
+                decoy_inputs,
+            }],
+            outputs: vec![Output {
+                // public_key: G1Projective::random(&mut rng).to_affine(),
+                public_key: dbc_content.owner,  // Dbc owner
+                amount,
+            }],
+        };       
+
+        let (signed_message, transaction, revealed_commitments) = ring_ct
+            .sign(&pc_gens, rng)
+            .expect("Failed to sign transaction");
+
+        // let transaction = RingCtTransaction {
+        //     inputs: BTreeSet::from_iter([genesis_dbc_input()]),
+        //     outputs: BTreeSet::from_iter([dbc_content.owner]),
+        // };
+
+        // let transaction_sig = self
+        //     .key_manager
+        //     .sign(&transaction.hash())
+        //     .map_err(|e| Error::Signing(e.to_string()))?;
 
         Ok(GenesisDbcShare {
+            signed_message,
             dbc_content,
             transaction,
-            public_key_set: self
-                .key_manager
-                .public_key_set()
-                .map_err(|e| Error::Signing(e.to_string()))?,
-            transaction_sig,
+            revealed_commitments,  // output commitments
+            public_key_set,
+            // transaction_sig,
         })
     }
 
@@ -190,22 +227,36 @@ impl<K: KeyManager> MintNode<K> {
     }
 
     pub fn reissue(&mut self, reissue_req: ReissueRequest) -> Result<ReissueShare> {
-        reissue_req.transaction.validate(self.key_manager())?;
-        let transaction = reissue_req.transaction.blinded();
+
+        let public_commitments = reissue_req.spent_proofs.public_commitments;
+
+        // new
+        reissue_req.verify(&reissue_req.signed_message, &public_commitments)?;
+        // old
+        // reissue_req.transaction.validate(self.key_manager())?;
+
+        // new
+        let transaction = reissue_req.transaction;
         let transaction_hash = transaction.hash();
+        // old
+        // let transaction = reissue_req.transaction.blinded();
+        // let transaction_hash = transaction.hash();
 
         // Validate that each input has not yet been spent.
-        for input in reissue_req.transaction.inputs.iter() {
-            match reissue_req.spent_proofs.get(&input.spend_key()) {
-                Some(proof) => proof.validate(input, transaction_hash, self.key_manager())?,
-                None => return Err(Error::MissingSpentProof(input.spend_key())),
+
+        // iterate over mlsags.  each has key_image()
+
+        for mlsag in transaction.mlsags.iter() {
+            match reissue_req.spent_proofs.get(&mlsag.key_image()) {
+                Some(proof) => proof.validate(mlsag.key_image(), transaction_hash, self.key_manager())?,
+                None => return Err(Error::MissingSpentProof(mlsag.key_image())),
             }
         }
 
         let transaction_sigs = self.sign_transaction(&transaction)?;
 
         let reissue_share = ReissueShare {
-            dbc_transaction: transaction,
+            transaction,
             mint_node_signatures: transaction_sigs,
         };
 
@@ -214,15 +265,15 @@ impl<K: KeyManager> MintNode<K> {
 
     fn sign_transaction(
         &self,
-        transaction: &DbcTransaction,
-    ) -> Result<BTreeMap<SpendKey, (PublicKeySet, NodeSignature)>> {
+        transaction: &RingCtTransaction,
+    ) -> Result<BTreeMap<KeyImage, (PublicKeySet, NodeSignature)>> {
         let sig = self
             .key_manager
             .sign(&transaction.hash())
             .map_err(|e| Error::Signing(e.to_string()))?;
 
         Ok(BTreeMap::from_iter(
-            transaction.inputs.iter().copied().zip(std::iter::repeat((
+            transaction.mlsags.iter().copied().zip(std::iter::repeat((
                 self.key_manager
                     .public_key_set()
                     .map_err(|e| Error::Signing(e.to_string()))?,
