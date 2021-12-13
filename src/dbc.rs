@@ -7,26 +7,36 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    DbcContent, DbcTransaction, Error, KeyManager, PublicKey, Result, Signature, SpendKey,
+    DbcContent, Error, KeyManager, PublicKey, Result, Signature,
 };
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tiny_keccak::{Hasher, Sha3};
+use blst_ringct::ringct::RingCtTransaction;
+use blstrs::G1Projective;
+
+// note: typedef should be moved into blst_ringct crate
+
+pub type KeyImage = G1Projective;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Dbc {
-    pub content: DbcContent,
-    pub transaction: DbcTransaction,
-    pub transaction_sigs: BTreeMap<SpendKey, (PublicKey, Signature)>,
+    content: DbcContent,
+    ringct_tx: RingCtTransaction,
 }
 
 impl Dbc {
+
+    // pub fn key_image() -> KeyImage {
+    //     unimplemented!()
+    // }
+
     /// Derive the (public) spend key for this DBC.
-    pub fn spend_key(&self) -> SpendKey {
-        let index = self.spend_key_index();
-        SpendKey(self.owner().derive_child(&index))
-    }
+    // pub fn spend_key(&self) -> SpendKey {
+    //     let index = self.spend_key_index();
+    //     SpendKey(self.owner().derive_child(&index))
+    // }
 
     /// Read the DBC owner
     pub fn owner(&self) -> PublicKey {
@@ -34,17 +44,17 @@ impl Dbc {
     }
 
     /// Calculate the spend key index, this index is used to derive the spend key.
-    pub fn spend_key_index(&self) -> [u8; 32] {
+    pub fn hash(&self) -> [u8; 32] {
         let mut sha3 = Sha3::v256();
 
         sha3.update(&self.content.hash().0);
-        sha3.update(&self.transaction.hash().0);
+        sha3.update(&self.ringct_tx.hash().0);
 
-        for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
-            sha3.update(&in_key.0.to_bytes());
-            sha3.update(&mint_key.to_bytes());
-            sha3.update(&mint_sig.to_bytes());
-        }
+        // for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
+        //     sha3.update(&in_key.0.to_bytes());
+        //     sha3.update(&mint_key.to_bytes());
+        //     sha3.update(&mint_sig.to_bytes());
+        // }
 
         let mut hash = [0u8; 32];
         sha3.finalize(&mut hash);
@@ -54,26 +64,29 @@ impl Dbc {
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
     pub fn confirm_valid<K: KeyManager>(&self, verifier: &K) -> Result<(), Error> {
-        for (input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
-            if !self.transaction.inputs.contains(input) {
-                return Err(Error::UnknownInput);
-            }
+        println!("Dbc::confirm_valid() unimplemented");
+        Ok(())
 
-            verifier
-                .verify(&self.transaction.hash(), mint_key, mint_sig)
-                .map_err(|e| Error::Signing(e.to_string()))?;
-        }
-        if self.transaction.inputs.is_empty() {
-            Err(Error::TransactionMustHaveAnInput)
-        } else if self.transaction_sigs.len() < self.transaction.inputs.len() {
-            Err(Error::MissingSignatureForInput)
-        } else if self.transaction.inputs != self.content.parents {
-            Err(Error::DbcContentParentsDifferentFromTransactionInputs)
-        } else if !self.transaction.outputs.contains(&self.owner()) {
-            Err(Error::DbcContentNotPresentInTransactionOutput)
-        } else {
-            Ok(())
-        }
+        // for (input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
+        //     if !self.transaction.inputs.contains(input) {
+        //         return Err(Error::UnknownInput);
+        //     }
+
+        //     verifier
+        //         .verify(&self.transaction.hash(), mint_key, mint_sig)
+        //         .map_err(|e| Error::Signing(e.to_string()))?;
+        // }
+        // if self.transaction.inputs.is_empty() {
+        //     Err(Error::TransactionMustHaveAnInput)
+        // } else if self.transaction_sigs.len() < self.transaction.inputs.len() {
+        //     Err(Error::MissingSignatureForInput)
+        // } else if self.transaction.inputs != self.content.parents {
+        //     Err(Error::DbcContentParentsDifferentFromTransactionInputs)
+        // } else if !self.transaction.outputs.contains(&self.owner()) {
+        //     Err(Error::DbcContentNotPresentInTransactionOutput)
+        // } else {
+        //     Ok(())
+        // }
     }
 }
 

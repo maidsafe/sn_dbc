@@ -8,7 +8,7 @@
 use std::io;
 use thiserror::Error;
 
-use crate::SpendKey;
+use crate::KeyImage;
 
 /// Specialisation of `std::Result`.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -31,9 +31,9 @@ pub enum Error {
     #[error("At least one transaction input is missing a signature.")]
     MissingSignatureForInput,
     #[error("At least one input is missing a spent proof for {0:?}")]
-    MissingSpentProof(SpendKey),
+    MissingSpentProof(KeyImage),
     #[error("Invalid SpentProof Signature for {0:?}")]
-    InvalidSpentProofSignature(SpendKey),
+    InvalidSpentProofSignature(KeyImage),
     #[error("Mint request doesn't balance out sum(input) == sum(output)")]
     DbcReissueRequestDoesNotBalance,
     #[error("The DBC transaction must have at least one input")]
@@ -46,7 +46,7 @@ pub enum Error {
     #[error("The PublicKeySet differs between ReissueRequest entries")]
     ReissueRequestPublicKeySetMismatch,
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
-    ReissueRequestMissingSpentProofShare(SpendKey),
+    ReissueRequestMissingSpentProofShare(KeyImage),
 
     #[error("The PublicKeySet differs between ReissueShare entries")]
     ReissueSharePublicKeySetMismatch,
@@ -63,8 +63,8 @@ pub enum Error {
     #[error("No reissue shares")]
     NoReissueShares,
 
-    #[error("RangeProof error: {0}")]
-    RangeProof(#[from] bulletproofs::ProofError),
+    // #[error("RangeProof error: {0}")]
+    // RangeProof(#[from] bulletproofs::ProofError),
 
     #[error("Derived owner key does not match")]
     DerivedOwnerKeyDoesNotMatch,

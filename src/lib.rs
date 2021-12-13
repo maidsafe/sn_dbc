@@ -10,22 +10,22 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-mod builder;
+// mod builder;
 mod dbc;
 mod dbc_content;
-mod dbc_packet;
-mod dbc_transaction;
+// mod dbc_packet;
+// mod dbc_transaction;
 mod error;
 mod key_manager;
 mod mint;
 mod spent_proof;
 
 pub use crate::{
-    builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
-    dbc::Dbc,
-    dbc_content::{Amount, AmountSecrets, DbcContent},
-    dbc_packet::{DbcPacket, DerivedKeySet},
-    dbc_transaction::DbcTransaction,
+    // builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
+    dbc::{Dbc, KeyImage},
+    dbc_content::{Amount, DbcContent},
+    // dbc_packet::{DbcPacket, DerivedKeySet},
+    // dbc_transaction::DbcTransaction,
     error::{Error, Result},
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
@@ -33,13 +33,20 @@ pub use crate::{
     },
     mint::{
         genesis_dbc_input, GenesisDbcShare, MintNode, MintNodeSignatures, ReissueRequest,
-        ReissueShare, ReissueTransaction,
+        ReissueShare,
     },
-    spent_proof::{SpendKey, SpentProof, SpentProofShare},
+    spent_proof::{SpentProof, SpentProofShare},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Hash([u8; 32]);
+
+impl Hash {
+    /// sha3 256 hash
+    pub fn hash(input: &[u8]) -> Self {
+        Self::from(sha3_256(input))
+    }
+}
 
 impl From<[u8; 32]> for Hash {
     fn from(val: [u8; 32]) -> Hash {
@@ -112,8 +119,7 @@ impl DbcHelper {
     }
 }
 
-#[cfg(test)]
-fn sha3_256(input: &[u8]) -> [u8; 32] {
+pub(crate) fn sha3_256(input: &[u8]) -> [u8; 32] {
     use tiny_keccak::{Hasher, Sha3};
 
     let mut sha3 = Sha3::v256();

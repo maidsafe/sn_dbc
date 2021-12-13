@@ -2,24 +2,24 @@ use blsttc::{PublicKeySet, SignatureShare};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
-use curve25519_dalek_ng::scalar::Scalar;
+// use curve25519_dalek_ng::scalar::Scalar;
+use blst_ringct::Output;
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, Error, NodeSignature, PublicKey, ReissueRequest,
-    ReissueShare, ReissueTransaction, Result, SpendKey, SpentProof, SpentProofShare,
+    Amount, Dbc, DbcContent, Error, NodeSignature, PublicKey, ReissueRequest,
+    ReissueShare, ReissueTransaction, Result, SpentProof, SpentProofShare,
 };
 
+// note: Use blst_ringct::Output instead.
+
 ///! Unblinded data for creating sn_dbc::DbcContent
-pub struct Output {
-    pub amount: Amount,
-    pub owner: PublicKey,
-}
+// pub struct Output {
+//     pub amount: Amount,
+//     pub owner: PublicKey,
+// }
 
 #[derive(Default)]
-pub struct TransactionBuilder {
-    pub inputs: HashMap<Dbc, AmountSecrets>,
-    pub outputs: Vec<Output>,
-}
+pub struct TransactionBuilder(RingCtMaterial);
 
 impl TransactionBuilder {
     pub fn add_input(mut self, dbc: Dbc, amount_secrets: AmountSecrets) -> Self {
@@ -99,8 +99,8 @@ impl TransactionBuilder {
 /// any number of (input) DBC spent proof shares.
 #[derive(Debug)]
 pub struct ReissueRequestBuilder {
-    pub reissue_transaction: ReissueTransaction,
-    pub spent_proof_shares: BTreeMap<SpendKey, HashSet<SpentProofShare>>,
+    pub transaction: RingCtTransaction,
+    pub spent_proof_shares: BTreeMap<KeyImage, HashSet<SpentProofShare>>,
 }
 
 impl ReissueRequestBuilder {
@@ -172,7 +172,7 @@ impl ReissueRequestBuilder {
 /// generate the final Dbc outputs.
 #[derive(Debug)]
 pub struct DbcBuilder {
-    pub reissue_transaction: ReissueTransaction,
+    pub transaction: RingCtTransaction,
     pub reissue_shares: Vec<ReissueShare>,
 }
 
