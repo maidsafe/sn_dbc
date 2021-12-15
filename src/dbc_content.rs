@@ -8,9 +8,9 @@
 
 use blsttc::PublicKey;
 use serde::{Deserialize, Serialize};
-use tiny_keccak::{Hasher, Sha3};
+// use tiny_keccak::{Hasher, Sha3};
 
-use crate::{Error, Hash};
+use crate::Hash;
 
 // note: Amount should move into blst_ringct crate.
 // (or else blst_ringct::RevealedCommitment should be made generic over Amount type)
