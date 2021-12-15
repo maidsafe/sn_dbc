@@ -6,8 +6,10 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blsttc::PublicKey;
+// use blsttc::PublicKey;
 use serde::{Deserialize, Serialize};
+use blstrs::G1Affine;
+use blstrs::group::GroupEncoding;
 // use tiny_keccak::{Hasher, Sha3};
 
 use crate::Hash;
@@ -16,6 +18,7 @@ use crate::Hash;
 // (or else blst_ringct::RevealedCommitment should be made generic over Amount type)
 
 pub type Amount = u64;
+pub type OwnerPublicKey = G1Affine;
 
 // const AMT_SIZE: usize = 8; // Amount size: 8 bytes (u64)
 // const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
@@ -158,16 +161,17 @@ pub type Amount = u64;
 //     }
 // }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
-    pub owner: PublicKey,
+    // pub owner: PublicKey,
+    pub owner: OwnerPublicKey,    // Todo: what should this type be?
 }
 
 /// Represents the content of a DBC.
-impl From<PublicKey> for DbcContent {
+impl From<OwnerPublicKey> for DbcContent {
 
     // Create a new DbcContent for signing.
-    fn from(owner: PublicKey) -> Self {
+    fn from(owner: OwnerPublicKey) -> Self {
         Self { owner }
     }
 }
@@ -175,7 +179,7 @@ impl From<PublicKey> for DbcContent {
 impl DbcContent {
 
     pub fn hash(&self) -> Hash {
-        Hash::hash(&self.owner.to_bytes())
+        Hash::hash(self.owner.to_bytes().as_ref())
     }
 
 }

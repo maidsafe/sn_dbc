@@ -26,7 +26,7 @@ use std::{
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::{Output, RevealedCommitment};
-use blstrs::group::{ff::Field, Group, Curve};
+use blstrs::group::{ff::Field, Curve};
 use blstrs::{Scalar, G1Projective};
 use bulletproofs::{PedersenGens};
 use rand_core::OsRng;
@@ -37,11 +37,7 @@ pub type MintNodeSignatures = BTreeMap<KeyImage, (PublicKeySet, NodeSignature)>;
 pub fn genesis_dbc_input() -> KeyImage {
     use blsttc::group::CurveProjective;
     let gen_bytes = blsttc::convert::g1_to_be_bytes(blsttc::G1::one());
-
     gen_bytes
-
-    // fixme: unwrap
-    // G1Projective::from_compressed(&gen_bytes).unwrap().to_affine().
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +46,6 @@ pub struct GenesisDbcShare {
     pub transaction: RingCtTransaction,
     pub revealed_commitments: Vec<RevealedCommitment>,
     pub public_key_set: PublicKeySet,
-    // pub transaction_sig: NodeSignature,
 }
 
 // replace ReissueTransaction with RingCtTransaction
@@ -178,13 +173,16 @@ impl<K: KeyManager> MintNode<K> {
                 .public_key_set()
                 .map_err(|e| Error::Signing(e.to_string()))?;
 
-        // let secret_key = self.key_manager.secret_key;
+        // converts blsttc::PublicKey to blstrs::G1Affine.
+        // todo: revisit blsttc/blstrs usage.
+        let pk_bytes = public_key_set.public_key().to_bytes();
+        let pk = G1Projective::from_compressed(&pk_bytes).unwrap();
 
         // let parents = BTreeSet::from_iter([genesis_dbc_input()]);
-        let dbc_content = DbcContent::from(public_key_set.public_key());
+        let dbc_content = DbcContent::from(pk.to_affine());
 
         let true_input = TrueInput {
-            secret_key: Scalar::random(&mut rng),  // fixme: where to get this from?
+            secret_key: Scalar::random(&mut rng),  // fixme: where to get this from?  We only have SecretKeyShare available.
             revealed_commitment: RevealedCommitment {
                 value: amount,
                 blinding: 5.into(),  // todo: choose Genesis blinding factor.
@@ -200,8 +198,7 @@ impl<K: KeyManager> MintNode<K> {
                 &mut rng,
             )],
             outputs: vec![Output {
-                public_key: G1Projective::random(&mut rng).to_affine(),
-                // public_key: dbc_content.owner.into(),  // Dbc owner. todo.
+                public_key: dbc_content.owner,
                 amount,
             }],
         };       

@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    DbcContent, Error, KeyManager, PublicKey, Result
+    DbcContent, Error, KeyManager, Result, dbc_content::OwnerPublicKey,
 };
 
 // use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ impl Dbc {
     // }
 
     /// Read the DBC owner
-    pub fn owner(&self) -> PublicKey {
+    pub fn owner(&self) -> OwnerPublicKey {
         self.content.owner
     }
 
