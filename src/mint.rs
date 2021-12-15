@@ -21,8 +21,10 @@ use crate::{
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 use blst_ringct::{Output, RevealedCommitment};
-use blstrs::group::{ff::Field, Curve};
-use blstrs::{G1Projective, Scalar};
+use blstrs::group::prime::PrimeCurveAffine;
+use blstrs::group::Curve;
+use blstrs::{G1Affine, Scalar};
+use blsttc::{poly::Poly, SecretKeySet};
 use bulletproofs::PedersenGens;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
@@ -166,21 +168,37 @@ impl<K: KeyManager> MintNode<K> {
         let mut rng = OsRng::default();
         let pc_gens = PedersenGens::default();
 
-        let public_key_set = self
-            .key_manager
-            .public_key_set()
-            .map_err(|e| Error::Signing(e.to_string()))?;
+        // temporary: we bypass KeyManager and create a deterministic
+        // secret key, used by all MintNodes.
+        let poly = Poly::one();
+        let mut sk_bytes = [0u8; 32];
+        sk_bytes.copy_from_slice(&poly.to_bytes());
+
+        let secret_key_set_ttc = SecretKeySet::from(poly);
+
+        // create sk and derive pk.
+        let secret_key = Scalar::from_bytes_le(&sk_bytes).unwrap();
+        let public_key = (G1Affine::generator() * secret_key).to_affine();
+
+        // let public_key_ttc = secret_key_set_ttc.public_keys().public_key();
+        // let pk_bytes = public_key_ttc.to_bytes();
+        // let public_key = G1Projective::from_compressed(&pk_bytes).unwrap().to_affine();
+
+        // let public_key_set = self
+        //     .key_manager
+        //     .public_key_set()
+        //     .map_err(|e| Error::Signing(e.to_string()))?;
 
         // converts blsttc::PublicKey to blstrs::G1Affine.
         // todo: revisit blsttc/blstrs usage.
-        let pk_bytes = public_key_set.public_key().to_bytes();
-        let pk = G1Projective::from_compressed(&pk_bytes).unwrap();
+        // let pk_bytes = public_key_set.public_key().to_bytes();
+        // let pk = G1Projective::from_compressed(&pk_bytes).unwrap();
 
         // let parents = BTreeSet::from_iter([genesis_dbc_input()]);
-        let dbc_content = DbcContent::from(pk.to_affine());
+        let dbc_content = DbcContent::from(public_key);
 
         let true_input = TrueInput {
-            secret_key: Scalar::random(&mut rng), // fixme: where to get this from?  We only have SecretKeyShare available.
+            secret_key,
             revealed_commitment: RevealedCommitment {
                 value: amount,
                 blinding: 5.into(), // todo: choose Genesis blinding factor.
@@ -215,7 +233,7 @@ impl<K: KeyManager> MintNode<K> {
             dbc_content,
             transaction,
             revealed_commitments, // output commitments
-            public_key_set,
+            public_key_set: secret_key_set_ttc.public_keys(),
             // transaction_sig,
         })
     }
