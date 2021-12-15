@@ -14,22 +14,19 @@
 // Outputs <= input value
 
 use crate::{
-    Amount, DbcContent, Error, Hash, KeyImage, KeyManager, NodeSignature,
-    PublicKeySet, Result, SpentProof,
+    Amount, DbcContent, Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKeySet, Result,
+    SpentProof,
 };
 // use curve25519_dalek_ng::ristretto::RistrettoPoint;
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap},
-    iter::FromIterator,
-};
-use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
+use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 use blst_ringct::{Output, RevealedCommitment};
 use blstrs::group::{ff::Field, Curve};
-use blstrs::{Scalar, G1Projective};
-use bulletproofs::{PedersenGens};
+use blstrs::{G1Projective, Scalar};
+use bulletproofs::PedersenGens;
 use rand_core::OsRng;
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, iter::FromIterator};
 
 // pub type MintNodeSignatures = BTreeMap<SpendKey, (PublicKeySet, NodeSignature)>;
 pub type MintNodeSignatures = BTreeMap<KeyImage, (PublicKeySet, NodeSignature)>;
@@ -169,9 +166,10 @@ impl<K: KeyManager> MintNode<K> {
         let mut rng = OsRng::default();
         let pc_gens = PedersenGens::default();
 
-        let public_key_set = self.key_manager
-                .public_key_set()
-                .map_err(|e| Error::Signing(e.to_string()))?;
+        let public_key_set = self
+            .key_manager
+            .public_key_set()
+            .map_err(|e| Error::Signing(e.to_string()))?;
 
         // converts blsttc::PublicKey to blstrs::G1Affine.
         // todo: revisit blsttc/blstrs usage.
@@ -182,26 +180,22 @@ impl<K: KeyManager> MintNode<K> {
         let dbc_content = DbcContent::from(pk.to_affine());
 
         let true_input = TrueInput {
-            secret_key: Scalar::random(&mut rng),  // fixme: where to get this from?  We only have SecretKeyShare available.
+            secret_key: Scalar::random(&mut rng), // fixme: where to get this from?  We only have SecretKeyShare available.
             revealed_commitment: RevealedCommitment {
                 value: amount,
-                blinding: 5.into(),  // todo: choose Genesis blinding factor.
+                blinding: 5.into(), // todo: choose Genesis blinding factor.
             },
         };
 
         let decoy_inputs = vec![];
 
         let ring_ct = RingCtMaterial {
-            inputs: vec![MlsagMaterial::new(
-                true_input,
-                decoy_inputs,
-                &mut rng,
-            )],
+            inputs: vec![MlsagMaterial::new(true_input, decoy_inputs, &mut rng)],
             outputs: vec![Output {
                 public_key: dbc_content.owner,
                 amount,
             }],
-        };       
+        };
 
         let (transaction, revealed_commitments) = ring_ct
             .sign(&pc_gens, rng)
@@ -220,7 +214,7 @@ impl<K: KeyManager> MintNode<K> {
         Ok(GenesisDbcShare {
             dbc_content,
             transaction,
-            revealed_commitments,  // output commitments
+            revealed_commitments, // output commitments
             public_key_set,
             // transaction_sig,
         })
@@ -231,7 +225,6 @@ impl<K: KeyManager> MintNode<K> {
     }
 
     pub fn reissue(&mut self, reissue_req: ReissueRequest) -> Result<ReissueShare> {
-
         // let public_commitments = reissue_req.spent_proofs.public_commitments;
 
         // new
@@ -277,16 +270,19 @@ impl<K: KeyManager> MintNode<K> {
             .sign(&Hash::from(transaction.hash()))
             .map_err(|e| Error::Signing(e.to_string()))?;
 
-        let pks = self.key_manager
-                    .public_key_set()
-                    .map_err(|e| Error::Signing(e.to_string()))?;
+        let pks = self
+            .key_manager
+            .public_key_set()
+            .map_err(|e| Error::Signing(e.to_string()))?;
 
-        let v: Vec<KeyImage> = transaction.mlsags.iter().map(|m| m.key_image.to_compressed()).collect();
+        let v: Vec<KeyImage> = transaction
+            .mlsags
+            .iter()
+            .map(|m| m.key_image.to_compressed())
+            .collect();
 
         Ok(BTreeMap::from_iter(
-            v.iter().cloned().zip(std::iter::repeat((
-                pks, sig,
-            ))),
+            v.iter().cloned().zip(std::iter::repeat((pks, sig))),
         ))
     }
 }
