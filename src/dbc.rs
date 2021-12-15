@@ -7,20 +7,19 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    DbcContent, Error, KeyManager, PublicKey, Result, Signature,
+    DbcContent, Error, KeyManager, PublicKey, Result
 };
 
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+// use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
 use blst_ringct::ringct::RingCtTransaction;
-use blstrs::G1Projective;
 
 // note: typedef should be moved into blst_ringct crate
 
-pub type KeyImage = G1Projective;
+pub type KeyImage = [u8; 48];  // G1 compressed
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+// #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Dbc {
     content: DbcContent,
     ringct_tx: RingCtTransaction,
@@ -48,7 +47,7 @@ impl Dbc {
         let mut sha3 = Sha3::v256();
 
         sha3.update(&self.content.hash().0);
-        sha3.update(&self.ringct_tx.hash().0);
+        sha3.update(&self.ringct_tx.hash());
 
         // for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
         //     sha3.update(&in_key.0.to_bytes());
@@ -63,7 +62,7 @@ impl Dbc {
 
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
-    pub fn confirm_valid<K: KeyManager>(&self, verifier: &K) -> Result<(), Error> {
+    pub fn confirm_valid<K: KeyManager>(&self, _verifier: &K) -> Result<(), Error> {
         println!("Dbc::confirm_valid() unimplemented");
         Ok(())
 

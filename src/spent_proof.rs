@@ -1,5 +1,5 @@
 use crate::{
-    Dbc, Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, Signature,
+    Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, Signature,
 };
 
 use serde::{Deserialize, Serialize};

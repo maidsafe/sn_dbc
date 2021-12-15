@@ -18,10 +18,15 @@ thiserror = "1.0.24"
 quickcheck = "1"
 quickcheck_macros = "1"
 rand = "0.7.1"
-blst_ringct = {git="https://github.com/maidsafe/blst-ringct"}
+#blst_ringct = {git="https://github.com/maidsafe/blst-ringct"}
+blst_ringct = {path="/home/danda/dev/maidsafe/blst-ringct"}
 blsttc = "3.3.0"
 hex = "0.4.3"
-blstrs = "0.4.1"
+#blstrs = "0.4.1"
+blstrs = { git = "https://github.com/davidrusu/blstrs.git", branch="bulletproofs-fixes" }
+bulletproofs = { git = "https://github.com/davidrusu/blst-bulletproofs.git", branch="bls12-381-curve" }
+rand_core = "0.6.3"
+
 
   [dependencies.rand8]
   package = "rand"
