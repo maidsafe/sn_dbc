@@ -90,7 +90,12 @@ pub struct SpentProof {
 }
 
 impl SpentProof {
-    pub fn validate<K: KeyManager>(&self, key_image: KeyImage, tx: Hash, verifier: &K) -> Result<()> {
+    pub fn validate<K: KeyManager>(
+        &self,
+        key_image: KeyImage,
+        tx: Hash,
+        verifier: &K,
+    ) -> Result<()> {
         // unimplemented.
         // if !key_image.verify(&self.spent_sig, tx) {
         //     return Err(Error::FailedSignature);

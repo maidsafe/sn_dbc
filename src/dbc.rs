@@ -6,17 +6,15 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{
-    DbcContent, Error, KeyManager, Result, dbc_content::OwnerPublicKey,
-};
+use crate::{dbc_content::OwnerPublicKey, DbcContent, Error, KeyManager, Result};
 
 // use serde::{Deserialize, Serialize};
-use tiny_keccak::{Hasher, Sha3};
 use blst_ringct::ringct::RingCtTransaction;
+use tiny_keccak::{Hasher, Sha3};
 
 // note: typedef should be moved into blst_ringct crate
 
-pub type KeyImage = [u8; 48];  // G1 compressed
+pub type KeyImage = [u8; 48]; // G1 compressed
 
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[derive(Debug, Clone)]
@@ -26,7 +24,6 @@ pub struct Dbc {
 }
 
 impl Dbc {
-
     // pub fn key_image() -> KeyImage {
     //     unimplemented!()
     // }

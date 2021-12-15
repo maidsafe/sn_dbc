@@ -7,9 +7,9 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 // use blsttc::PublicKey;
-use serde::{Deserialize, Serialize};
-use blstrs::G1Affine;
 use blstrs::group::GroupEncoding;
+use blstrs::G1Affine;
+use serde::{Deserialize, Serialize};
 // use tiny_keccak::{Hasher, Sha3};
 
 use crate::Hash;
@@ -164,12 +164,11 @@ pub type OwnerPublicKey = G1Affine;
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
     // pub owner: PublicKey,
-    pub owner: OwnerPublicKey,    // Todo: what should this type be?
+    pub owner: OwnerPublicKey, // Todo: what should this type be?
 }
 
 /// Represents the content of a DBC.
 impl From<OwnerPublicKey> for DbcContent {
-
     // Create a new DbcContent for signing.
     fn from(owner: OwnerPublicKey) -> Self {
         Self { owner }
@@ -177,9 +176,7 @@ impl From<OwnerPublicKey> for DbcContent {
 }
 
 impl DbcContent {
-
     pub fn hash(&self) -> Hash {
         Hash::hash(self.owner.to_bytes().as_ref())
     }
-
 }
