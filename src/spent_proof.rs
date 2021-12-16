@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 //     }
 // }
 
+/*
 #[cfg(test)]
 use rand::distributions::{Distribution, Standard};
 #[cfg(test)]
@@ -48,6 +49,7 @@ impl Distribution<SpendKey> for Standard {
         )
     }
 }
+*/
 
 /// A share of a SpentProof, combine enough of these to form a
 /// SpentProof.

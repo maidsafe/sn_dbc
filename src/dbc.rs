@@ -9,8 +9,10 @@
 use crate::{dbc_content::OwnerPublicKey, DbcContent, Error, KeyManager, Result};
 
 // use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use blst_ringct::ringct::RingCtTransaction;
 use tiny_keccak::{Hasher, Sha3};
+use blsttc::{PublicKey, Signature};
 
 // note: typedef should be moved into blst_ringct crate
 
@@ -19,8 +21,9 @@ pub type KeyImage = [u8; 48]; // G1 compressed
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[derive(Debug, Clone)]
 pub struct Dbc {
-    content: DbcContent,
-    ringct_tx: RingCtTransaction,
+    pub content: DbcContent,
+    pub transaction: RingCtTransaction,
+    pub transaction_sigs: BTreeMap<KeyImage, (PublicKey, Signature)>,
 }
 
 impl Dbc {
@@ -39,18 +42,18 @@ impl Dbc {
         self.content.owner
     }
 
-    /// Calculate the spend key index, this index is used to derive the spend key.
+    /// Generate hash of this DBC
     pub fn hash(&self) -> [u8; 32] {
         let mut sha3 = Sha3::v256();
 
         sha3.update(&self.content.hash().0);
-        sha3.update(&self.ringct_tx.hash());
+        sha3.update(&self.transaction.hash());
 
-        // for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
-        //     sha3.update(&in_key.0.to_bytes());
-        //     sha3.update(&mint_key.to_bytes());
-        //     sha3.update(&mint_sig.to_bytes());
-        // }
+        for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
+            sha3.update(in_key);
+            sha3.update(&mint_key.to_bytes());
+            sha3.update(&mint_sig.to_bytes());
+        }
 
         let mut hash = [0u8; 32];
         sha3.finalize(&mut hash);
@@ -86,6 +89,7 @@ impl Dbc {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,3 +455,4 @@ mod tests {
         Ok(())
     }
 }
+*/

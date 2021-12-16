@@ -69,7 +69,7 @@ impl AsRef<[u8]> for Hash {
 }
 
 #[cfg(feature = "dkg")]
-use std::convert::TryFrom;
+// use std::convert::TryFrom;
 
 #[cfg(feature = "dkg")]
 pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
@@ -95,6 +95,7 @@ pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
     outcome
 }
 
+/*
 #[cfg(feature = "dkg")]
 pub struct DbcHelper {}
 
@@ -118,6 +119,7 @@ impl DbcHelper {
         Ok(Self::decrypt_amount_secrets(owner, dbcc)?.amount)
     }
 }
+*/
 
 pub(crate) fn sha3_256(input: &[u8]) -> [u8; 32] {
     use tiny_keccak::{Hasher, Sha3};
@@ -138,11 +140,11 @@ mod tests {
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyInt(u8);
 
-    impl TinyInt {
-        pub fn coerce<T: From<u8>>(self) -> T {
-            self.0.into()
-        }
-    }
+    // impl TinyInt {
+    //     pub fn coerce<T: From<u8>>(self) -> T {
+    //         self.0.into()
+    //     }
+    // }
 
     impl std::fmt::Debug for TinyInt {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -163,11 +165,11 @@ mod tests {
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct NonZeroTinyInt(NonZeroU8);
 
-    impl NonZeroTinyInt {
-        pub fn coerce<T: From<u8>>(self) -> T {
-            self.0.get().into()
-        }
-    }
+    // impl NonZeroTinyInt {
+    //     pub fn coerce<T: From<u8>>(self) -> T {
+    //         self.0.get().into()
+    //     }
+    // }
 
     impl std::fmt::Debug for NonZeroTinyInt {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -196,11 +198,11 @@ mod tests {
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyVec<T>(Vec<T>);
 
-    impl<T> TinyVec<T> {
-        pub fn into_iter(self) -> impl Iterator<Item = T> {
-            self.0.into_iter()
-        }
-    }
+    // impl<T> TinyVec<T> {
+    //     pub fn into_iter(self) -> impl Iterator<Item = T> {
+    //         self.0.into_iter()
+    //     }
+    // }
 
     impl<T: std::fmt::Debug> std::fmt::Debug for TinyVec<T> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
