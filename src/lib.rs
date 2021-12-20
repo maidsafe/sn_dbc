@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-// mod builder;
+mod builder;
 mod amount_secrets;
 mod dbc;
 mod dbc_content;
@@ -24,6 +24,7 @@ mod spent_proof;
 pub use crate::{
     amount_secrets::AmountSecrets,
     // builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
+    builder::{TransactionBuilder},
     dbc::{Dbc, KeyImage},
     dbc_content::{Amount, DbcContent},
     // dbc_packet::{DbcPacket, DerivedKeySet},
