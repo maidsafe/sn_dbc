@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 // mod builder;
+mod amount_secrets;
 mod dbc;
 mod dbc_content;
 // mod dbc_packet;
@@ -21,6 +22,7 @@ mod mint;
 mod spent_proof;
 
 pub use crate::{
+    amount_secrets::AmountSecrets,
     // builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
     dbc::{Dbc, KeyImage},
     dbc_content::{Amount, DbcContent},
@@ -69,9 +71,6 @@ impl AsRef<[u8]> for Hash {
 }
 
 #[cfg(feature = "dkg")]
-// use std::convert::TryFrom;
-
-#[cfg(feature = "dkg")]
 pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
@@ -95,7 +94,12 @@ pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
     outcome
 }
 
-/*
+#[cfg(feature = "dkg")]
+use blsttc::Ciphertext;
+
+#[cfg(feature = "dkg")]
+use std::convert::TryFrom;
+
 #[cfg(feature = "dkg")]
 pub struct DbcHelper {}
 
@@ -103,23 +107,21 @@ pub struct DbcHelper {}
 impl DbcHelper {
     pub fn decrypt_amount_secrets(
         owner: &bls_dkg::outcome::Outcome,
-        dbcc: &DbcContent,
+        ciphertext: &Ciphertext,
     ) -> Result<AmountSecrets, Error> {
         let mut shares: std::collections::BTreeMap<usize, bls_dkg::SecretKeyShare> =
             Default::default();
         shares.insert(owner.index, owner.secret_key_share.clone());
-
-        AmountSecrets::try_from((&owner.public_key_set, &shares, &dbcc.amount_secrets_cipher))
+        AmountSecrets::try_from((&owner.public_key_set, &shares, ciphertext))
     }
 
     pub fn decrypt_amount(
         owner: &bls_dkg::outcome::Outcome,
-        dbcc: &DbcContent,
+        ciphertext: &Ciphertext,
     ) -> Result<Amount, Error> {
-        Ok(Self::decrypt_amount_secrets(owner, dbcc)?.amount)
+        Ok(Self::decrypt_amount_secrets(owner, ciphertext)?.amount())
     }
 }
-*/
 
 pub(crate) fn sha3_256(input: &[u8]) -> [u8; 32] {
     use tiny_keccak::{Hasher, Sha3};
