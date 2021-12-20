@@ -80,6 +80,10 @@ pub enum Error {
     #[error("Invalid Amount Commitment")]
     AmountCommitmentInvalid,
 
+    /// blst_ringct error.
+    #[error("ringct error: {0}")]
+    RingCt(#[from] blst_ringct::Error),
+
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),

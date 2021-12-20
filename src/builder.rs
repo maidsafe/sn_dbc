@@ -1,14 +1,19 @@
-use blsttc::{PublicKeySet, SignatureShare};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::iter::FromIterator;
+// use blsttc::{PublicKeySet, SignatureShare};
+// use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+// use std::iter::FromIterator;
 
 // use curve25519_dalek_ng::scalar::Scalar;
-use blst_ringct::Output;
+// use blstrs::Scalar;
+use blst_ringct::{MlsagMaterial, Output, RevealedCommitment};
+use blst_ringct::ringct::{RingCtTransaction, RingCtMaterial};
+use rand_core::OsRng;
 
-use crate::{
-    Amount, Dbc, DbcContent, Error, NodeSignature, PublicKey, ReissueRequest,
-    ReissueShare, ReissueTransaction, Result, SpentProof, SpentProofShare,
-};
+// use crate::{
+//     Amount, AmountSecrets, Dbc, DbcContent, Error, KeyImage, NodeSignature, PublicKey, ReissueRequest,
+//     ReissueShare, Result, SpentProof, SpentProofShare,
+// };
+use crate::{Amount, Result};
+
 
 // note: Use blst_ringct::Output instead.
 
@@ -22,79 +27,48 @@ use crate::{
 pub struct TransactionBuilder(RingCtMaterial);
 
 impl TransactionBuilder {
-    pub fn add_input(mut self, dbc: Dbc, amount_secrets: AmountSecrets) -> Self {
-        self.inputs.insert(dbc, amount_secrets);
+    pub fn add_input(mut self, mlsag: MlsagMaterial) -> Self {
+        self.0.inputs.push(mlsag);
         self
     }
 
-    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = (Dbc, AmountSecrets)>) -> Self {
-        self.inputs.extend(inputs);
+    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = MlsagMaterial>) -> Self {
+        self.0.inputs.extend(inputs);
         self
     }
 
     pub fn add_output(mut self, output: Output) -> Self {
-        self.outputs.push(output);
+        self.0.outputs.push(output);
         self
     }
 
     pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = Output>) -> Self {
-        self.outputs.extend(outputs);
+        self.0.outputs.extend(outputs);
         self
     }
 
-    pub fn input_owners(&self) -> BTreeSet<PublicKey> {
-        BTreeSet::from_iter(self.inputs.keys().map(Dbc::owner))
+    pub fn input_owners(&self) -> Vec<blstrs::G1Affine> {
+        self.0.public_keys()
     }
 
-    pub fn input_spend_keys(&self) -> BTreeSet<SpendKey> {
-        BTreeSet::from_iter(self.inputs.keys().map(Dbc::spend_key))
-    }
+    // pub fn input_spend_keys(&self) -> BTreeSet<KeyImage> {
+    //     BTreeSet::from_iter(self.inputs.keys().map(Dbc::spend_key))
+    // }
 
     pub fn inputs_amount_sum(&self) -> Amount {
-        self.inputs.iter().map(|(_, s)| s.amount).sum()
+        self.0.inputs.iter().map(|m| m.true_input.revealed_commitment.value).sum()
     }
 
     pub fn outputs_amount_sum(&self) -> Amount {
-        self.outputs.iter().map(|o| o.amount).sum()
+        self.0.outputs.iter().map(|o| o.amount).sum()
     }
 
-    pub fn build(self) -> Result<ReissueTransaction> {
-        let parents = BTreeSet::from_iter(self.inputs.keys().map(Dbc::spend_key));
-        let inputs_bf_sum = self
-            .inputs
-            .values()
-            .map(|amount_secrets| amount_secrets.blinding_factor)
-            .sum();
-
-        let mut outputs_bf_sum: Scalar = Default::default();
-        let outputs_and_owners = self
-            .outputs
-            .iter()
-            .enumerate()
-            .map(|(out_idx, output)| {
-                let blinding_factor = DbcContent::calc_blinding_factor(
-                    out_idx == self.outputs.len() - 1,
-                    inputs_bf_sum,
-                    outputs_bf_sum,
-                );
-                outputs_bf_sum += blinding_factor;
-
-                let dbc_content = DbcContent::new(
-                    parents.clone(),
-                    output.amount,
-                    output.owner,
-                    blinding_factor,
-                )?;
-                Ok((dbc_content, output.owner))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        let inputs = HashSet::from_iter(self.inputs.into_keys());
-        let outputs = HashSet::from_iter(outputs_and_owners.into_iter().map(|(o, _)| o));
-        Ok(ReissueTransaction { inputs, outputs })
+    pub fn build(self) -> Result<(RingCtTransaction, Vec<RevealedCommitment>)> {
+        let rng = OsRng::default();
+        self.0.sign(rng).map_err(|e| e.into())
     }
 }
-
+/*
 /// Builds a ReissueRequest from a ReissueTransaction and
 /// any number of (input) DBC spent proof shares.
 #[derive(Debug)]
@@ -292,3 +266,4 @@ impl DbcBuilder {
         Ok(output_dbcs)
     }
 }
+*/

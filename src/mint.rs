@@ -25,7 +25,6 @@ use blstrs::group::prime::PrimeCurveAffine;
 use blstrs::group::Curve;
 use blstrs::{G1Affine, Scalar};
 use blsttc::{poly::Poly, SecretKeySet};
-use bulletproofs::PedersenGens;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, iter::FromIterator};
@@ -167,7 +166,6 @@ impl<K: KeyManager> MintNode<K> {
 
     pub fn issue_genesis_dbc(&mut self, amount: Amount) -> Result<GenesisDbcShare> {
         let mut rng = OsRng::default();
-        let pc_gens = PedersenGens::default();
 
         // temporary: we bypass KeyManager and create a deterministic
         // secret key, used by all MintNodes.
@@ -218,7 +216,7 @@ impl<K: KeyManager> MintNode<K> {
 
         // Here we sign as the DBC owner.
         let (transaction, revealed_commitments) = ring_ct
-            .sign(&pc_gens, rng)
+            .sign(rng)
             .expect("Failed to sign transaction");
 
         // let transaction = RingCtTransaction {
