@@ -23,8 +23,7 @@ mod spent_proof;
 
 pub use crate::{
     amount_secrets::AmountSecrets,
-    // builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
-    builder::{TransactionBuilder},
+    builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
     dbc::{Dbc, KeyImage},
     dbc_content::{Amount, DbcContent},
     // dbc_packet::{DbcPacket, DerivedKeySet},
