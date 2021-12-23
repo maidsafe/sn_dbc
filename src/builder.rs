@@ -1,5 +1,6 @@
 use blsttc::{PublicKeySet, SignatureShare};
 use std::collections::{BTreeMap, HashSet};
+pub use blstrs::G1Affine;
 pub use blst_ringct::{MlsagMaterial, Output, RevealedCommitment};
 use blst_ringct::ringct::{RingCtTransaction, RingCtMaterial};
 use rand_core::OsRng;
@@ -92,11 +93,11 @@ impl ReissueRequestBuilder {
         let spent_proofs: BTreeMap<KeyImage, SpentProof> = self
             .spent_proof_shares
             .iter()
-            .map(|(spend_key, shares)| {
+            .map(|(key_image, shares)| {
                 let any_share = shares
                     .iter()
                     .next()
-                    .ok_or(Error::ReissueRequestMissingSpentProofShare(*spend_key))?;
+                    .ok_or(Error::ReissueRequestMissingSpentProofShare(*key_image))?;
 
                 if shares
                     .iter()
@@ -115,13 +116,19 @@ impl ReissueRequestBuilder {
                         .map(NodeSignature::threshold_crypto),
                 )?;
 
+                let public_commitments: Vec<G1Affine> = shares
+                    .iter()
+                    .flat_map(|s| s.public_commitments.clone())
+                    .collect();
+
                 let spent_proof = SpentProof {
                     spent_sig,
                     spentbook_pub_key,
                     spentbook_sig,
+                    public_commitments,
                 };
 
-                Ok((*spend_key, spent_proof))
+                Ok((*key_image, spent_proof))
             })
             .collect::<Result<_>>()?;
 

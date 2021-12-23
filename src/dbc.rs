@@ -42,6 +42,10 @@ impl Dbc {
         self.content.owner
     }
 
+    pub fn spend_key_index(&self) -> [u8; 32] {
+        self.hash()
+    }
+
     /// Generate hash of this DBC
     pub fn hash(&self) -> [u8; 32] {
         let mut sha3 = Sha3::v256();

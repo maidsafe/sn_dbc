@@ -2,7 +2,9 @@ use crate::{
     Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, Signature,
 };
 
+use std::hash;
 use serde::{Deserialize, Serialize};
+use blstrs::G1Affine;
 
 // #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 // pub struct SpendKey(pub PublicKey);
@@ -53,7 +55,8 @@ impl Distribution<SpendKey> for Standard {
 
 /// A share of a SpentProof, combine enough of these to form a
 /// SpentProof.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+// #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpentProofShare {
     /// Signature from dbc.spend_key() over the transaction
     pub spent_sig: Signature,
@@ -62,6 +65,20 @@ pub struct SpentProofShare {
     pub spentbook_pks: PublicKeySet,
 
     pub spentbook_sig_share: NodeSignature,
+
+    pub public_commitments: Vec<G1Affine>,
+}
+
+impl hash::Hash for SpentProofShare {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.spent_sig.hash(state);
+        self.spentbook_pks.hash(state);
+        self.spentbook_sig_share.hash(state);
+        for pc in self.public_commitments.iter() {
+            let bytes = pc.to_compressed();
+            bytes.hash(state);
+        }
+    }
 }
 
 impl SpentProofShare {
@@ -79,16 +96,20 @@ impl SpentProofShare {
 }
 
 /// SpentProof's are constructed when a DBC is logged to the spentbook.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+// #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpentProof {
-    /// Signature from KeyImage over the transaction
+    /// Signature from KeyImage over the transaction, by client.
     pub spent_sig: Signature,
 
     /// The Spentbook who notarized that this DBC was spent.
     pub spentbook_pub_key: PublicKey,
 
     /// The Spentbook's signature notarizing the DBC was spent.
+    /// signing over RingCtTransaction, spent_sig, and public_commitments.
     pub spentbook_sig: Signature,
+
+    pub public_commitments: Vec<G1Affine>,
 }
 
 impl SpentProof {
