@@ -38,11 +38,12 @@ pub fn genesis_dbc_input() -> KeyImage {
     gen_bytes
 }
 
-#[derive(Debug, Clone)]
+// #[derive(Clone)]
 pub struct GenesisDbcShare {
+    pub ringct_material: RingCtMaterial,
     pub dbc_content: DbcContent,
     pub transaction: RingCtTransaction,
-    pub revealed_commitments: Vec<RevealedCommitment>,
+    pub revealed_commitment: RevealedCommitment,
     pub public_key_set: PublicKeySet,
     pub transaction_sig: NodeSignature,
 }
@@ -116,7 +117,7 @@ impl<K: KeyManager> MintNode<K> {
 
         let decoy_inputs = vec![];
 
-        let ring_ct = RingCtMaterial {
+        let ringct_material = RingCtMaterial {
             inputs: vec![MlsagMaterial::new(true_input, decoy_inputs, &mut rng)],
             outputs: vec![Output {
                 public_key: dbc_content.owner,
@@ -125,7 +126,7 @@ impl<K: KeyManager> MintNode<K> {
         };
 
         // Here we sign as the DBC owner.
-        let (transaction, revealed_commitments) = ring_ct
+        let (transaction, revealed_commitments) = ringct_material
             .sign(rng)
             .expect("Failed to sign transaction");
 
@@ -141,9 +142,10 @@ impl<K: KeyManager> MintNode<K> {
             .map_err(|e| Error::Signing(e.to_string()))?;
 
         Ok(GenesisDbcShare {
+            ringct_material,
             dbc_content,
             transaction,
-            revealed_commitments, // output commitments
+            revealed_commitment: revealed_commitments[0], // output commitments
             public_key_set: secret_key_set_ttc.public_keys(),
             transaction_sig,
         })
@@ -154,10 +156,11 @@ impl<K: KeyManager> MintNode<K> {
     }
 
     pub fn reissue(&mut self, reissue_req: ReissueRequest) -> Result<ReissueShare> {
-        // let public_commitments = reissue_req.spent_proofs.public_commitments;
+        let public_commitments: Vec<Vec<G1Affine>> = reissue_req.spent_proofs.iter().map(|(_,s)| s.public_commitments.clone()).collect();
 
         // new
-        // reissue_req.transaction.verify(&public_commitments)?;
+        reissue_req.transaction.verify(&public_commitments)?;
+
         // old
         // reissue_req.transaction.validate(self.key_manager())?;
 
@@ -220,14 +223,23 @@ impl<K: KeyManager> MintNode<K> {
 mod tests {
     use super::*;
     // use blsttc::{Ciphertext, DecryptionShare, SecretKeyShare};
+    use blsttc::{PublicKey};
     use quickcheck_macros::quickcheck;
+    // use blstrs::group::GroupEncoding;
+    use blstrs::G1Projective;
 
     use crate::{
-        // tests::{TinyInt, TinyVec},
-        // DbcBuilder, DbcHelper, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
-        Dbc, SimpleKeyManager, SimpleSigner,
-        // SpentProofShare,
+        tests::{TinyInt, TinyVec},
+        // AmountSecrets, DbcHelper,
+        DbcBuilder, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
+        Dbc,
+        SpentProofShare,
     };
+
+    fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> G1Affine {
+        let bytes = pk.to_bytes();
+        G1Affine::from_compressed(&bytes).unwrap()
+    }
 
     #[quickcheck]
     fn prop_genesis() -> Result<(), Error> {
@@ -264,11 +276,16 @@ mod tests {
 
         Ok(())
     }
-/*
+
     #[quickcheck]
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
         let output_amounts =
             Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
+
+        if output_amounts.is_empty() {
+            return Ok(());
+        }
+
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
 
@@ -292,20 +309,22 @@ mod tests {
             )]),
         };
 
-        let genesis_amount_secrets =
-            DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
+        // let genesis_amount_secrets =
+        //     DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
+        // let genesis_amount_secrets = AmountSecrets::from(genesis.revealed_commitment);
 
         let output_owner = crate::bls_dkg_id();
-        let output_owner_pk = output_owner.public_key_set.public_key();
+        let output_owner_pk = blsttc_to_blstrs_pubkey(&output_owner.public_key_set.public_key());
 
-        let reissue_tx = crate::TransactionBuilder::default()
-            .add_input(genesis_dbc.clone(), genesis_amount_secrets)
+        let (reissue_tx, _revealed_commitments) = crate::TransactionBuilder::default()
+            .add_inputs(genesis.ringct_material.inputs)
             .add_outputs(output_amounts.iter().map(|a| crate::Output {
                 amount: *a,
-                owner: output_owner_pk,
+                public_key: output_owner_pk,
             }))
             .build()?;
-        let tx_hash = reissue_tx.blinded().hash();
+        // let tx_hash = reissue_tx.blinded().hash();
+        let tx_hash = &Hash::from(reissue_tx.hash());
 
         let spent_sig = genesis_owner.public_key_set.combine_signatures([(
             genesis_owner.index,
@@ -319,13 +338,23 @@ mod tests {
             .key_manager
             .sign(&SpentProof::proof_msg(&tx_hash, &spent_sig))?;
 
+        // obtain public commitment for our single input.
+        let pseudo_commitment = reissue_tx.mlsags[0].pseudo_commitment();
+        let public_commitments = reissue_tx.mlsags[0]
+            .ring
+            .iter()
+            .map(|(_, hidden_commitment)|
+            (G1Projective::from(hidden_commitment) + G1Projective::from(pseudo_commitment)).to_affine()
+        ).collect();
+
         let rr = ReissueRequestBuilder::new(reissue_tx.clone())
             .add_spent_proof_share(
-                genesis_dbc.spend_key(),
+                reissue_tx.mlsags[0].key_image.to_compressed(),
                 SpentProofShare {
                     spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
+                    public_commitments,
                 },
             )
             .build()?;
@@ -347,25 +376,26 @@ mod tests {
         // Aggregate ReissueShare to build output DBCs
         let mut dbc_builder = DbcBuilder::new(reissue_tx);
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-        let output_dbcs = dbc_builder.build()?;
+        let _output_dbcs = dbc_builder.build()?;
 
-        for dbc in output_dbcs.iter() {
-            let dbc_amount = DbcHelper::decrypt_amount(&output_owner, &dbc.content)?;
-            assert!(output_amounts.iter().any(|a| *a == dbc_amount));
-            assert!(dbc.confirm_valid(&key_manager).is_ok());
-        }
+        // for dbc in output_dbcs.iter() {
+        //     let dbc_amount = DbcHelper::decrypt_amount(&output_owner, &dbc.content)?;
+        //     assert!(output_amounts.iter().any(|a| *a == dbc_amount));
+        //     assert!(dbc.confirm_valid(&key_manager).is_ok());
+        // }
 
-        assert_eq!(
-            output_dbcs
-                .iter()
-                .map(|dbc| { DbcHelper::decrypt_amount(&output_owner, &dbc.content) })
-                .sum::<Result<Amount, _>>()?,
-            output_amount
-        );
+        // assert_eq!(
+        //     output_dbcs
+        //         .iter()
+        //         .map(|dbc| { DbcHelper::decrypt_amount(&output_owner, &dbc.content) })
+        //         .sum::<Result<Amount, _>>()?,
+        //     output_amount
+        // );
 
         Ok(())
     }
 
+/*
     #[quickcheck]
     fn prop_dbc_transaction_many_to_many(
         // the amount of each input transaction

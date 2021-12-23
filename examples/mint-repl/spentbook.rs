@@ -44,6 +44,15 @@ impl SpentBook {
         let proof_msg_hash = SpentProof::proof_msg(&tx_hash, &spent_sig);
         let spentbook_sig_share = self.key_manager.sign(&proof_msg_hash)?;
 
+        let public_commitments: Vec<G1Affine> = tx.mlsags.iter().map(|mlsag| {
+            mlsag.public_keys().iter.map(|pk| {
+                let output_proof = self.transactions.values().filter_map(|ringct_tx| {
+                    ringct_tx.outputs.iter().find(|proof| proof.public_key() == pk)
+                });
+                output_proof.commitment
+            }).collect()
+        });
+
         let existing_tx = self.transactions.entry(spend_key).or_insert(tx);
         if existing_tx.blinded().hash() == tx_hash {
             Ok(SpentProofShare {

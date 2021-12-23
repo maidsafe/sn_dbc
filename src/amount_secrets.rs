@@ -106,6 +106,13 @@ impl AmountSecrets {
     // }
 }
 
+impl From<RevealedCommitment> for AmountSecrets {
+    /// create AmountSecrets from an amount and a randomly generated blinding factor
+    fn from(revealed_commitment: RevealedCommitment) -> Self {
+        Self(revealed_commitment)
+    }
+}
+
 impl From<Amount> for AmountSecrets {
     /// create AmountSecrets from an amount and a randomly generated blinding factor
     fn from(amount: Amount) -> Self {
