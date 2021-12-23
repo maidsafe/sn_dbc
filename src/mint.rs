@@ -281,11 +281,6 @@ mod tests {
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
         let output_amounts =
             Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
-
-        if output_amounts.is_empty() {
-            return Ok(());
-        }
-
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
 
@@ -365,12 +360,15 @@ mod tests {
                 assert_ne!(n_outputs, 0);
                 rs
             }
-            Err(Error::DbcReissueRequestDoesNotBalance) => {
+            Err(Error::RingCt(blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments)) => {
                 // Verify that no outputs were present and we got correct validation error.
                 assert_eq!(n_outputs, 0);
                 return Ok(());
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                println!("got error: {:#?}", e);
+                return Err(e)
+            },
         };
 
         // Aggregate ReissueShare to build output DBCs
