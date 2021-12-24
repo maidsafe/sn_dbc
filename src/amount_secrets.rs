@@ -16,6 +16,7 @@ use blsttc::{DecryptionShare, IntoFr, SecretKey, SecretKeySet, SecretKeyShare, C
 use std::convert::TryFrom;
 use std::collections::BTreeMap;
 use rand_core::OsRng;
+use std::convert::Into;
 
 use crate::{Amount, Error};
 
@@ -28,6 +29,7 @@ use crate::{Amount, Error};
 const AMT_SIZE: usize = 8; // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
 
+#[derive(Clone)]
 pub struct AmountSecrets(RevealedCommitment);
 
 impl AmountSecrets {
@@ -112,6 +114,14 @@ impl From<RevealedCommitment> for AmountSecrets {
         Self(revealed_commitment)
     }
 }
+
+#[allow(clippy::from_over_into)]
+impl Into<RevealedCommitment> for AmountSecrets {
+    fn into(self) -> RevealedCommitment {
+        self.0
+    }
+}
+
 
 impl From<Amount> for AmountSecrets {
     /// create AmountSecrets from an amount and a randomly generated blinding factor

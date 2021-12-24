@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use blstrs::G1Affine;
 
 mod builder;
 mod amount_secrets;
@@ -105,6 +106,17 @@ pub struct DbcHelper {}
 
 #[cfg(feature = "dkg")]
 impl DbcHelper {
+
+    pub(crate) fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> G1Affine {
+        let bytes = pk.to_bytes();
+        G1Affine::from_compressed(&bytes).unwrap()
+    }
+
+    pub(crate) fn blstrs_to_blsttc_pubkey(pk: &G1Affine) -> PublicKey {
+        let bytes = pk.to_compressed();
+        PublicKey::from_bytes(bytes).unwrap()
+    }
+
     pub fn decrypt_amount_secrets(
         owner: &bls_dkg::outcome::Outcome,
         ciphertext: &Ciphertext,
