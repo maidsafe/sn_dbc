@@ -14,7 +14,7 @@
 // Outputs <= input value
 
 use crate::{
-    Amount, DbcContent, Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKeySet, Result,
+    Amount, AmountSecrets, DbcContent, Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKeySet, Result,
     SpentProof,
 };
 // use curve25519_dalek_ng::ristretto::RistrettoPoint;
@@ -105,7 +105,6 @@ impl<K: KeyManager> MintNode<K> {
         // let pk = G1Projective::from_compressed(&pk_bytes).unwrap();
 
         // let parents = BTreeSet::from_iter([genesis_dbc_input()]);
-        let dbc_content = DbcContent::from(public_key);
 
         let true_input = TrueInput {
             secret_key,
@@ -120,7 +119,7 @@ impl<K: KeyManager> MintNode<K> {
         let ringct_material = RingCtMaterial {
             inputs: vec![MlsagMaterial::new(true_input, decoy_inputs, &mut rng)],
             outputs: vec![Output {
-                public_key: dbc_content.owner,
+                public_key,
                 amount,
             }],
         };
@@ -129,6 +128,8 @@ impl<K: KeyManager> MintNode<K> {
         let (transaction, revealed_commitments) = ringct_material
             .sign(rng)
             .expect("Failed to sign transaction");
+
+        let dbc_content = DbcContent::from((public_key, AmountSecrets::from(revealed_commitments[0].clone())));
 
         // let transaction = RingCtTransaction {
         //     inputs: BTreeSet::from_iter([genesis_dbc_input()]),
@@ -223,23 +224,19 @@ impl<K: KeyManager> MintNode<K> {
 mod tests {
     use super::*;
     // use blsttc::{Ciphertext, DecryptionShare, SecretKeyShare};
-    use blsttc::{PublicKey};
+    // use blsttc::{PublicKey};
     use quickcheck_macros::quickcheck;
     // use blstrs::group::GroupEncoding;
     use blstrs::G1Projective;
+    // use std::collections::BTreeSet;
 
     use crate::{
         tests::{TinyInt, TinyVec},
         // AmountSecrets, DbcHelper,
-        DbcBuilder, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
+        DbcBuilder, DbcHelper, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
         Dbc,
         SpentProofShare,
     };
-
-    fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> G1Affine {
-        let bytes = pk.to_bytes();
-        G1Affine::from_compressed(&bytes).unwrap()
-    }
 
     #[quickcheck]
     fn prop_genesis() -> Result<(), Error> {
@@ -309,9 +306,9 @@ mod tests {
         // let genesis_amount_secrets = AmountSecrets::from(genesis.revealed_commitment);
 
         let output_owner = crate::bls_dkg_id();
-        let output_owner_pk = blsttc_to_blstrs_pubkey(&output_owner.public_key_set.public_key());
+        let output_owner_pk = DbcHelper::blsttc_to_blstrs_pubkey(&output_owner.public_key_set.public_key());
 
-        let (reissue_tx, _revealed_commitments) = crate::TransactionBuilder::default()
+        let (reissue_tx, revealed_commitments) = crate::TransactionBuilder::default()
             .add_inputs(genesis.ringct_material.inputs)
             .add_outputs(output_amounts.iter().map(|a| crate::Output {
                 amount: *a,
@@ -372,23 +369,23 @@ mod tests {
         };
 
         // Aggregate ReissueShare to build output DBCs
-        let mut dbc_builder = DbcBuilder::new(reissue_tx);
+        let mut dbc_builder = DbcBuilder::new(reissue_tx, revealed_commitments);
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-        let _output_dbcs = dbc_builder.build()?;
+        let output_dbcs = dbc_builder.build()?;
 
-        // for dbc in output_dbcs.iter() {
-        //     let dbc_amount = DbcHelper::decrypt_amount(&output_owner, &dbc.content)?;
-        //     assert!(output_amounts.iter().any(|a| *a == dbc_amount));
-        //     assert!(dbc.confirm_valid(&key_manager).is_ok());
-        // }
+        for dbc in output_dbcs.iter() {
+            let dbc_amount = DbcHelper::decrypt_amount(&output_owner, &dbc.content.amount_secrets_cipher)?;
+            assert!(output_amounts.iter().any(|a| *a == dbc_amount));
+            // assert!(dbc.confirm_valid(&key_manager).is_ok());
+        }
 
-        // assert_eq!(
-        //     output_dbcs
-        //         .iter()
-        //         .map(|dbc| { DbcHelper::decrypt_amount(&output_owner, &dbc.content) })
-        //         .sum::<Result<Amount, _>>()?,
-        //     output_amount
-        // );
+        assert_eq!(
+            output_dbcs
+                .iter()
+                .map(|dbc| { DbcHelper::decrypt_amount(&output_owner, &dbc.content.amount_secrets_cipher) })
+                .sum::<Result<Amount, _>>()?,
+            output_amount
+        );
 
         Ok(())
     }
@@ -688,6 +685,7 @@ mod tests {
     fn prop_reject_invalid_prefix() {
         todo!();
     }
+*/
 
     #[test]
     fn test_inputs_are_validated() -> Result<(), Error> {
@@ -699,41 +697,41 @@ mod tests {
         let mut genesis_node = MintNode::new(key_manager);
 
         let input_owner = crate::bls_dkg_id();
-        let input_content = DbcContent::new(
-            Default::default(),
-            100,
-            input_owner.public_key_set.public_key(),
-            AmountSecrets::random_blinding_factor(),
-        )?;
-        let input_owners = BTreeSet::from_iter([input_content.owner]);
+        let owner_pubkey = DbcHelper::blsttc_to_blstrs_pubkey(&input_owner.public_key_set.public_key());
 
-        let in_dbc = Dbc {
-            content: input_content,
-            transaction: DbcTransaction {
-                inputs: Default::default(),
-                outputs: input_owners,
-            },
-            transaction_sigs: Default::default(),
-        };
+        let output = Output{ public_key: owner_pubkey, amount: 100};
+        let (_transaction, revealed_commitments) = crate::TransactionBuilder::default()
+            .add_output(output)
+            .build()?;
 
-        let in_dbc_spend_keys = BTreeSet::from_iter([in_dbc.spend_key()]);
+        let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
+        // let input_content = DbcContent::from((owner_pubkey, amount_secrets.clone()));
 
-        let fraudulant_reissue_result = genesis_node.reissue(ReissueRequest {
-            transaction: ReissueTransaction {
-                inputs: HashSet::from_iter([in_dbc]),
-                outputs: HashSet::from_iter([DbcContent::new(
-                    in_dbc_spend_keys,
-                    100,
-                    crate::bls_dkg_id().public_key_set.public_key(),
-                    AmountSecrets::random_blinding_factor(),
-                )?]),
-            },
-            spent_proofs: Default::default(),
-        });
+        // let in_dbc = Dbc {
+        //     content: input_content,
+        //     transaction,
+        //     transaction_sigs: Default::default(),
+        // };
+
+        let secret_key = Scalar::default();  // fixme
+
+        let (fraud_tx, _) = crate::TransactionBuilder::default()
+            .add_input_by_secrets(secret_key, amount_secrets)
+            .add_output(Output{ public_key: owner_pubkey, amount: 100})
+            .build()?;
+
+        let fraud_rr = ReissueRequestBuilder::new(fraud_tx)
+            .build()?;
+
+        let fraudulant_reissue_result = genesis_node.reissue(fraud_rr);
+            
+        // fixme: more/better assertions.
         assert!(fraudulant_reissue_result.is_err());
 
         Ok(())
     }
+
+/*
 
     /// This tests how the system handles a mis-match between the
     /// committed amount and amount encrypted in AmountSecrets.

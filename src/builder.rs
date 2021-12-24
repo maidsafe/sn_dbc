@@ -1,12 +1,14 @@
 use blsttc::{PublicKeySet, SignatureShare};
 use std::collections::{BTreeMap, HashSet};
-pub use blstrs::G1Affine;
-pub use blst_ringct::{MlsagMaterial, Output, RevealedCommitment};
+pub use blstrs::{G1Affine, Scalar};
+pub use blst_ringct::{MlsagMaterial, Output, RevealedCommitment, TrueInput};
+use blstrs::group::Curve;
 use blst_ringct::ringct::{RingCtTransaction, RingCtMaterial};
 use rand_core::OsRng;
+use bulletproofs::PedersenGens;
 
 use crate::{
-    Amount, Dbc, DbcContent, Error, KeyImage, NodeSignature, ReissueRequest,
+    Amount, AmountSecrets, Dbc, DbcContent, Error, KeyImage, NodeSignature, ReissueRequest,
     ReissueShare, Result, SpentProof, SpentProofShare,
 };
 
@@ -29,6 +31,19 @@ impl TransactionBuilder {
 
     pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = MlsagMaterial>) -> Self {
         self.0.inputs.extend(inputs);
+        self
+    }
+
+    pub fn add_input_by_secrets(mut self, secret_key: Scalar, amount_secrets: AmountSecrets) -> Self {
+
+        let mut rng = OsRng::default();
+        let true_input = TrueInput {
+            secret_key,
+            revealed_commitment: amount_secrets.into(),
+        };
+
+        let decoy_inputs = vec![];  // todo.
+        self.0.inputs.push(MlsagMaterial::new(true_input, decoy_inputs, &mut rng));
         self
     }
 
@@ -148,14 +163,16 @@ impl ReissueRequestBuilder {
 #[derive(Debug)]
 pub struct DbcBuilder {
     pub transaction: RingCtTransaction,
+    pub revealed_commitments: Vec<RevealedCommitment>,
     pub reissue_shares: Vec<ReissueShare>,
 }
 
 impl DbcBuilder {
     /// Create a new DbcBuilder from a ReissueTransaction
-    pub fn new(transaction: RingCtTransaction) -> Self {
+    pub fn new(transaction: RingCtTransaction, revealed_commitments: Vec<RevealedCommitment>) -> Self {
         Self {
             transaction,
+            revealed_commitments,
             reissue_shares: Default::default(),
         }
     }
@@ -245,27 +262,41 @@ impl DbcBuilder {
         // Combine signatures from all the mint nodes to obtain Mint's Signature.
         let mint_sig = mint_public_key_set.combine_signatures(mint_sig_shares_ref)?;
 
+        let pc_gens = PedersenGens::default();
+        let output_commitments: Vec<(G1Affine, RevealedCommitment)> = self.revealed_commitments.iter()
+            .map(|r| (r.commit(&pc_gens).to_affine(), r.clone()) )
+            .collect();
+
         // Form the final output DBCs, with Mint's Signature for each.
         let output_dbcs: Vec<Dbc> = self
             .transaction
             .outputs
             .iter()
-            .map(|proof| Dbc {
-                content: DbcContent {
-                    owner: *proof.public_key(),
-                },
-                transaction: transaction.clone(),
-                transaction_sigs: self
-                    .transaction
-                    .mlsags
-                    .iter()
-                    .map(|mlsag| {
-                        (
-                            mlsag.key_image.to_compressed(),
-                            (mint_public_key_set.public_key(), mint_sig.clone()),
-                        )
-                    })
-                    .collect(),
+            .map(|proof| { 
+                let amount_secrets_list: Vec<AmountSecrets> = output_commitments.iter()
+                    .filter(|(c,_)| *c == proof.commitment())
+                    .map(|(_, r)| AmountSecrets::from((*r).clone()))
+                    .collect();
+                assert!(amount_secrets_list.len() == 1);
+
+                Dbc {
+                    content: DbcContent::from((
+                        *proof.public_key(),
+                        amount_secrets_list[0].clone(),
+                    )),
+                    transaction: transaction.clone(),
+                    transaction_sigs: self
+                        .transaction
+                        .mlsags
+                        .iter()
+                        .map(|mlsag| {
+                            (
+                                mlsag.key_image.to_compressed(),
+                                (mint_public_key_set.public_key(), mint_sig.clone()),
+                            )
+                        })
+                        .collect(),
+                }
             })
             .collect();
 
