@@ -35,7 +35,6 @@ impl TransactionBuilder {
     }
 
     pub fn add_input_by_secrets(mut self, secret_key: Scalar, amount_secrets: AmountSecrets) -> Self {
-
         let mut rng = OsRng::default();
         let true_input = TrueInput {
             secret_key,
@@ -44,6 +43,13 @@ impl TransactionBuilder {
 
         let decoy_inputs = vec![];  // todo.
         self.0.inputs.push(MlsagMaterial::new(true_input, decoy_inputs, &mut rng));
+        self
+    }
+
+    pub fn add_inputs_by_secrets(mut self, secrets: Vec<(Scalar, AmountSecrets)>) -> Self {
+        for (secret_key, amount_secrets) in secrets.into_iter() {
+            self = self.add_input_by_secrets(secret_key, amount_secrets);
+        }
         self
     }
 
