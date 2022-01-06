@@ -15,7 +15,7 @@ use blst_ringct::RevealedCommitment;
 use blsttc::{DecryptionShare, IntoFr, SecretKey, SecretKeySet, SecretKeyShare, Ciphertext, PublicKey, PublicKeySet};
 use std::convert::TryFrom;
 use std::collections::BTreeMap;
-use rand_core::OsRng;
+use rand_core::RngCore;
 use std::convert::Into;
 
 use crate::{Amount, Error};
@@ -91,6 +91,10 @@ impl AmountSecrets {
         ))
     }
 
+    pub fn from_amount(amount: Amount, mut rng: impl RngCore) -> Self {
+        Self(RevealedCommitment::from_value(amount, &mut rng))
+    }
+
     /// generate a pedersen commitment
     // pub fn to_pedersen_commitment(&self) -> G1Projective {
     //     self.0.commit(&PedersenGens::default())
@@ -103,7 +107,6 @@ impl AmountSecrets {
 
     // generate a random blinding factor
     // pub fn random_blinding_factor() -> Scalar {
-    //     let mut csprng: OsRng = OsRng::default();
     //     Scalar::random(&mut csprng)
     // }
 }
@@ -119,15 +122,6 @@ impl From<RevealedCommitment> for AmountSecrets {
 impl Into<RevealedCommitment> for AmountSecrets {
     fn into(self) -> RevealedCommitment {
         self.0
-    }
-}
-
-
-impl From<Amount> for AmountSecrets {
-    /// create AmountSecrets from an amount and a randomly generated blinding factor
-    fn from(amount: Amount) -> Self {
-        let mut rng = OsRng::default();
-        Self(RevealedCommitment::from_value(amount, &mut rng))
     }
 }
 

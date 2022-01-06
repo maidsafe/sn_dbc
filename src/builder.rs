@@ -1,10 +1,10 @@
 use blsttc::{PublicKeySet, SignatureShare};
 use std::collections::{BTreeMap, HashSet};
 pub use blstrs::{G1Affine, Scalar};
-pub use blst_ringct::{MlsagMaterial, Output, RevealedCommitment, TrueInput};
+pub use blst_ringct::{MlsagMaterial, Output, RevealedCommitment, TrueInput, DecoyInput};
 use blstrs::group::Curve;
 use blst_ringct::ringct::{RingCtTransaction, RingCtMaterial};
-use rand_core::OsRng;
+use rand_core::RngCore;
 use bulletproofs::PedersenGens;
 
 use crate::{
@@ -34,21 +34,19 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn add_input_by_secrets(mut self, secret_key: Scalar, amount_secrets: AmountSecrets) -> Self {
-        let mut rng = OsRng::default();
+    pub fn add_input_by_secrets(mut self, secret_key: Scalar, amount_secrets: AmountSecrets, decoy_inputs: Vec<DecoyInput>, mut rng: impl RngCore) -> Self {
         let true_input = TrueInput {
             secret_key,
             revealed_commitment: amount_secrets.into(),
         };
 
-        let decoy_inputs = vec![];  // todo.
         self.0.inputs.push(MlsagMaterial::new(true_input, decoy_inputs, &mut rng));
         self
     }
 
-    pub fn add_inputs_by_secrets(mut self, secrets: Vec<(Scalar, AmountSecrets)>) -> Self {
-        for (secret_key, amount_secrets) in secrets.into_iter() {
-            self = self.add_input_by_secrets(secret_key, amount_secrets);
+    pub fn add_inputs_by_secrets(mut self, secrets: Vec<(Scalar, AmountSecrets, Vec<DecoyInput>)>, mut rng: impl RngCore) -> Self {
+        for (secret_key, amount_secrets, decoy_inputs) in secrets.into_iter() {
+            self = self.add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng);
         }
         self
     }
@@ -79,8 +77,7 @@ impl TransactionBuilder {
         self.0.outputs.iter().map(|o| o.amount).sum()
     }
 
-    pub fn build(self) -> Result<(RingCtTransaction, Vec<RevealedCommitment>)> {
-        let rng = OsRng::default();
+    pub fn build(self, rng: impl RngCore + rand_core::CryptoRng) -> Result<(RingCtTransaction, Vec<RevealedCommitment>)> {
         self.0.sign(rng).map_err(|e| e.into())
     }
 }
@@ -111,6 +108,7 @@ impl ReissueRequestBuilder {
     }
 
     pub fn build(&self) -> Result<ReissueRequest> {
+
         let spent_proofs: BTreeMap<KeyImage, SpentProof> = self
             .spent_proof_shares
             .iter()
@@ -128,7 +126,15 @@ impl ReissueRequestBuilder {
                     return Err(Error::ReissueRequestPublicKeySetMismatch);
                 }
 
-                let spent_sig = any_share.spent_sig.clone();
+                if shares
+                    .iter()
+                    .map(|s| &s.public_commitments)
+                    .any(|pc| *pc != any_share.public_commitments)
+                {
+                    return Err(Error::ReissueRequestPublicCommitmentMismatch);
+                }
+
+                // let spent_sig = any_share.spent_sig.clone();
                 let spentbook_pub_key = any_share.spentbook_public_key();
                 let spentbook_sig = any_share.spentbook_pks.combine_signatures(
                     shares
@@ -137,13 +143,16 @@ impl ReissueRequestBuilder {
                         .map(NodeSignature::threshold_crypto),
                 )?;
 
-                let public_commitments: Vec<G1Affine> = shares
-                    .iter()
-                    .flat_map(|s| s.public_commitments.clone())
-                    .collect();
+                let public_commitments: Vec<G1Affine> = any_share.public_commitments.clone();
+
+                let index = match self.transaction.mlsags.iter().position(|m| m.key_image.to_compressed() == *key_image) {
+                    Some(idx) => idx,
+                    None => return Err(Error::SpentProofKeyImageMismatch),
+                };
 
                 let spent_proof = SpentProof {
-                    spent_sig,
+                    index,
+                    // spent_sig,
                     spentbook_pub_key,
                     spentbook_sig,
                     public_commitments,

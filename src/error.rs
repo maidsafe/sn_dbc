@@ -43,8 +43,18 @@ pub enum Error {
     #[error("Dbc Content parents is not the same transaction inputs")]
     DbcContentParentsDifferentFromTransactionInputs,
 
+    #[error("The number of SpentProof does not match the number of input MlsagSignature")]
+    SpentProofInputMismatch,
+
+    #[error("The SpentProof key-image is not found amongst transaction inputs")]
+    SpentProofKeyImageMismatch,
+
     #[error("The PublicKeySet differs between ReissueRequest entries")]
     ReissueRequestPublicKeySetMismatch,
+
+    #[error("The Public Commitments differ between ReissueRequest entries")]
+    ReissueRequestPublicCommitmentMismatch,
+
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
     ReissueRequestMissingSpentProofShare(KeyImage),
 

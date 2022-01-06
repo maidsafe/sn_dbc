@@ -59,7 +59,7 @@ impl Distribution<SpendKey> for Standard {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpentProofShare {
     /// Signature from dbc.spend_key() over the transaction
-    pub spent_sig: Signature,
+    // pub spent_sig: Signature,
 
     /// The Spentbook who notarized that this DBC was spent.
     pub spentbook_pks: PublicKeySet,
@@ -71,13 +71,13 @@ pub struct SpentProofShare {
 
 impl hash::Hash for SpentProofShare {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.spent_sig.hash(state);
+        // self.spent_sig.hash(state);
         self.spentbook_pks.hash(state);
         self.spentbook_sig_share.hash(state);
-        for pc in self.public_commitments.iter() {
-            let bytes = pc.to_compressed();
-            bytes.hash(state);
-        }
+        // for pc in self.public_commitments.iter() {
+        //     let bytes = pc.to_compressed();
+        //     bytes.hash(state);
+        // }
     }
 }
 
@@ -99,8 +99,10 @@ impl SpentProofShare {
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpentProof {
+    pub index: usize,
+
     /// Signature from KeyImage over the transaction, by client.
-    pub spent_sig: Signature,
+    // pub spent_sig: Signature,
 
     /// The Spentbook who notarized that this DBC was spent.
     pub spentbook_pub_key: PublicKey,
@@ -120,23 +122,30 @@ impl SpentProof {
         verifier: &K,
     ) -> Result<()> {
         // unimplemented.
+
+        // old
+        // if !dbc.spend_key().0.verify(&self.spent_sig, tx) {
+        //     return Err(Error::FailedSignature);
+        // }  
+
+        // new     
         // if !key_image.verify(&self.spent_sig, tx) {
         //     return Err(Error::FailedSignature);
         // }
 
-        let msg = Self::proof_msg(&tx, &self.spent_sig);
+        // let msg = Self::proof_msg(&tx, &self.spent_sig);
+        let msg = Self::proof_msg(&tx);
         verifier
             .verify(&msg, &self.spentbook_pub_key, &self.spentbook_sig)
             .map_err(|_| Error::InvalidSpentProofSignature(key_image))?;
         Ok(())
     }
 
-    pub fn proof_msg(tx: &Hash, spent_sig: &Signature) -> Hash {
+    pub fn proof_msg(tx: &Hash) -> Hash {
         use tiny_keccak::{Hasher, Sha3};
         let mut sha3 = Sha3::v256();
 
         sha3.update(&tx.0);
-        sha3.update(&spent_sig.to_bytes());
 
         let mut hash = [0u8; 32];
         sha3.finalize(&mut hash);
