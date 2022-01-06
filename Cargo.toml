@@ -26,6 +26,7 @@ hex = "0.4.3"
 blstrs = { git = "https://github.com/davidrusu/blstrs.git", branch="bulletproofs-fixes" }
 bulletproofs = { git = "https://github.com/davidrusu/blst-bulletproofs.git", branch="bls12-381-curve" }
 rand_core = "0.6.3"
+xor_name = "3.1.0"
 
 
   [dependencies.rand8]

@@ -71,20 +71,26 @@ impl AsRef<[u8]> for Hash {
 }
 
 #[cfg(feature = "dkg")]
-pub fn bls_dkg_id() -> bls_dkg::outcome::Outcome {
+use rand::RngCore;
+
+#[cfg(feature = "dkg")]
+pub fn bls_dkg_id(mut rng: impl RngCore) -> bls_dkg::outcome::Outcome {
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
 
-    let owner_name = rand::random();
+    let mut owner_name = [0u8; 32];
+    rng.fill_bytes(&mut owner_name);
+    let owner_xorname = xor_name::XorName::from_content(&owner_name);
+
     let threshold = 0;
     let (mut key_gen, proposal) =
-        bls_dkg::KeyGen::initialize(owner_name, threshold, BTreeSet::from_iter([owner_name]))
+        bls_dkg::KeyGen::initialize(owner_xorname, threshold, BTreeSet::from_iter([owner_xorname]))
             .expect("Failed to init key gen");
 
     let mut msgs = vec![proposal];
     while let Some(msg) = msgs.pop() {
         let response_msgs = key_gen
-            .handle_message(&mut rand::thread_rng(), msg)
+            .handle_message(&mut rng, msg)
             .expect("Error while generating BLS key");
 
         msgs.extend(response_msgs);
@@ -109,9 +115,11 @@ pub struct DbcHelper {}
 #[cfg(feature = "dkg")]
 impl DbcHelper {
 
+    #[allow(dead_code)]
     pub(crate) fn blsttc_to_blstrs_sk(sk: SecretKey) -> Scalar {
         let bytes = sk.to_bytes();
-        Scalar::from_bytes_le(&bytes).unwrap()
+    println!("sk bytes: {:?}", bytes);
+        Scalar::from_bytes_be(&bytes).unwrap()
     }
 
     pub(crate) fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> G1Affine {
