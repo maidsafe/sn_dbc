@@ -6,11 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blsttc::{Ciphertext, PublicKey};
+use crate::{AmountSecrets, DbcHelper};
 use blstrs::group::GroupEncoding;
 use blstrs::G1Affine;
+use blsttc::{Ciphertext, PublicKey};
 use serde::{Deserialize, Serialize};
-use crate::{AmountSecrets, DbcHelper};
 
 use crate::Hash;
 
@@ -31,7 +31,10 @@ impl From<(OwnerPublicKey, Ciphertext)> for DbcContent {
     // Create a new DbcContent for signing.
     fn from(params: (OwnerPublicKey, Ciphertext)) -> Self {
         let (owner, amount_secrets_cipher) = params;
-        Self { owner, amount_secrets_cipher }
+        Self {
+            owner,
+            amount_secrets_cipher,
+        }
     }
 }
 
@@ -42,7 +45,10 @@ impl From<(OwnerPublicKey, AmountSecrets)> for DbcContent {
         let pubkey = DbcHelper::blstrs_to_blsttc_pubkey(&owner);
         let amount_secrets_cipher = pubkey.encrypt(&amount_secrets.to_bytes());
 
-        Self { owner, amount_secrets_cipher }
+        Self {
+            owner,
+            amount_secrets_cipher,
+        }
     }
 }
 
@@ -53,10 +59,12 @@ impl From<(PublicKey, AmountSecrets)> for DbcContent {
         let amount_secrets_cipher = pubkey.encrypt(&amount_secrets.to_bytes());
         let owner = DbcHelper::blsttc_to_blstrs_pubkey(&pubkey);
 
-        Self { owner, amount_secrets_cipher }
+        Self {
+            owner,
+            amount_secrets_cipher,
+        }
     }
 }
-
 
 impl DbcContent {
     pub fn hash(&self) -> Hash {

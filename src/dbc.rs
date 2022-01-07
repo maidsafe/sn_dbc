@@ -8,10 +8,10 @@
 
 use crate::{dbc_content::OwnerPublicKey, DbcContent, Error, KeyManager, Result};
 
-use std::collections::BTreeMap;
 use blst_ringct::ringct::RingCtTransaction;
-use tiny_keccak::{Hasher, Sha3};
 use blsttc::{PublicKey, Signature};
+use std::collections::BTreeMap;
+use tiny_keccak::{Hasher, Sha3};
 
 // note: typedef should be moved into blst_ringct crate
 pub type KeyImage = [u8; 48]; // G1 compressed
@@ -52,14 +52,12 @@ impl Dbc {
         hash
     }
 
-
     // todo: Do we even need this fn anymore?   not called by MintNode::reissue()...
     //       To be correct, it would need to call RingCtTransaction::verify()...
 
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
     pub fn confirm_valid<K: KeyManager>(&self, _verifier: &K) -> Result<(), Error> {
-
         // for (input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
         //     if !self.transaction.inputs.contains(input) {
         //         return Err(Error::UnknownInput);
@@ -74,7 +72,12 @@ impl Dbc {
             Err(Error::TransactionMustHaveAnInput)
         } else if self.transaction_sigs.len() < self.transaction.mlsags.len() {
             Err(Error::MissingSignatureForInput)
-        } else if self.transaction.outputs.iter().find(|o| *o.public_key() == self.owner()).is_none() {
+        } else if !self
+            .transaction
+            .outputs
+            .iter()
+            .any(|o| *o.public_key() == self.owner())
+        {
             Err(Error::DbcContentNotPresentInTransactionOutput)
         } else {
             Ok(())

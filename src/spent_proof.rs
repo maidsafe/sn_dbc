@@ -2,13 +2,13 @@ use crate::{
     Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, Signature,
 };
 
-use std::hash;
-use serde::{Deserialize, Serialize};
 use blstrs::G1Affine;
+use serde::{Deserialize, Serialize};
+use std::hash;
 
 /// A share of a SpentProof, combine enough of these to form a
 /// SpentProof.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpentProofShare {
     /// The Spentbook who notarized that this DBC was spent.
     pub spentbook_pks: PublicKeySet,
@@ -17,6 +17,16 @@ pub struct SpentProofShare {
 
     pub public_commitments: Vec<G1Affine>,
 }
+
+impl PartialEq for SpentProofShare {
+    fn eq(&self, other: &Self) -> bool {
+        self.spentbook_pks == other.spentbook_pks
+            && self.spentbook_sig_share == other.spentbook_sig_share
+            && self.public_commitments == other.public_commitments
+    }
+}
+
+impl Eq for SpentProofShare {}
 
 impl hash::Hash for SpentProofShare {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {

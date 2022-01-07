@@ -1,11 +1,11 @@
-use blsttc::{PublicKeySet, SignatureShare};
-use std::collections::{BTreeMap, HashSet};
-pub use blstrs::{G1Affine, Scalar};
-pub use blst_ringct::{MlsagMaterial, Output, RevealedCommitment, TrueInput, DecoyInput};
+use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
+pub use blst_ringct::{DecoyInput, MlsagMaterial, Output, RevealedCommitment, TrueInput};
 use blstrs::group::Curve;
-use blst_ringct::ringct::{RingCtTransaction, RingCtMaterial};
-use rand_core::RngCore;
+pub use blstrs::{G1Affine, Scalar};
+use blsttc::{PublicKeySet, SignatureShare};
 use bulletproofs::PedersenGens;
+use rand_core::RngCore;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::{
     Amount, AmountSecrets, Dbc, DbcContent, Error, KeyImage, NodeSignature, ReissueRequest,
@@ -26,17 +26,29 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn add_input_by_secrets(mut self, secret_key: Scalar, amount_secrets: AmountSecrets, decoy_inputs: Vec<DecoyInput>, mut rng: impl RngCore) -> Self {
+    pub fn add_input_by_secrets(
+        mut self,
+        secret_key: Scalar,
+        amount_secrets: AmountSecrets,
+        decoy_inputs: Vec<DecoyInput>,
+        mut rng: impl RngCore,
+    ) -> Self {
         let true_input = TrueInput {
             secret_key,
             revealed_commitment: amount_secrets.into(),
         };
 
-        self.0.inputs.push(MlsagMaterial::new(true_input, decoy_inputs, &mut rng));
+        self.0
+            .inputs
+            .push(MlsagMaterial::new(true_input, decoy_inputs, &mut rng));
         self
     }
 
-    pub fn add_inputs_by_secrets(mut self, secrets: Vec<(Scalar, AmountSecrets, Vec<DecoyInput>)>, mut rng: impl RngCore) -> Self {
+    pub fn add_inputs_by_secrets(
+        mut self,
+        secrets: Vec<(Scalar, AmountSecrets, Vec<DecoyInput>)>,
+        mut rng: impl RngCore,
+    ) -> Self {
         for (secret_key, amount_secrets, decoy_inputs) in secrets.into_iter() {
             self = self.add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng);
         }
@@ -58,14 +70,21 @@ impl TransactionBuilder {
     }
 
     pub fn inputs_amount_sum(&self) -> Amount {
-        self.0.inputs.iter().map(|m| m.true_input.revealed_commitment.value).sum()
+        self.0
+            .inputs
+            .iter()
+            .map(|m| m.true_input.revealed_commitment.value)
+            .sum()
     }
 
     pub fn outputs_amount_sum(&self) -> Amount {
         self.0.outputs.iter().map(|o| o.amount).sum()
     }
 
-    pub fn build(self, rng: impl RngCore + rand_core::CryptoRng) -> Result<(RingCtTransaction, Vec<RevealedCommitment>)> {
+    pub fn build(
+        self,
+        rng: impl RngCore + rand_core::CryptoRng,
+    ) -> Result<(RingCtTransaction, Vec<RevealedCommitment>)> {
         self.0.sign(rng).map_err(|e| e.into())
     }
 }
@@ -96,7 +115,6 @@ impl ReissueRequestBuilder {
     }
 
     pub fn build(&self) -> Result<ReissueRequest> {
-
         let spent_proofs: BTreeMap<KeyImage, SpentProof> = self
             .spent_proof_shares
             .iter()
@@ -132,7 +150,12 @@ impl ReissueRequestBuilder {
 
                 let public_commitments: Vec<G1Affine> = any_share.public_commitments.clone();
 
-                let index = match self.transaction.mlsags.iter().position(|m| m.key_image.to_compressed() == *key_image) {
+                let index = match self
+                    .transaction
+                    .mlsags
+                    .iter()
+                    .position(|m| m.key_image.to_compressed() == *key_image)
+                {
                     Some(idx) => idx,
                     None => return Err(Error::SpentProofKeyImageMismatch),
                 };
@@ -170,7 +193,10 @@ pub struct DbcBuilder {
 
 impl DbcBuilder {
     /// Create a new DbcBuilder from a ReissueTransaction
-    pub fn new(transaction: RingCtTransaction, revealed_commitments: Vec<RevealedCommitment>) -> Self {
+    pub fn new(
+        transaction: RingCtTransaction,
+        revealed_commitments: Vec<RevealedCommitment>,
+    ) -> Self {
         Self {
             transaction,
             revealed_commitments,
@@ -264,8 +290,10 @@ impl DbcBuilder {
         let mint_sig = mint_public_key_set.combine_signatures(mint_sig_shares_ref)?;
 
         let pc_gens = PedersenGens::default();
-        let output_commitments: Vec<(G1Affine, RevealedCommitment)> = self.revealed_commitments.iter()
-            .map(|r| (r.commit(&pc_gens).to_affine(), r.clone()) )
+        let output_commitments: Vec<(G1Affine, RevealedCommitment)> = self
+            .revealed_commitments
+            .iter()
+            .map(|r| (r.commit(&pc_gens).to_affine(), *r))
             .collect();
 
         // Form the final output DBCs, with Mint's Signature for each.
@@ -273,10 +301,11 @@ impl DbcBuilder {
             .transaction
             .outputs
             .iter()
-            .map(|proof| { 
-                let amount_secrets_list: Vec<AmountSecrets> = output_commitments.iter()
-                    .filter(|(c,_)| *c == proof.commitment())
-                    .map(|(_, r)| AmountSecrets::from((*r).clone()))
+            .map(|proof| {
+                let amount_secrets_list: Vec<AmountSecrets> = output_commitments
+                    .iter()
+                    .filter(|(c, _)| *c == proof.commitment())
+                    .map(|(_, r)| AmountSecrets::from(*r))
                     .collect();
                 assert!(amount_secrets_list.len() == 1);
 
