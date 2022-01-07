@@ -15,7 +15,6 @@ mod amount_secrets;
 mod dbc;
 mod dbc_content;
 // mod dbc_packet;
-// mod dbc_transaction;
 mod error;
 mod key_manager;
 mod mint;
@@ -27,7 +26,6 @@ pub use crate::{
     dbc::{Dbc, KeyImage},
     dbc_content::{Amount, DbcContent},
     // dbc_packet::{DbcPacket, DerivedKeySet},
-    // dbc_transaction::DbcTransaction,
     error::{Error, Result},
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,

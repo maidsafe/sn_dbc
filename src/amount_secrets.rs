@@ -6,12 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-// use blsttc::PublicKey;
-// use blstrs::group::GroupEncoding;
 use blstrs::{Scalar};
 use blst_ringct::RevealedCommitment;
-// use serde::{Deserialize, Serialize};
-// use tiny_keccak::{Hasher, Sha3};
 use blsttc::{DecryptionShare, IntoFr, SecretKey, SecretKeySet, SecretKeyShare, Ciphertext, PublicKey, PublicKeySet};
 use std::convert::TryFrom;
 use std::collections::BTreeMap;
@@ -23,8 +19,11 @@ use crate::{Amount, Error};
 // note: Amount should move into blst_ringct crate.
 // (or else blst_ringct::RevealedCommitment should be made generic over Amount type)
 
-// pub type Amount = u64;
-// pub type OwnerPublicKey = G1Affine;
+// note: AmountSecrets wraps RevealedCommitment to provide some methods
+// for decrypting from Ciphertext using various blsttc components,
+// eg SecretKey, SecretKeyShare, SecretKeySet, DecryptionShare
+//
+// Once blst_ringct uses blsttc, perhaps AmountSecrets can go away.
 
 const AMT_SIZE: usize = 8; // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
@@ -41,10 +40,6 @@ impl AmountSecrets {
     /// Convert to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         self.0.to_bytes()
-        // let mut v: Vec<u8> = Default::default();
-        // v.extend(&self.amount.to_le_bytes());
-        // v.extend(&self.blinding_factor.to_bytes());
-        // v
     }
 
     /// build AmountSecrets from fixed size byte array.
@@ -95,20 +90,10 @@ impl AmountSecrets {
         Self(RevealedCommitment::from_value(amount, &mut rng))
     }
 
-    /// generate a pedersen commitment
-    // pub fn to_pedersen_commitment(&self) -> G1Projective {
-    //     self.0.commit(&PedersenGens::default())
-    // }
-
     /// encrypt secrets to public_key producing Ciphertext
     pub fn encrypt(&self, public_key: &PublicKey) -> Ciphertext {
         public_key.encrypt(&self.to_bytes())
     }
-
-    // generate a random blinding factor
-    // pub fn random_blinding_factor() -> Scalar {
-    //     Scalar::random(&mut csprng)
-    // }
 }
 
 impl From<RevealedCommitment> for AmountSecrets {

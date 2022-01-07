@@ -17,7 +17,6 @@ use crate::{
     Amount, AmountSecrets, DbcContent, Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKeySet, Result,
     SpentProof,
 };
-// use curve25519_dalek_ng::ristretto::RistrettoPoint;
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 use blst_ringct::{Output, RevealedCommitment};
@@ -29,7 +28,6 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, iter::FromIterator};
 use rand_core::RngCore;
 
-// pub type MintNodeSignatures = BTreeMap<SpendKey, (PublicKeySet, NodeSignature)>;
 pub type MintNodeSignatures = BTreeMap<KeyImage, (PublicKeySet, NodeSignature)>;
 
 pub fn genesis_dbc_input() -> KeyImage {
@@ -38,7 +36,7 @@ pub fn genesis_dbc_input() -> KeyImage {
     gen_bytes
 }
 
-// #[derive(Clone)]
+#[derive(Clone)]
 pub struct GenesisDbcShare {
     pub ringct_material: RingCtMaterial,
     pub dbc_content: DbcContent,
@@ -90,22 +88,6 @@ impl<K: KeyManager> MintNode<K> {
         let secret_key = Scalar::from_bytes_le(&sk_bytes).unwrap();
         let public_key = (G1Affine::generator() * secret_key).to_affine();
 
-        // let public_key_ttc = secret_key_set_ttc.public_keys().public_key();
-        // let pk_bytes = public_key_ttc.to_bytes();
-        // let public_key = G1Projective::from_compressed(&pk_bytes).unwrap().to_affine();
-
-        // let public_key_set = self
-        //     .key_manager
-        //     .public_key_set()
-        //     .map_err(|e| Error::Signing(e.to_string()))?;
-
-        // converts blsttc::PublicKey to blstrs::G1Affine.
-        // todo: revisit blsttc/blstrs usage.
-        // let pk_bytes = public_key_set.public_key().to_bytes();
-        // let pk = G1Projective::from_compressed(&pk_bytes).unwrap();
-
-        // let parents = BTreeSet::from_iter([genesis_dbc_input()]);
-
         let true_input = TrueInput {
             secret_key,
             revealed_commitment: RevealedCommitment {
@@ -114,7 +96,7 @@ impl<K: KeyManager> MintNode<K> {
             },
         };
 
-        // note: decoy inputs can be created from OutputProof + dbc owner's pubkey.
+        // note: no decoy inputs because no other DBCs exist prior to genesis DBC.
         let decoy_inputs = vec![];
 
         let ringct_material = RingCtMaterial {
@@ -131,11 +113,6 @@ impl<K: KeyManager> MintNode<K> {
             .expect("Failed to sign transaction");
 
         let dbc_content = DbcContent::from((public_key, AmountSecrets::from(revealed_commitments[0].clone())));
-
-        // let transaction = RingCtTransaction {
-        //     inputs: BTreeSet::from_iter([genesis_dbc_input()]),
-        //     outputs: BTreeSet::from_iter([dbc_content.owner]),
-        // };
 
         // Here we sign as the mint.
         let transaction_sig = self
@@ -167,26 +144,13 @@ impl<K: KeyManager> MintNode<K> {
         spent_proofs.sort_by(|a, b| a.index.cmp(&b.index));
         let public_commitments: Vec<Vec<G1Affine>> = spent_proofs.iter().map(|s| s.public_commitments.clone()).collect();
 
-        println!("spent_proofs, sorted: {:#?}", spent_proofs);
-        println!("verify pub commitments: {:#?}", public_commitments);
-
-        // new
         reissue_req.transaction.verify(&public_commitments)?;
 
-        // old
-        // reissue_req.transaction.validate(self.key_manager())?;
-
-        // new
         let transaction = reissue_req.transaction;
         let transaction_hash = Hash::from(transaction.hash());
-        // old
-        // let transaction = reissue_req.transaction.blinded();
-        // let transaction_hash = transaction.hash();
 
         // Validate that each input has not yet been spent.
-
         // iterate over mlsags.  each has key_image()
-
         for mlsag in transaction.mlsags.iter() {
             let key_image = mlsag.key_image.to_compressed();
             match reissue_req.spent_proofs.get(&key_image) {
@@ -234,10 +198,7 @@ impl<K: KeyManager> MintNode<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // use blsttc::{Ciphertext, DecryptionShare, SecretKeyShare};
-    // use blsttc::{PublicKey};
     use quickcheck_macros::quickcheck;
-    // use blstrs::group::GroupEncoding;
     use blst_ringct::DecoyInput;
     use std::collections::BTreeSet;
     use std::convert::TryFrom;
@@ -246,7 +207,6 @@ mod tests {
 
     use crate::{
         tests::{TinyInt, TinyVec},
-        // AmountSecrets, DbcHelper,
         DbcBuilder, DbcHelper, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
         Dbc,
         SpentProofShare,
@@ -281,9 +241,6 @@ mod tests {
                 (genesis_key, genesis_sig),
             )]),
         };
-
-        // let genesis_amount = DbcHelper::decrypt_amount(&genesis_owner, &genesis_dbc.content)?;
-        // assert_eq!(genesis_amount, 1000);
 
         let validation = genesis_dbc.confirm_valid(genesis_node.key_manager());
         assert!(validation.is_ok());
@@ -321,10 +278,6 @@ mod tests {
             )]),
         };
 
-        // let genesis_amount_secrets =
-        //     DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
-        // let genesis_amount_secrets = AmountSecrets::from(genesis.revealed_commitment);
-
         let output_owner = crate::bls_dkg_id(&mut rng);
         let output_owner_pk = DbcHelper::blsttc_to_blstrs_pubkey(&output_owner.public_key_set.public_key());
 
@@ -335,43 +288,20 @@ mod tests {
                 public_key: output_owner_pk,
             }))
             .build(&mut rng8)?;
-        // let tx_hash = reissue_tx.blinded().hash();
         let tx_hash = &Hash::from(reissue_tx.hash());
 
-        // let spent_sig = genesis_owner.public_key_set.combine_signatures([(
-        //     genesis_owner.index,
-        //     genesis_owner
-        //         .secret_key_share
-        //         .derive_child(&genesis_dbc.spend_key_index())
-        //         .sign(tx_hash),
-        // )])?;
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
         let spentbook_sig_share = genesis_node
             .key_manager
-            // .sign(&SpentProof::proof_msg(&tx_hash, &spent_sig))?;
             .sign(&SpentProof::proof_msg(&tx_hash))?;
-
-        // obtain public commitment for our single input.
-        // let pseudo_commitment = reissue_tx.mlsags[0].pseudo_commitment();
-        // let public_commitments = reissue_tx.mlsags[0].public_commitments();
-        // let public_commitments = reissue_tx.mlsags[0]
-        //     .ring
-        //     .iter()
-        //     .map(|(_, hidden_commitment)|
-        //     (G1Projective::from(hidden_commitment) + G1Projective::from(pseudo_commitment)).to_affine()
-        // ).collect();
-        let public_commitments: Vec<G1Affine> = genesis_dbc.transaction.outputs.iter().map(|o| o.commitment()).collect();
 
         // there is only one input (genesis), so no decoys are available.
         let public_commitments: Vec<G1Affine> = genesis_dbc.transaction.outputs.iter().map(|o| o.commitment()).collect();
-        // let public_commitments: Vec<G1Affine> = reissue_tx.mlsags[0].public_commitments();
-
 
         let rr = ReissueRequestBuilder::new(reissue_tx.clone())
             .add_spent_proof_share(
                 reissue_tx.mlsags[0].key_image.to_compressed(),
                 SpentProofShare {
-                    // spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                     public_commitments,
@@ -409,7 +339,7 @@ mod tests {
         for dbc in output_dbcs.iter() {
             let dbc_amount = DbcHelper::decrypt_amount(&output_owner, &dbc.content.amount_secrets_cipher)?;
             assert!(output_amounts.iter().any(|a| *a == dbc_amount));
-            // assert!(dbc.confirm_valid(&key_manager).is_ok());
+            assert!(dbc.confirm_valid(&key_manager).is_ok());
         }
 
         assert_eq!(
@@ -420,8 +350,6 @@ mod tests {
             output_amount
         );
 
-        println!("Completed test OK");
-
         Ok(())
     }
 
@@ -431,8 +359,6 @@ mod tests {
         input_amounts: TinyVec<TinyInt>,
         // The amount for each transaction output
         output_amounts: TinyVec<TinyInt>,
-        // Controls which output dbc's will receive extra parent hashes
-        // extra_output_parents: TinyVec<TinyInt>,
         // Include an invalid SpentProofs for the following inputs
         invalid_spent_proofs: TinyVec<TinyInt>,
     ) -> Result<(), Error> {
@@ -445,25 +371,13 @@ mod tests {
         let output_amounts =
             Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
 
-        println!("input_amounts: {:?}", input_amounts);
-        println!("output_amounts: {:?}", output_amounts);
-        println!("invalid_spent_proofs: {:?}", invalid_spent_proofs);
-
-        // let extra_output_parents = Vec::from_iter(
-        //     extra_output_parents
-        //         .into_iter()
-        //         .map(TinyInt::coerce::<usize>),
-        // );
-
         let invalid_spent_proofs = BTreeSet::from_iter(
             invalid_spent_proofs
                 .into_iter()
                 .map(TinyInt::coerce::<usize>),
         );
-        // let invalid_spent_proofs = vec![];
 
         let genesis_owner = crate::bls_dkg_id(&mut rng);
-        // let genesis_key = genesis_owner.public_key_set.public_key();
         let key_manager = SimpleKeyManager::new(
             SimpleSigner::from(genesis_owner.clone()),
             genesis_owner.public_key_set.public_key(),
@@ -474,28 +388,9 @@ mod tests {
         let genesis = genesis_node.issue_genesis_dbc(genesis_amount, &mut rng8)?;
         let genesis_owner = genesis.dbc_content.owner;
 
-        // let genesis_sig = genesis_node
-        //     .key_manager
-        //     .public_key_set()?
-        //     .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
-
-        // let genesis_dbc = Dbc {
-        //     content: genesis.dbc_content,
-        //     transaction: genesis.transaction,
-        //     transaction_sigs: BTreeMap::from_iter([(
-        //         genesis_dbc_input(),
-        //         (genesis_key, genesis_sig),
-        //     )]),
-        // };
-
-        // let genesis_amount_secrets =
-        //     DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
-
         let owner_amounts_and_keys = BTreeMap::from_iter(input_amounts.iter().copied().map(|a| {
-            // let owner = crate::bls_dkg_id(&mut rng);
             let sks = SecretKeySet::random(1, &mut rng);
             (sks.public_keys().public_key(), (a, sks))
-            // (owner.public_key_set.public_key(), (a, owner))
         }));
 
         let (reissue_tx, revealed_commitments) = crate::TransactionBuilder::default()
@@ -509,42 +404,21 @@ mod tests {
             .build(&mut rng8).unwrap();
         let tx_hash = &Hash::from(reissue_tx.hash());
 
-        // let spent_sig = genesis_owner.public_key_set.combine_signatures(vec![(
-        //     genesis_owner.index,
-        //     genesis_owner
-        //         .secret_key_share
-        //         .derive_child(&genesis_dbc.spend_key_index())
-        //         .sign(tx_hash),
-        // )])?;
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
         let spentbook_sig_share = genesis_node.key_manager.sign(&SpentProof::proof_msg(
             &tx_hash,
-            // &spent_sig,
         ))?;
 
-        // obtain public commitment for our single input.
-        // let pseudo_commitment = reissue_tx.mlsags[0].pseudo_commitment();
-        // let pseudo_commitment = genesis_dbc.transaction.outputs[0].pseudo_commitment();
-        // let public_commitments = reissue_tx.mlsags[0].public_commitments();
-
         // there is only one input (genesis), so no decoys are available.
-        // let public_commitments: Vec<G1Affine> = genesis.transaction.outputs.iter().map(|o| o.commitment()).collect();
         let public_commitments: Vec<G1Affine> = genesis.transaction.outputs.iter()
             .filter(|o| *o.public_key() == genesis_owner)
             .map(|o| o.commitment()).collect();
-
-        // let public_commitments_mlsag: Vec<G1Affine> = reissue_tx.mlsags[0].public_commitments();
-
-        println!("public_commitments_genesis: {:#?}", public_commitments);
-        // println!("public_commitments_mlsag: {:#?}", public_commitments_mlsag);
 
         let key_image = reissue_tx.mlsags[0].key_image.to_compressed();
         let rr1 = ReissueRequestBuilder::new(reissue_tx)
             .add_spent_proof_share(
                 key_image,
-                // genesis_dbc.spend_key(),
                 SpentProofShare {
-                    // spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                     public_commitments,
@@ -579,8 +453,6 @@ mod tests {
             .map(|dbc| {
                 let (_, sks) = &owner_amounts_and_keys[&DbcHelper::blstrs_to_blsttc_pubkey(&dbc.owner())];
                 let amount_secrets = AmountSecrets::try_from((&sks.secret_key(), &dbc.content.amount_secrets_cipher))?;
-                // let (_, owner) = &owner_amounts_and_keys[&dbc.owner()];
-                // let amount_secrets = DbcHelper::decrypt_amount_secrets(owner, &dbc.content.amount_secrets_cipher)?;
                 let secret_key_blstrs = DbcHelper::blsttc_to_blstrs_sk(sks.secret_key());
 
                 // note: decoy inputs can be created from OutputProof + dbc owner's pubkey.
@@ -601,33 +473,6 @@ mod tests {
             .add_outputs(outputs.clone())
             .build(&mut rng8)?;
 
-        // let mut dbcs_with_fuzzed_parents = BTreeSet::new();
-
-        // fixme: howto fuzz with ringct?
-        // let dbcs_with_fuzzed_parents = outputs;
-
-        // for (out_idx, mut out_dbc_content) in std::mem::take(&mut reissue_tx.outputs)
-        //     .into_iter()
-        //     .enumerate()
-        // {
-        //     let extra_random_parents = Vec::from_iter(
-        //         extra_output_parents
-        //             .iter()
-        //             .filter(|idx| **idx == out_idx)
-        //             .map(|_| rand::random::<SpendKey>()),
-        //     );
-        //     if !extra_random_parents.is_empty() {
-        //         dbcs_with_fuzzed_parents.insert(out_dbc_content.hash());
-        //     }
-        //     out_dbc_content.parents.extend(extra_random_parents);
-        //     reissue_tx.outputs.insert(out_dbc_content);
-        // }
-
-        // let dbc_output_amounts = reissue_tx
-        //     .outputs
-        //     .iter()
-        //     .map(|o| DbcHelper::decrypt_amount(&outputs_owner, o))
-        //     .collect::<Result<Vec<_>, _>>()?;
         let dbc_output_amounts: Vec<Amount> = outputs.iter().map(|o| o.amount).collect();
         let output_total_amount: Amount = dbc_output_amounts.iter().sum();
 
@@ -635,8 +480,6 @@ mod tests {
 
         assert_eq!(input_dbcs.len(), reissue_tx2.mlsags.len());
 
-        // for (i, in_dbc) in reissue_tx.inputs.iter().enumerate() {
-        // for (i, in_dbc) in input_dbcs.iter().enumerate() {
         for (i, (in_mlsag, in_dbc)) in reissue_tx2.mlsags.iter().zip(input_dbcs.iter()).enumerate() {
             let is_invalid_spent_proof = invalid_spent_proofs.contains(&i);
 
@@ -645,36 +488,15 @@ mod tests {
                 continue;
             }
 
-            // let input_owner = if is_invalid_spent_proof && i % 3 == 1 {
-            //     // crate::bls_dkg_id(&mut rng)
-            //     SecretKeySet::random(1, &mut rng)
-            // } else {
-            //     let (_, input_owner) = &owner_amounts_and_keys[&DbcHelper::blstrs_to_blsttc_pubkey(&in_dbc.owner())];
-            //     input_owner.clone()
-            // };
-
             let tx_hash = if is_invalid_spent_proof && i % 2 == 1 {
                 crate::Hash([0u8; 32])
             } else {
                 crate::Hash(reissue_tx2.hash())
             };
 
-            // let spent_sig = input_owner.public_keys().combine_signatures([(
-            //     input_owner.index,
-            //     input_owner
-            //         .secret_key_share
-            //         .derive_child(&in_dbc.spend_key_index())
-            //         .sign(tx_hash),
-            // )])?;
-            // let spent_sig = input_owner
-            //     .secret_key()
-            //     .derive_child(&in_dbc.spend_key_index())
-            //     .sign(tx_hash);
-
             let spentbook_pks = genesis_node.key_manager.public_key_set()?;
             let spentbook_sig_share = genesis_node
                 .key_manager
-                // .sign(&SpentProof::proof_msg(&tx_hash, &spent_sig))?;
                 .sign(&SpentProof::proof_msg(&tx_hash))?;
 
             // Get public commitments from inputs.  (true inputs)
@@ -682,7 +504,6 @@ mod tests {
             let public_commitments: Vec<G1Affine> = in_dbc.transaction.outputs.iter()
                 .filter(|o| *o.public_key() == in_dbc.owner())
                 .map(|o| o.commitment()).collect();
-            println!("2nd public_commitments: {}", public_commitments.len());
 
             let pc_gens = Default::default();
             let revealed_commitment: RevealedCommitment = input_dbc_secrets[i].1.clone().into();
@@ -692,7 +513,6 @@ mod tests {
                 in_mlsag.key_image.to_compressed(),
                 SpentProofShare {
                     public_commitments,
-                    // spent_sig,
                     spentbook_pks,
                     spentbook_sig_share,
                 },
@@ -705,12 +525,11 @@ mod tests {
         match many_to_many_result {
             Ok(rs) => {
                 assert_eq!(genesis_amount, output_total_amount);
-                // assert_eq!(dbcs_with_fuzzed_parents.len(), 0);
                 assert!(invalid_spent_proofs
                     .iter()
                     .all(|i| i >= &reissue_tx2.mlsags.len()));
 
-                // The output amounts should correspond to the output_amounts
+                // The output amounts (from params) should correspond to the actual output_amounts
                 assert_eq!(
                     BTreeSet::from_iter(dbc_output_amounts),
                     BTreeSet::from_iter(output_amounts)
@@ -738,7 +557,6 @@ mod tests {
                 assert!(!invalid_spent_proofs.is_empty());
             }
             Err(Error::RingCt(blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments)) => {
-            // Err(Error::DbcReissueRequestDoesNotBalance { .. }) => {
                 if genesis_amount == output_total_amount {
                     // This can correctly occur if there are 0 outputs and inputs sum to zero.
                     //
@@ -752,15 +570,10 @@ mod tests {
             }
             Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {
                 assert!(invalid_spent_proofs.len() > 0);
-                // panic!("InvalidHiddenCommitmentInRing");
-                // assert!(false);
             }
             Err(Error::TransactionMustHaveAnInput) => {
                 assert_eq!(input_amounts.len(), 0);
             }
-            // Err(Error::DbcContentParentsDifferentFromTransactionInputs) => {
-            //     assert_ne!(dbcs_with_fuzzed_parents.len(), 0)
-            // }
             Err(Error::MissingSpentProof(key)) => {
                 let idx = reissue_tx2
                     .mlsags
@@ -821,14 +634,6 @@ mod tests {
             .build(&mut rng8)?;
 
         let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
-        // let input_content = DbcContent::from((owner_pubkey, amount_secrets.clone()));
-
-        // let in_dbc = Dbc {
-        //     content: input_content,
-        //     transaction,
-        //     transaction_sigs: Default::default(),
-        // };
-
         let secret_key = Scalar::default();  // fixme
         let decoy_inputs = vec![];           // fixme: get from spentbook.
 
