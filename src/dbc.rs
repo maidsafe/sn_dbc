@@ -8,14 +8,12 @@
 
 use crate::{dbc_content::OwnerPublicKey, DbcContent, Error, KeyManager, Result};
 
-// use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use blst_ringct::ringct::RingCtTransaction;
 use tiny_keccak::{Hasher, Sha3};
 use blsttc::{PublicKey, Signature};
 
 // note: typedef should be moved into blst_ringct crate
-
 pub type KeyImage = [u8; 48]; // G1 compressed
 
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -27,16 +25,6 @@ pub struct Dbc {
 }
 
 impl Dbc {
-    // pub fn key_image() -> KeyImage {
-    //     unimplemented!()
-    // }
-
-    /// Derive the (public) spend key for this DBC.
-    // pub fn spend_key(&self) -> SpendKey {
-    //     let index = self.spend_key_index();
-    //     SpendKey(self.owner().derive_child(&index))
-    // }
-
     /// Read the DBC owner
     pub fn owner(&self) -> OwnerPublicKey {
         self.content.owner
@@ -64,11 +52,13 @@ impl Dbc {
         hash
     }
 
+
+    // todo: Do we even need this fn anymore?   not called by MintNode::reissue()...
+    //       To be correct, it would need to call RingCtTransaction::verify()...
+
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
     pub fn confirm_valid<K: KeyManager>(&self, _verifier: &K) -> Result<(), Error> {
-        println!("Dbc::confirm_valid() unimplemented");
-        Ok(())
 
         // for (input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
         //     if !self.transaction.inputs.contains(input) {
@@ -79,17 +69,16 @@ impl Dbc {
         //         .verify(&self.transaction.hash(), mint_key, mint_sig)
         //         .map_err(|e| Error::Signing(e.to_string()))?;
         // }
-        // if self.transaction.inputs.is_empty() {
-        //     Err(Error::TransactionMustHaveAnInput)
-        // } else if self.transaction_sigs.len() < self.transaction.inputs.len() {
-        //     Err(Error::MissingSignatureForInput)
-        // } else if self.transaction.inputs != self.content.parents {
-        //     Err(Error::DbcContentParentsDifferentFromTransactionInputs)
-        // } else if !self.transaction.outputs.contains(&self.owner()) {
-        //     Err(Error::DbcContentNotPresentInTransactionOutput)
-        // } else {
-        //     Ok(())
-        // }
+
+        if self.transaction.mlsags.is_empty() {
+            Err(Error::TransactionMustHaveAnInput)
+        } else if self.transaction_sigs.len() < self.transaction.mlsags.len() {
+            Err(Error::MissingSignatureForInput)
+        } else if self.transaction.outputs.iter().find(|o| *o.public_key() == self.owner()).is_none() {
+            Err(Error::DbcContentNotPresentInTransactionOutput)
+        } else {
+            Ok(())
+        }
     }
 }
 

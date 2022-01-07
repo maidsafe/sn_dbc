@@ -12,14 +12,6 @@ use crate::{
     ReissueShare, Result, SpentProof, SpentProofShare,
 };
 
-// note: Using blst_ringct::Output instead.
-
-///! Unblinded data for creating sn_dbc::DbcContent
-// pub struct Output {
-//     pub amount: Amount,
-//     pub owner: PublicKey,
-// }
-
 #[derive(Default)]
 pub struct TransactionBuilder(RingCtMaterial);
 
@@ -64,10 +56,6 @@ impl TransactionBuilder {
     pub fn input_owners(&self) -> Vec<blstrs::G1Affine> {
         self.0.public_keys()
     }
-
-    // pub fn input_spend_keys(&self) -> BTreeSet<KeyImage> {
-    //     BTreeSet::from_iter(self.inputs.keys().map(Dbc::spend_key))
-    // }
 
     pub fn inputs_amount_sum(&self) -> Amount {
         self.0.inputs.iter().map(|m| m.true_input.revealed_commitment.value).sum()
@@ -134,7 +122,6 @@ impl ReissueRequestBuilder {
                     return Err(Error::ReissueRequestPublicCommitmentMismatch);
                 }
 
-                // let spent_sig = any_share.spent_sig.clone();
                 let spentbook_pub_key = any_share.spentbook_public_key();
                 let spentbook_sig = any_share.spentbook_pks.combine_signatures(
                     shares
@@ -152,7 +139,6 @@ impl ReissueRequestBuilder {
 
                 let spent_proof = SpentProof {
                     index,
-                    // spent_sig,
                     spentbook_pub_key,
                     spentbook_sig,
                     public_commitments,
@@ -315,7 +301,7 @@ impl DbcBuilder {
             })
             .collect();
 
-        // sort outputs by name
+        // sort outputs by name.  todo: is sorting necessary?
         // output_dbcs.sort_by_key(Dbc::owner);
 
         Ok(output_dbcs)

@@ -11,7 +11,6 @@ use blstrs::group::GroupEncoding;
 use blstrs::G1Affine;
 use serde::{Deserialize, Serialize};
 use crate::{AmountSecrets, DbcHelper};
-// use tiny_keccak::{Hasher, Sha3};
 
 use crate::Hash;
 
@@ -23,7 +22,6 @@ pub type OwnerPublicKey = G1Affine;
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct DbcContent {
-    // pub owner: PublicKey,
     pub owner: OwnerPublicKey, // Todo: what should this type be?
     pub amount_secrets_cipher: Ciphertext,
 }
