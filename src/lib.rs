@@ -10,8 +10,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-mod builder;
 mod amount_secrets;
+mod builder;
 mod dbc;
 mod dbc_content;
 // mod dbc_packet;
@@ -42,6 +42,7 @@ pub use crate::{
 pub struct Hash([u8; 32]);
 
 impl Hash {
+    #[allow(clippy::self_named_constructors)]
     /// sha3 256 hash
     pub fn hash(input: &[u8]) -> Self {
         Self::from(sha3_256(input))
@@ -81,9 +82,12 @@ pub fn bls_dkg_id(mut rng: impl RngCore) -> bls_dkg::outcome::Outcome {
     let owner_xorname = xor_name::XorName::from_content(&owner_name);
 
     let threshold = 0;
-    let (mut key_gen, proposal) =
-        bls_dkg::KeyGen::initialize(owner_xorname, threshold, BTreeSet::from_iter([owner_xorname]))
-            .expect("Failed to init key gen");
+    let (mut key_gen, proposal) = bls_dkg::KeyGen::initialize(
+        owner_xorname,
+        threshold,
+        BTreeSet::from_iter([owner_xorname]),
+    )
+    .expect("Failed to init key gen");
 
     let mut msgs = vec![proposal];
     while let Some(msg) = msgs.pop() {
@@ -112,11 +116,10 @@ pub struct DbcHelper {}
 
 #[cfg(feature = "dkg")]
 impl DbcHelper {
-
     #[allow(dead_code)]
     pub(crate) fn blsttc_to_blstrs_sk(sk: SecretKey) -> Scalar {
         let bytes = sk.to_bytes();
-    println!("sk bytes: {:?}", bytes);
+        println!("sk bytes: {:?}", bytes);
         Scalar::from_bytes_be(&bytes).unwrap()
     }
 

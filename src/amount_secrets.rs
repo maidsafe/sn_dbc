@@ -6,13 +6,16 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blstrs::{Scalar};
 use blst_ringct::RevealedCommitment;
-use blsttc::{DecryptionShare, IntoFr, SecretKey, SecretKeySet, SecretKeyShare, Ciphertext, PublicKey, PublicKeySet};
-use std::convert::TryFrom;
-use std::collections::BTreeMap;
+use blstrs::Scalar;
+use blsttc::{
+    Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
+    SecretKeyShare,
+};
 use rand_core::RngCore;
+use std::collections::BTreeMap;
 use std::convert::Into;
+use std::convert::TryFrom;
 
 use crate::{Amount, Error};
 
@@ -32,7 +35,6 @@ const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
 pub struct AmountSecrets(RevealedCommitment);
 
 impl AmountSecrets {
-
     pub fn amount(&self) -> Amount {
         self.0.value
     }
@@ -53,14 +55,13 @@ impl AmountSecrets {
         let blinding_factor = Scalar::from_bytes_le({
             b.copy_from_slice(&bytes[AMT_SIZE..]);
             &b
-        }).unwrap();
+        })
+        .unwrap();
 
-        Self(
-            RevealedCommitment {
-                value: amount,
-                blinding: blinding_factor,
-            }
-        )
+        Self(RevealedCommitment {
+            value: amount,
+            blinding: blinding_factor,
+        })
     }
 
     /// build AmountSecrets from byte array reference
@@ -77,13 +78,12 @@ impl AmountSecrets {
         let blinding_factor = Scalar::from_bytes_le({
             b.copy_from_slice(&bytes[AMT_SIZE..]);
             &b
-        }).unwrap();
-        Ok(Self (
-            RevealedCommitment {
-                value: amount,
-                blinding: blinding_factor,
-            }
-        ))
+        })
+        .unwrap();
+        Ok(Self(RevealedCommitment {
+            value: amount,
+            blinding: blinding_factor,
+        }))
     }
 
     pub fn from_amount(amount: Amount, mut rng: impl RngCore) -> Self {
@@ -172,4 +172,3 @@ impl<I: IntoFr + Ord> TryFrom<(&PublicKeySet, &BTreeMap<I, DecryptionShare>, &Ci
         Self::from_bytes_ref(&bytes_vec)
     }
 }
-
