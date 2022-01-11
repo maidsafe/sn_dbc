@@ -84,8 +84,11 @@ impl TransactionBuilder {
     pub fn build(
         self,
         rng: impl RngCore + rand_core::CryptoRng,
-    ) -> Result<(RingCtTransaction, Vec<RevealedCommitment>)> {
-        self.0.sign(rng).map_err(|e| e.into())
+    ) -> Result<(RingCtTransaction, Vec<RevealedCommitment>, RingCtMaterial)> {
+        let result: Result<(RingCtTransaction, Vec<RevealedCommitment>)> =
+            self.0.sign(rng).map_err(|e| e.into());
+        let (transaction, revealed_commitments) = result?;
+        Ok((transaction, revealed_commitments, self.0))
     }
 }
 
