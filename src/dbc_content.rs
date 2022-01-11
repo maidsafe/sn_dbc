@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{AmountSecrets, DbcHelper};
+use crate::{AmountSecrets, BlsHelper};
 use blstrs::group::GroupEncoding;
 use blstrs::G1Affine;
 use blsttc::{Ciphertext, PublicKey};
@@ -42,7 +42,7 @@ impl From<(OwnerPublicKey, AmountSecrets)> for DbcContent {
     // Create a new DbcContent for signing.
     fn from(params: (OwnerPublicKey, AmountSecrets)) -> Self {
         let (owner, amount_secrets) = params;
-        let pubkey = DbcHelper::blstrs_to_blsttc_pubkey(&owner);
+        let pubkey = BlsHelper::blstrs_to_blsttc_pubkey(&owner);
         let amount_secrets_cipher = pubkey.encrypt(&amount_secrets.to_bytes());
 
         Self {
@@ -57,7 +57,7 @@ impl From<(PublicKey, AmountSecrets)> for DbcContent {
     fn from(params: (PublicKey, AmountSecrets)) -> Self {
         let (pubkey, amount_secrets) = params;
         let amount_secrets_cipher = pubkey.encrypt(&amount_secrets.to_bytes());
-        let owner = DbcHelper::blsttc_to_blstrs_pubkey(&pubkey);
+        let owner = BlsHelper::blsttc_to_blstrs_pubkey(&pubkey);
 
         Self {
             owner,
