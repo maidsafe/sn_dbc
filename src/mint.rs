@@ -550,37 +550,8 @@ mod tests {
 
             let public_commitments = in_material.commitments(&Default::default());
 
-            /*
-                        // An alternate way to obtain public commitments. Without access to MlsagMaterial.
-
-                        // Find public commitment from true input, mapped to PK
-                        let public_commitments_true: BTreeMap<KeyImage, G1Affine> = in_dbc
-                            .transaction
-                            .outputs
-                            .iter()
-                            .filter(|o| *o.public_key() == in_dbc.owner())
-                            .map(|o| ((*o.public_key()).to_compressed(), o.commitment()) )
-                            .collect();
-                        assert_eq!(public_commitments_true.len(), 1);
-
-                        // Find public commitments from decoy inputs, mapped to PK
-                        // a real wallet should add decoys from spentbook according to decoy selection algo (tbd)
-                        let public_commitments_decoy: BTreeMap<KeyImage, G1Affine> = input_dbc_secrets[i].2.iter()
-                            .map(|di| (di.public_key().to_compressed(), di.commitment))
-                            .collect();
-
-                        // Join them together in a single map.
-                        let public_commitments_all: BTreeMap<KeyImage, G1Affine> = public_commitments_true.into_iter().chain(public_commitments_decoy.into_iter()).collect();
-
-                        // Obtain public commitments in proper order (important) by iterating over the
-                        // mlsag public keys and then lookup matching commitment for each.
-                        // note that the true input is inserted in a random location by MlsagMaterial::sign().
-                        let public_commitments: Vec<G1Affine> = in_mlsag
-                            .public_keys()
-                            .into_iter()
-                            .map(|pk| *public_commitments_all.get(&pk.to_compressed()).unwrap() )
-                            .collect();
-            */
+            // note: alternate way to obtain public_commitments without RingCtMaterial
+            // exists as comment in commit: b1502a050967f3b04659be96ea8ba745d7b49f2b
 
             rr2_builder = rr2_builder.add_spent_proof_share(
                 in_mlsag.key_image.to_compressed(),
