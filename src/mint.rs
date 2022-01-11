@@ -202,6 +202,7 @@ impl<K: KeyManager> MintNode<K> {
 mod tests {
     use super::*;
     use blst_ringct::DecoyInput;
+    use blstrs::{group::Group, G1Projective};
     use quickcheck_macros::quickcheck;
     use rand::SeedableRng;
     use rand_core::SeedableRng as SeedableRngCore;
@@ -284,11 +285,11 @@ mod tests {
         let output_owner_pk =
             DbcHelper::blsttc_to_blstrs_pubkey(&output_owner.public_key_set.public_key());
 
-        let (reissue_tx, revealed_commitments) = crate::TransactionBuilder::default()
+        let (reissue_tx, revealed_commitments, _material) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
                 genesis.secret_key,
                 AmountSecrets::from(genesis.revealed_commitment),
-                vec![],
+                vec![], // genesis is only input, so no decoys.
                 &mut rng8,
             )
             .add_outputs(output_amounts.iter().map(|a| crate::Output {
@@ -379,6 +380,8 @@ mod tests {
         output_amounts: TinyVec<TinyInt>,
         // Include an invalid SpentProofs for the following inputs
         invalid_spent_proofs: TinyVec<TinyInt>,
+        // The number of decoy inputs
+        num_decoy_inputs: TinyInt,
     ) -> Result<(), Error> {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
@@ -394,6 +397,8 @@ mod tests {
                 .into_iter()
                 .map(TinyInt::coerce::<usize>),
         );
+
+        let num_decoy_inputs: usize = num_decoy_inputs.coerce();
 
         let genesis_owner = crate::bls_dkg_id(&mut rng);
         let key_manager = SimpleKeyManager::new(
@@ -411,11 +416,11 @@ mod tests {
             (sks.public_keys().public_key(), (a, sks))
         }));
 
-        let (reissue_tx, revealed_commitments) = crate::TransactionBuilder::default()
+        let (reissue_tx, revealed_commitments, _material) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
                 genesis.secret_key,
                 AmountSecrets::from(genesis.revealed_commitment),
-                vec![],
+                vec![], // genesis is input, no decoys possible.
                 &mut rng8,
             )
             .add_outputs(owner_amounts_and_keys.clone().into_iter().map(
@@ -490,7 +495,7 @@ mod tests {
                 let secret_key_blstrs = DbcHelper::blsttc_to_blstrs_sk(sks.secret_key());
 
                 // note: decoy inputs can be created from OutputProof + dbc owner's pubkey.
-                let decoy_inputs = vec![];
+                let decoy_inputs = gen_decoy_inputs(num_decoy_inputs, &mut rng8);
                 Ok((secret_key_blstrs, amount_secrets, decoy_inputs))
             })
             .collect::<Result<Vec<(Scalar, crate::AmountSecrets, Vec<DecoyInput>)>>>()?;
@@ -507,7 +512,7 @@ mod tests {
             })
             .collect();
 
-        let (reissue_tx2, revealed_commitments) = crate::TransactionBuilder::default()
+        let (reissue_tx2, revealed_commitments, material) = crate::TransactionBuilder::default()
             .add_inputs_by_secrets(input_dbc_secrets.clone(), &mut rng8)
             .add_outputs(outputs.clone())
             .build(&mut rng8)?;
@@ -519,7 +524,11 @@ mod tests {
 
         assert_eq!(input_dbcs.len(), reissue_tx2.mlsags.len());
 
-        for (i, (in_mlsag, in_dbc)) in reissue_tx2.mlsags.iter().zip(input_dbcs.iter()).enumerate()
+        for (i, (in_mlsag, in_material)) in reissue_tx2
+            .mlsags
+            .iter()
+            .zip(material.inputs.iter())
+            .enumerate()
         {
             let is_invalid_spent_proof = invalid_spent_proofs.contains(&i);
 
@@ -539,22 +548,39 @@ mod tests {
                 .key_manager
                 .sign(&SpentProof::proof_msg(&tx_hash))?;
 
-            // Get public commitments from inputs.  (true inputs)
-            // a real wallet should add decoys from spentbook according to decoy selection algo (tbd)
-            let public_commitments: Vec<G1Affine> = in_dbc
-                .transaction
-                .outputs
-                .iter()
-                .filter(|o| *o.public_key() == in_dbc.owner())
-                .map(|o| o.commitment())
-                .collect();
+            let public_commitments = in_material.commitments(&Default::default());
 
-            let pc_gens = Default::default();
-            let revealed_commitment: RevealedCommitment = input_dbc_secrets[i].1.clone().into();
-            assert_eq!(
-                public_commitments[0],
-                revealed_commitment.commit(&pc_gens).to_affine()
-            );
+            /*
+                        // An alternate way to obtain public commitments. Without access to MlsagMaterial.
+
+                        // Find public commitment from true input, mapped to PK
+                        let public_commitments_true: BTreeMap<KeyImage, G1Affine> = in_dbc
+                            .transaction
+                            .outputs
+                            .iter()
+                            .filter(|o| *o.public_key() == in_dbc.owner())
+                            .map(|o| ((*o.public_key()).to_compressed(), o.commitment()) )
+                            .collect();
+                        assert_eq!(public_commitments_true.len(), 1);
+
+                        // Find public commitments from decoy inputs, mapped to PK
+                        // a real wallet should add decoys from spentbook according to decoy selection algo (tbd)
+                        let public_commitments_decoy: BTreeMap<KeyImage, G1Affine> = input_dbc_secrets[i].2.iter()
+                            .map(|di| (di.public_key().to_compressed(), di.commitment))
+                            .collect();
+
+                        // Join them together in a single map.
+                        let public_commitments_all: BTreeMap<KeyImage, G1Affine> = public_commitments_true.into_iter().chain(public_commitments_decoy.into_iter()).collect();
+
+                        // Obtain public commitments in proper order (important) by iterating over the
+                        // mlsag public keys and then lookup matching commitment for each.
+                        // note that the true input is inserted in a random location by MlsagMaterial::sign().
+                        let public_commitments: Vec<G1Affine> = in_mlsag
+                            .public_keys()
+                            .into_iter()
+                            .map(|pk| *public_commitments_all.get(&pk.to_compressed()).unwrap() )
+                            .collect();
+            */
 
             rr2_builder = rr2_builder.add_spent_proof_share(
                 in_mlsag.key_image.to_compressed(),
@@ -653,6 +679,17 @@ mod tests {
         Ok(())
     }
 
+    fn gen_decoy_inputs(num: usize, mut rng: impl RngCore) -> Vec<DecoyInput> {
+        let v = (0..num)
+            .map(|_| DecoyInput {
+                public_key: G1Projective::random(&mut rng).to_affine(),
+                commitment: G1Projective::random(&mut rng).to_affine(),
+            })
+            .collect();
+        println!("num: {}, v: {:#?}", num, v);
+        v
+    }
+
     /*
         #[quickcheck]
         #[ignore]
@@ -687,15 +724,15 @@ mod tests {
             public_key: owner_pubkey,
             amount: 100,
         };
-        let (_transaction, revealed_commitments) = crate::TransactionBuilder::default()
+        let (_transaction, revealed_commitments, _material) = crate::TransactionBuilder::default()
             .add_output(output)
             .build(&mut rng8)?;
 
         let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
         let secret_key = Scalar::default(); // fixme
-        let decoy_inputs = vec![]; // fixme: get from spentbook.
+        let decoy_inputs = vec![]; // genesis is only available input, so no decoys.
 
-        let (fraud_tx, _) = crate::TransactionBuilder::default()
+        let (fraud_tx, ..) = crate::TransactionBuilder::default()
             .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng8)
             .add_output(Output {
                 public_key: owner_pubkey,
