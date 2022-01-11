@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Dbc, Error, PublicKey, Result};
+use crate::{BlsHelper, Dbc, Error, PublicKey, Result};
 use blsttc::SecretKeySet;
 use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -95,7 +95,8 @@ impl From<SecretKeySet> for DerivedKeySet {
 /// After reissue, the client constructs the Dbc and then
 /// puts it into a DbcPacket along with the DerivedKeySet
 ///
-#[derive(Clone, Deserialize, Serialize)]
+// #[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone)]
 pub struct DbcPacket {
     dbc: Dbc,
     owner_keyset: DerivedKeySet,
@@ -111,7 +112,9 @@ impl DbcPacket {
     }
 
     fn verify_owner_derivation_index(&self) -> Result<()> {
-        match self.dbc.owner() == self.owner_keyset.derived_public_key() {
+        let derived_pk =
+            BlsHelper::blsttc_to_blstrs_pubkey(&self.owner_keyset.derived_public_key());
+        match self.dbc.owner() == derived_pk {
             true => Ok(()),
             false => Err(Error::DerivedOwnerKeyDoesNotMatch),
         }

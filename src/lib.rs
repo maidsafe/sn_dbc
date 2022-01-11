@@ -14,7 +14,7 @@ mod amount_secrets;
 mod builder;
 mod dbc;
 mod dbc_content;
-// mod dbc_packet;
+mod dbc_packet;
 mod error;
 mod key_manager;
 mod mint;
@@ -25,7 +25,7 @@ pub use crate::{
     builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
     dbc::{Dbc, KeyImage},
     dbc_content::{Amount, DbcContent},
-    // dbc_packet::{DbcPacket, DerivedKeySet},
+    dbc_packet::{DbcPacket, DerivedKeySet},
     error::{Error, Result},
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
@@ -117,22 +117,6 @@ pub struct DbcHelper {}
 #[cfg(feature = "dkg")]
 impl DbcHelper {
     #[allow(dead_code)]
-    pub(crate) fn blsttc_to_blstrs_sk(sk: SecretKey) -> Scalar {
-        let bytes = sk.to_bytes();
-        println!("sk bytes: {:?}", bytes);
-        Scalar::from_bytes_be(&bytes).unwrap()
-    }
-
-    pub(crate) fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> G1Affine {
-        let bytes = pk.to_bytes();
-        G1Affine::from_compressed(&bytes).unwrap()
-    }
-
-    pub(crate) fn blstrs_to_blsttc_pubkey(pk: &G1Affine) -> PublicKey {
-        let bytes = pk.to_compressed();
-        PublicKey::from_bytes(bytes).unwrap()
-    }
-
     pub fn decrypt_amount_secrets(
         owner: &bls_dkg::outcome::Outcome,
         ciphertext: &Ciphertext,
@@ -148,6 +132,27 @@ impl DbcHelper {
         ciphertext: &Ciphertext,
     ) -> Result<Amount, Error> {
         Ok(Self::decrypt_amount_secrets(owner, ciphertext)?.amount())
+    }
+}
+
+pub(crate) struct BlsHelper {}
+
+impl BlsHelper {
+    #[allow(dead_code)]
+    pub(crate) fn blsttc_to_blstrs_sk(sk: SecretKey) -> Scalar {
+        let bytes = sk.to_bytes();
+        println!("sk bytes: {:?}", bytes);
+        Scalar::from_bytes_be(&bytes).unwrap()
+    }
+
+    pub(crate) fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> G1Affine {
+        let bytes = pk.to_bytes();
+        G1Affine::from_compressed(&bytes).unwrap()
+    }
+
+    pub(crate) fn blstrs_to_blsttc_pubkey(pk: &G1Affine) -> PublicKey {
+        let bytes = pk.to_compressed();
+        PublicKey::from_bytes(bytes).unwrap()
     }
 }
 

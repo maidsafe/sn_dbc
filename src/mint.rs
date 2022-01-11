@@ -211,8 +211,8 @@ mod tests {
 
     use crate::{
         tests::{TinyInt, TinyVec},
-        Dbc, DbcBuilder, DbcHelper, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
-        SpentProofShare,
+        BlsHelper, Dbc, DbcBuilder, DbcHelper, ReissueRequestBuilder, SimpleKeyManager,
+        SimpleSigner, SpentProofShare,
     };
 
     #[quickcheck]
@@ -283,7 +283,7 @@ mod tests {
 
         let output_owner = crate::bls_dkg_id(&mut rng);
         let output_owner_pk =
-            DbcHelper::blsttc_to_blstrs_pubkey(&output_owner.public_key_set.public_key());
+            BlsHelper::blsttc_to_blstrs_pubkey(&output_owner.public_key_set.public_key());
 
         let (reissue_tx, revealed_commitments, _material) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
@@ -426,7 +426,7 @@ mod tests {
             .add_outputs(owner_amounts_and_keys.clone().into_iter().map(
                 |(public_key, (amount, _))| crate::Output {
                     amount,
-                    public_key: DbcHelper::blsttc_to_blstrs_pubkey(&public_key),
+                    public_key: BlsHelper::blsttc_to_blstrs_pubkey(&public_key),
                 },
             ))
             .build(&mut rng8)
@@ -487,12 +487,12 @@ mod tests {
             .iter()
             .map(|dbc| {
                 let (_, sks) =
-                    &owner_amounts_and_keys[&DbcHelper::blstrs_to_blsttc_pubkey(&dbc.owner())];
+                    &owner_amounts_and_keys[&BlsHelper::blstrs_to_blsttc_pubkey(&dbc.owner())];
                 let amount_secrets = AmountSecrets::try_from((
                     &sks.secret_key(),
                     &dbc.content.amount_secrets_cipher,
                 ))?;
-                let secret_key_blstrs = DbcHelper::blsttc_to_blstrs_sk(sks.secret_key());
+                let secret_key_blstrs = BlsHelper::blsttc_to_blstrs_sk(sks.secret_key());
 
                 // note: decoy inputs can be created from OutputProof + dbc owner's pubkey.
                 let decoy_inputs = gen_decoy_inputs(num_decoy_inputs, &mut rng8);
@@ -506,7 +506,7 @@ mod tests {
             .iter()
             .map(|amount| crate::Output {
                 amount: *amount,
-                public_key: DbcHelper::blsttc_to_blstrs_pubkey(
+                public_key: BlsHelper::blsttc_to_blstrs_pubkey(
                     &outputs_owner.public_key_set.public_key(),
                 ),
             })
@@ -689,7 +689,7 @@ mod tests {
 
         let input_owner = crate::bls_dkg_id(&mut rng);
         let owner_pubkey =
-            DbcHelper::blsttc_to_blstrs_pubkey(&input_owner.public_key_set.public_key());
+            BlsHelper::blsttc_to_blstrs_pubkey(&input_owner.public_key_set.public_key());
 
         let output = Output {
             public_key: owner_pubkey,
