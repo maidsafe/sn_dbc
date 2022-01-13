@@ -3,13 +3,17 @@ use crate::{
 };
 
 use blstrs::G1Affine;
-use serde::{Deserialize, Serialize};
+// use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::hash;
 
 /// A share of a SpentProof, combine enough of these to form a
 /// SpentProof.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SpentProofShare {
+    pub key_image: KeyImage,
+
     /// The Spentbook who notarized that this DBC was spent.
     pub spentbook_pks: PublicKeySet,
 
@@ -30,6 +34,7 @@ impl Eq for SpentProofShare {}
 
 impl hash::Hash for SpentProofShare {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.key_image.hash(state);
         self.spentbook_pks.hash(state);
         self.spentbook_sig_share.hash(state);
         for pc in self.public_commitments.iter() {
@@ -55,9 +60,10 @@ impl SpentProofShare {
 
 /// SpentProof's are constructed when a DBC is logged to the spentbook.
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpentProof {
-    pub index: usize,
+    pub key_image: KeyImage,
 
     /// The Spentbook who notarized that this DBC was spent.
     pub spentbook_pub_key: PublicKey,
@@ -70,27 +76,22 @@ pub struct SpentProof {
 }
 
 impl SpentProof {
-    pub fn validate<K: KeyManager>(
-        &self,
-        key_image: KeyImage,
-        tx: Hash,
-        verifier: &K,
-    ) -> Result<()> {
-        let msg = Self::proof_msg(&tx);
+    pub fn validate<K: KeyManager>(&self, tx: Hash, verifier: &K) -> Result<()> {
         verifier
-            .verify(&msg, &self.spentbook_pub_key, &self.spentbook_sig)
-            .map_err(|_| Error::InvalidSpentProofSignature(key_image))?;
+            .verify(&tx, &self.spentbook_pub_key, &self.spentbook_sig)
+            .map_err(|_| Error::InvalidSpentProofSignature(self.key_image))?;
         Ok(())
     }
+}
 
-    pub fn proof_msg(tx: &Hash) -> Hash {
-        use tiny_keccak::{Hasher, Sha3};
-        let mut sha3 = Sha3::v256();
+impl PartialOrd for SpentProof {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
-        sha3.update(&tx.0);
-
-        let mut hash = [0u8; 32];
-        sha3.finalize(&mut hash);
-        Hash(hash)
+impl Ord for SpentProof {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.key_image.cmp(&other.key_image)
     }
 }

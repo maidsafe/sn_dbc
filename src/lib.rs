@@ -135,22 +135,23 @@ impl DbcHelper {
     }
 }
 
-pub(crate) struct BlsHelper {}
+// temporary: should go away once blsttc is integrated with with blstrs
+pub struct BlsHelper {}
 
 impl BlsHelper {
     #[allow(dead_code)]
-    pub(crate) fn blsttc_to_blstrs_sk(sk: SecretKey) -> Scalar {
+    pub fn blsttc_to_blstrs_sk(sk: SecretKey) -> Scalar {
         let bytes = sk.to_bytes();
         println!("sk bytes: {:?}", bytes);
         Scalar::from_bytes_be(&bytes).unwrap()
     }
 
-    pub(crate) fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> G1Affine {
+    pub fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> G1Affine {
         let bytes = pk.to_bytes();
         G1Affine::from_compressed(&bytes).unwrap()
     }
 
-    pub(crate) fn blstrs_to_blsttc_pubkey(pk: &G1Affine) -> PublicKey {
+    pub fn blstrs_to_blsttc_pubkey(pk: &G1Affine) -> PublicKey {
         let bytes = pk.to_compressed();
         PublicKey::from_bytes(bytes).unwrap()
     }

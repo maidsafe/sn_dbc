@@ -39,6 +39,10 @@ impl AmountSecrets {
         self.0.value
     }
 
+    pub fn blinding_factor(&self) -> Scalar {
+        self.0.blinding
+    }
+
     /// Convert to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         self.0.to_bytes()
