@@ -5,7 +5,7 @@ pub use blstrs::{G1Affine, Scalar};
 use blsttc::{PublicKeySet, SignatureShare};
 use bulletproofs::PedersenGens;
 use rand_core::RngCore;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
     Amount, AmountSecrets, Dbc, DbcContent, Error, KeyImage, NodeSignature, ReissueRequest,
@@ -23,6 +23,29 @@ impl TransactionBuilder {
 
     pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = MlsagMaterial>) -> Self {
         self.0.inputs.extend(inputs);
+        self
+    }
+
+    pub fn add_input_by_true_input(
+        mut self,
+        true_input: TrueInput,
+        decoy_inputs: Vec<DecoyInput>,
+        mut rng: impl RngCore,
+    ) -> Self {
+        self.0
+            .inputs
+            .push(MlsagMaterial::new(true_input, decoy_inputs, &mut rng));
+        self
+    }
+
+    pub fn add_inputs_by_true_inputs(
+        mut self,
+        inputs: Vec<(TrueInput, Vec<DecoyInput>)>,
+        mut rng: impl RngCore,
+    ) -> Self {
+        for (true_input, decoy_inputs) in inputs.into_iter() {
+            self = self.add_input_by_true_input(true_input, decoy_inputs, &mut rng);
+        }
         self
     }
 
@@ -110,15 +133,15 @@ impl ReissueRequestBuilder {
     }
 
     /// Add a SpentProofShare for the given key_image
-    pub fn add_spent_proof_share(mut self, key_image: KeyImage, share: SpentProofShare) -> Self {
-        let shares = self.spent_proof_shares.entry(key_image).or_default();
+    pub fn add_spent_proof_share(mut self, share: SpentProofShare) -> Self {
+        let shares = self.spent_proof_shares.entry(share.key_image).or_default();
         shares.insert(share);
 
         self
     }
 
     pub fn build(&self) -> Result<ReissueRequest> {
-        let spent_proofs: BTreeMap<KeyImage, SpentProof> = self
+        let spent_proofs: BTreeSet<SpentProof> = self
             .spent_proof_shares
             .iter()
             .map(|(key_image, shares)| {
@@ -153,24 +176,14 @@ impl ReissueRequestBuilder {
 
                 let public_commitments: Vec<G1Affine> = any_share.public_commitments.clone();
 
-                let index = match self
-                    .transaction
-                    .mlsags
-                    .iter()
-                    .position(|m| m.key_image.to_compressed() == *key_image)
-                {
-                    Some(idx) => idx,
-                    None => return Err(Error::SpentProofKeyImageMismatch),
-                };
-
                 let spent_proof = SpentProof {
-                    index,
+                    key_image: *key_image,
                     spentbook_pub_key,
                     spentbook_sig,
                     public_commitments,
                 };
 
-                Ok((*key_image, spent_proof))
+                Ok(spent_proof)
             })
             .collect::<Result<_>>()?;
 
@@ -189,19 +202,14 @@ impl ReissueRequestBuilder {
 /// generate the final Dbc outputs.
 #[derive(Debug)]
 pub struct DbcBuilder {
-    pub transaction: RingCtTransaction,
     pub revealed_commitments: Vec<RevealedCommitment>,
     pub reissue_shares: Vec<ReissueShare>,
 }
 
 impl DbcBuilder {
     /// Create a new DbcBuilder from a ReissueTransaction
-    pub fn new(
-        transaction: RingCtTransaction,
-        revealed_commitments: Vec<RevealedCommitment>,
-    ) -> Self {
+    pub fn new(revealed_commitments: Vec<RevealedCommitment>) -> Self {
         Self {
-            transaction,
             revealed_commitments,
             reissue_shares: Default::default(),
         }
@@ -246,28 +254,21 @@ impl DbcBuilder {
             // add pubkeyset to HashSet, so we can verify there is only one distinct PubKeySet
             pk_set = &pk_set | &pub_key_sets; // union the sets together.
 
-            // Verify transaction returned to us by the Mint matches our request
-
-            // fixme: binary operation `!=` cannot be applied to type `RingCtTransaction`
-
-            // if self.transaction != rs.transaction {
-            //     return Err(Error::ReissueShareDbcTransactionMismatch);
-            // }
-
             // Verify that mint sig count matches input count.
-            if rs.mint_node_signatures.len() != self.transaction.mlsags.len() {
+            if rs.mint_node_signatures.len() != rs.transaction.mlsags.len() {
                 return Err(Error::ReissueShareMintNodeSignaturesLenMismatch);
             }
 
             // Verify that each input has a NodeSignature
-
-            // todo: what to replace this with?
-
-            // for input in self.reissue_transaction.inputs.iter() {
-            //     if rs.mint_node_signatures.get(&input.spend_key()).is_none() {
-            //         return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
-            //     }
-            // }
+            for mlsag in rs.transaction.mlsags.iter() {
+                if rs
+                    .mint_node_signatures
+                    .get(&mlsag.key_image.to_compressed())
+                    .is_none()
+                {
+                    return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
+                }
+            }
         }
 
         // verify that PublicKeySet for all Dbc in all ReissueShare match.
@@ -286,8 +287,9 @@ impl DbcBuilder {
             .collect();
 
         // Note: we can just use the first item because we already verified that
-        // all the ReissueShare match for dbc_transaction
+        // all the ReissueShare match
         let transaction = &self.reissue_shares[0].transaction;
+        let spent_proofs = &self.reissue_shares[0].spent_proofs;
 
         // Combine signatures from all the mint nodes to obtain Mint's Signature.
         let mint_sig = mint_public_key_set.combine_signatures(mint_sig_shares_ref)?;
@@ -300,8 +302,7 @@ impl DbcBuilder {
             .collect();
 
         // Form the final output DBCs, with Mint's Signature for each.
-        let output_dbcs: Vec<Dbc> = self
-            .transaction
+        let output_dbcs: Vec<Dbc> = transaction
             .outputs
             .iter()
             .map(|proof| {
@@ -318,8 +319,7 @@ impl DbcBuilder {
                         amount_secrets_list[0].clone(),
                     )),
                     transaction: transaction.clone(),
-                    transaction_sigs: self
-                        .transaction
+                    transaction_sigs: transaction
                         .mlsags
                         .iter()
                         .map(|mlsag| {
@@ -329,6 +329,7 @@ impl DbcBuilder {
                             )
                         })
                         .collect(),
+                    spent_proofs: spent_proofs.clone(),
                 }
             })
             .collect();

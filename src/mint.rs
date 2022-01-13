@@ -15,7 +15,7 @@
 
 use crate::{
     Amount, AmountSecrets, DbcContent, Error, Hash, KeyImage, KeyManager, NodeSignature,
-    PublicKeySet, Result, SpentProof,
+    PublicKeySet, Result, SpentProof, SpentProofShare,
 };
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
@@ -26,7 +26,8 @@ use blstrs::{G1Affine, Scalar};
 use blsttc::{poly::Poly, SecretKeySet};
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, iter::FromIterator};
+use std::collections::{BTreeMap, BTreeSet};
+use std::iter::FromIterator;
 
 pub type MintNodeSignatures = BTreeMap<KeyImage, (PublicKeySet, NodeSignature)>;
 
@@ -44,19 +45,21 @@ pub struct GenesisDbcShare {
     pub public_key_set: PublicKeySet,
     pub transaction_sig: NodeSignature,
     pub secret_key: Scalar,
+    pub spent_proofs: BTreeSet<SpentProof>,
 }
 
 // #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 #[derive(Debug, Clone)]
 pub struct ReissueRequest {
     pub transaction: RingCtTransaction,
-    pub spent_proofs: BTreeMap<KeyImage, SpentProof>,
+    pub spent_proofs: BTreeSet<SpentProof>,
 }
 
 // #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 #[derive(Debug, Clone)]
 pub struct ReissueShare {
     pub transaction: RingCtTransaction,
+    pub spent_proofs: BTreeSet<SpentProof>,
     pub mint_node_signatures: MintNodeSignatures,
 }
 
@@ -120,6 +123,8 @@ impl<K: KeyManager> MintNode<K> {
             .sign(&Hash::from(transaction.hash()))
             .map_err(|e| Error::Signing(e.to_string()))?;
 
+        let spent_proofs: BTreeSet<SpentProof> = Default::default();
+
         Ok(GenesisDbcShare {
             ringct_material,
             dbc_content,
@@ -128,6 +133,7 @@ impl<K: KeyManager> MintNode<K> {
             public_key_set: secret_key_set_ttc.public_keys(),
             transaction_sig,
             secret_key,
+            spent_proofs,
         })
     }
 
@@ -135,29 +141,82 @@ impl<K: KeyManager> MintNode<K> {
         &self.key_manager
     }
 
+    // This API will be called multiple times, once per input dbc, per section.
+    // The key_image param comes from the true input, but cannot be linked by mint to true input.
+    pub fn spend(_key_image: KeyImage, _transaction: RingCtTransaction) -> Result<SpentProofShare> {
+        unimplemented!()
+
+        // note: client is writing spentbook, so needs to write:
+        //  a: key_image --> RingCtTransaction,
+        //  b: public_key --> key_image   (for lookup by public key)
+
+        // note: do decoys have to be from same section?  (for drusu to think about)
+
+        // 1. lookup key image in spentbook, return error if not existing.
+        //    (client did not write spentbook entry.).
+
+        // 2. verify that tx in spentbook matches tx received from client.
+
+        // 3. find mlsag in transaction that corresponds to the key_image, else return error.
+
+        // 4. for each input in mlsag
+        //       lookup tx in spentbook whose output is equal to this input.
+        //         (full table scan, ouch, or multiple indexes into spentbook (key_image + public_key))
+        //       obtain the public commitment from the output.
+        //       verify commitment from input matches spentbook output commitment.
+
+        // 5. verify transaction itself.   tx.verify()  (RingCtTransaction)
+
+        // 6. create SpentProofShare and return it.
+    }
+
     pub fn reissue(&mut self, reissue_req: ReissueRequest) -> Result<ReissueShare> {
-        if reissue_req.transaction.mlsags.len() != reissue_req.spent_proofs.len() {
+        let ReissueRequest {
+            transaction,
+            spent_proofs,
+        } = reissue_req;
+
+        if transaction.mlsags.len() != spent_proofs.len() {
             return Err(Error::SpentProofInputMismatch);
         }
 
-        let mut spent_proofs: Vec<&SpentProof> = Vec::from_iter(reissue_req.spent_proofs.values());
-        spent_proofs.sort_by(|a, b| a.index.cmp(&b.index));
-        let public_commitments: Vec<Vec<G1Affine>> = spent_proofs
+        // We must get the spent_proofs into the same order as mlsags
+        // so that resulting public_commitments will be in the right order.
+        let mut spent_proofs_found: Vec<(usize, SpentProof)> = spent_proofs
+            .into_iter()
+            .filter_map(|s| {
+                transaction
+                    .mlsags
+                    .iter()
+                    .position(|m| m.key_image.to_compressed() == s.key_image)
+                    .map(|idx| (idx, s))
+            })
+            .collect();
+        if spent_proofs_found.len() != transaction.mlsags.len() {
+            return Err(Error::SpentProofKeyImageMismatch);
+        }
+        spent_proofs_found.sort_by_key(|s| s.0);
+        let spent_proofs_sorted: Vec<SpentProof> =
+            spent_proofs_found.into_iter().map(|s| s.1).collect();
+
+        let public_commitments: Vec<Vec<G1Affine>> = spent_proofs_sorted
             .iter()
             .map(|s| s.public_commitments.clone())
             .collect();
 
-        reissue_req.transaction.verify(&public_commitments)?;
+        transaction.verify(&public_commitments)?;
 
-        let transaction = reissue_req.transaction;
         let transaction_hash = Hash::from(transaction.hash());
 
         // Validate that each input has not yet been spent.
         // iterate over mlsags.  each has key_image()
         for mlsag in transaction.mlsags.iter() {
             let key_image = mlsag.key_image.to_compressed();
-            match reissue_req.spent_proofs.get(&key_image) {
-                Some(proof) => proof.validate(key_image, transaction_hash, self.key_manager())?,
+            match spent_proofs_sorted
+                .iter()
+                .find(|s| s.key_image == key_image)
+            {
+                Some(proof) => proof.validate(transaction_hash, self.key_manager())?,
                 None => return Err(Error::MissingSpentProof(key_image)),
             }
         }
@@ -166,6 +225,7 @@ impl<K: KeyManager> MintNode<K> {
 
         let reissue_share = ReissueShare {
             transaction,
+            spent_proofs: BTreeSet::from_iter(spent_proofs_sorted),
             mint_node_signatures: transaction_sigs,
         };
 
@@ -243,6 +303,7 @@ mod tests {
                 genesis_dbc_input(),
                 (genesis_key, genesis_sig),
             )]),
+            spent_proofs: genesis.spent_proofs,
         };
 
         let validation = genesis_dbc.confirm_valid(genesis_node.key_manager());
@@ -279,6 +340,7 @@ mod tests {
                 genesis_dbc_input(),
                 (genesis_key, genesis_sig),
             )]),
+            spent_proofs: genesis.spent_proofs,
         };
 
         let output_owner = crate::bls_dkg_id(&mut rng);
@@ -300,9 +362,7 @@ mod tests {
         let tx_hash = &Hash::from(reissue_tx.hash());
 
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
-        let spentbook_sig_share = genesis_node
-            .key_manager
-            .sign(&SpentProof::proof_msg(&tx_hash))?;
+        let spentbook_sig_share = genesis_node.key_manager.sign(&tx_hash)?;
 
         // there is only one input (genesis), so no decoys are available.
         let public_commitments: Vec<G1Affine> = genesis_dbc
@@ -313,14 +373,12 @@ mod tests {
             .collect();
 
         let rr = ReissueRequestBuilder::new(reissue_tx.clone())
-            .add_spent_proof_share(
-                reissue_tx.mlsags[0].key_image.to_compressed(),
-                SpentProofShare {
-                    spentbook_pks,
-                    spentbook_sig_share,
-                    public_commitments,
-                },
-            )
+            .add_spent_proof_share(SpentProofShare {
+                key_image: reissue_tx.mlsags[0].key_image.to_compressed(),
+                spentbook_pks,
+                spentbook_sig_share,
+                public_commitments,
+            })
             .build()?;
 
         let reissue_share = match genesis_node.reissue(rr) {
@@ -348,7 +406,7 @@ mod tests {
         };
 
         // Aggregate ReissueShare to build output DBCs
-        let mut dbc_builder = DbcBuilder::new(reissue_tx, revealed_commitments);
+        let mut dbc_builder = DbcBuilder::new(revealed_commitments);
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
         let output_dbcs = dbc_builder.build()?;
 
@@ -434,9 +492,7 @@ mod tests {
         let tx_hash = &Hash::from(reissue_tx.hash());
 
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
-        let spentbook_sig_share = genesis_node
-            .key_manager
-            .sign(&SpentProof::proof_msg(&tx_hash))?;
+        let spentbook_sig_share = genesis_node.key_manager.sign(&tx_hash)?;
 
         // there is only one input (genesis), so no decoys are available.
         let public_commitments: Vec<G1Affine> = genesis
@@ -449,14 +505,12 @@ mod tests {
 
         let key_image = reissue_tx.mlsags[0].key_image.to_compressed();
         let rr1 = ReissueRequestBuilder::new(reissue_tx)
-            .add_spent_proof_share(
+            .add_spent_proof_share(SpentProofShare {
                 key_image,
-                SpentProofShare {
-                    spentbook_pks,
-                    spentbook_sig_share,
-                    public_commitments,
-                },
-            )
+                spentbook_pks,
+                spentbook_sig_share,
+                public_commitments,
+            })
             .build()?;
 
         let reissue_share = match genesis_node.reissue(rr1.clone()) {
@@ -479,7 +533,7 @@ mod tests {
         };
 
         // Aggregate ReissueShare to build output DBCs
-        let mut dbc_builder = DbcBuilder::new(rr1.transaction, revealed_commitments);
+        let mut dbc_builder = DbcBuilder::new(revealed_commitments);
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
         let input_dbcs = dbc_builder.build()?;
 
@@ -544,23 +598,19 @@ mod tests {
             };
 
             let spentbook_pks = genesis_node.key_manager.public_key_set()?;
-            let spentbook_sig_share = genesis_node
-                .key_manager
-                .sign(&SpentProof::proof_msg(&tx_hash))?;
+            let spentbook_sig_share = genesis_node.key_manager.sign(&tx_hash)?;
 
             let public_commitments = in_material.commitments(&Default::default());
 
             // note: alternate way to obtain public_commitments without RingCtMaterial
             // exists as comment in commit: b1502a050967f3b04659be96ea8ba745d7b49f2b
 
-            rr2_builder = rr2_builder.add_spent_proof_share(
-                in_mlsag.key_image.to_compressed(),
-                SpentProofShare {
-                    public_commitments,
-                    spentbook_pks,
-                    spentbook_sig_share,
-                },
-            );
+            rr2_builder = rr2_builder.add_spent_proof_share(SpentProofShare {
+                key_image: in_mlsag.key_image.to_compressed(),
+                public_commitments,
+                spentbook_pks,
+                spentbook_sig_share,
+            });
         }
 
         let rr2 = rr2_builder.build()?;
@@ -580,7 +630,7 @@ mod tests {
                 );
 
                 // Aggregate ReissueShare to build output DBCs
-                let mut dbc_builder = DbcBuilder::new(reissue_tx2, revealed_commitments);
+                let mut dbc_builder = DbcBuilder::new(revealed_commitments);
                 dbc_builder = dbc_builder.add_reissue_share(rs);
                 let output_dbcs = dbc_builder.build()?;
 

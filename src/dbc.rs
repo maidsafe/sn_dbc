@@ -8,9 +8,10 @@
 
 use crate::{dbc_content::OwnerPublicKey, DbcContent, Error, KeyManager, Result};
 
+use crate::{Hash, SpentProof};
 use blst_ringct::ringct::RingCtTransaction;
 use blsttc::{PublicKey, Signature};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tiny_keccak::{Hasher, Sha3};
 
 // note: typedef should be moved into blst_ringct crate
@@ -22,6 +23,7 @@ pub struct Dbc {
     pub content: DbcContent,
     pub transaction: RingCtTransaction,
     pub transaction_sigs: BTreeMap<KeyImage, (PublicKey, Signature)>,
+    pub spent_proofs: BTreeSet<SpentProof>,
 }
 
 impl Dbc {
@@ -52,21 +54,20 @@ impl Dbc {
         hash
     }
 
-    // todo: Do we even need this fn anymore?   not called by MintNode::reissue()...
-    //       To be correct, it would need to call RingCtTransaction::verify()...
-
     // Check there exists a DbcTransaction with the output containing this Dbc
     // Check there DOES NOT exist a DbcTransaction with this Dbc as parent (already minted)
-    pub fn confirm_valid<K: KeyManager>(&self, _verifier: &K) -> Result<(), Error> {
-        // for (input, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
-        //     if !self.transaction.inputs.contains(input) {
-        //         return Err(Error::UnknownInput);
-        //     }
-
-        //     verifier
-        //         .verify(&self.transaction.hash(), mint_key, mint_sig)
-        //         .map_err(|e| Error::Signing(e.to_string()))?;
-        // }
+    pub fn confirm_valid<K: KeyManager>(&self, verifier: &K) -> Result<(), Error> {
+        for spent_proof in self.spent_proofs.iter() {
+            if !self
+                .transaction
+                .mlsags
+                .iter()
+                .any(|m| m.key_image.to_compressed() == spent_proof.key_image)
+            {
+                return Err(Error::UnknownInput);
+            }
+            spent_proof.validate(Hash::from(self.transaction.hash()), verifier)?;
+        }
 
         if self.transaction.mlsags.is_empty() {
             Err(Error::TransactionMustHaveAnInput)
