@@ -8,8 +8,8 @@ use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, Error, KeyImage, NodeSignature, ReissueRequest,
-    ReissueShare, Result, SpentProof, SpentProofShare,
+    Amount, AmountSecrets, Dbc, DbcContent, Error, NodeSignature, ReissueRequest, ReissueShare,
+    Result, SpentProof, SpentProofShare,
 };
 
 #[derive(Default)]
@@ -120,7 +120,7 @@ impl TransactionBuilder {
 #[derive(Debug)]
 pub struct ReissueRequestBuilder {
     pub transaction: RingCtTransaction,
-    pub spent_proof_shares: BTreeMap<KeyImage, HashSet<SpentProofShare>>,
+    pub spent_proof_shares: BTreeMap<usize, HashSet<SpentProofShare>>,
 }
 
 impl ReissueRequestBuilder {
@@ -133,8 +133,8 @@ impl ReissueRequestBuilder {
     }
 
     /// Add a SpentProofShare for the given key_image
-    pub fn add_spent_proof_share(mut self, share: SpentProofShare) -> Self {
-        let shares = self.spent_proof_shares.entry(share.key_image).or_default();
+    pub fn add_spent_proof_share(mut self, input_index: usize, share: SpentProofShare) -> Self {
+        let shares = self.spent_proof_shares.entry(input_index).or_default();
         shares.insert(share);
 
         self
@@ -144,24 +144,24 @@ impl ReissueRequestBuilder {
         let spent_proofs: BTreeSet<SpentProof> = self
             .spent_proof_shares
             .iter()
-            .map(|(key_image, shares)| {
+            .map(|(input_index, shares)| {
                 let any_share = shares
                     .iter()
                     .next()
-                    .ok_or(Error::ReissueRequestMissingSpentProofShare(*key_image))?;
+                    .ok_or(Error::ReissueRequestMissingSpentProofShare(*input_index))?;
 
-                if shares
+                if !shares
                     .iter()
                     .map(SpentProofShare::spentbook_pks)
-                    .any(|pks| pks != any_share.spentbook_pks())
+                    .any(|pks| pks == any_share.spentbook_pks())
                 {
                     return Err(Error::ReissueRequestPublicKeySetMismatch);
                 }
 
-                if shares
+                if !shares
                     .iter()
                     .map(|s| &s.public_commitments)
-                    .any(|pc| *pc != any_share.public_commitments)
+                    .any(|pc| *pc == any_share.public_commitments)
                 {
                     return Err(Error::ReissueRequestPublicCommitmentMismatch);
                 }
@@ -177,7 +177,7 @@ impl ReissueRequestBuilder {
                 let public_commitments: Vec<G1Affine> = any_share.public_commitments.clone();
 
                 let spent_proof = SpentProof {
-                    key_image: *key_image,
+                    key_image: any_share.key_image,
                     spentbook_pub_key,
                     spentbook_sig,
                     public_commitments,
@@ -241,14 +241,14 @@ impl DbcBuilder {
             let mut node_shares: Vec<NodeSignature> = rs
                 .mint_node_signatures
                 .iter()
-                .map(|e| e.1 .1.clone())
+                .map(|e| e.1 .1 .1.clone())
                 .collect();
             mint_sig_shares.append(&mut node_shares);
 
             let pub_key_sets: HashSet<PublicKeySet> = rs
                 .mint_node_signatures
                 .iter()
-                .map(|e| e.1 .0.clone())
+                .map(|e| e.1 .1 .0.clone())
                 .collect();
 
             // add pubkeyset to HashSet, so we can verify there is only one distinct PubKeySet
@@ -260,11 +260,11 @@ impl DbcBuilder {
             }
 
             // Verify that each input has a NodeSignature
-            for mlsag in rs.transaction.mlsags.iter() {
-                if rs
+            for (idx, mlsag) in rs.transaction.mlsags.iter().enumerate() {
+                if !rs
                     .mint_node_signatures
-                    .get(&mlsag.key_image.to_compressed())
-                    .is_none()
+                    .iter()
+                    .any(|(i, (k, _))| *i == idx && *k == mlsag.key_image.to_compressed())
                 {
                     return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
                 }
@@ -305,27 +305,31 @@ impl DbcBuilder {
         let output_dbcs: Vec<Dbc> = transaction
             .outputs
             .iter()
-            .map(|proof| {
+            .map(|output| {
                 let amount_secrets_list: Vec<AmountSecrets> = output_commitments
                     .iter()
-                    .filter(|(c, _)| *c == proof.commitment())
+                    .filter(|(c, _)| *c == output.commitment())
                     .map(|(_, r)| AmountSecrets::from(*r))
                     .collect();
-                assert!(amount_secrets_list.len() == 1);
+                assert_eq!(amount_secrets_list.len(), 1);
 
                 Dbc {
                     content: DbcContent::from((
-                        *proof.public_key(),
+                        *output.public_key(),
                         amount_secrets_list[0].clone(),
                     )),
                     transaction: transaction.clone(),
                     transaction_sigs: transaction
                         .mlsags
                         .iter()
-                        .map(|mlsag| {
+                        .enumerate()
+                        .map(|(idx, mlsag)| {
                             (
-                                mlsag.key_image.to_compressed(),
-                                (mint_public_key_set.public_key(), mint_sig.clone()),
+                                idx,
+                                (
+                                    mlsag.key_image.to_compressed(),
+                                    (mint_public_key_set.public_key(), mint_sig.clone()),
+                                ),
                             )
                         })
                         .collect(),

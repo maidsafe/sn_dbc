@@ -155,6 +155,11 @@ impl BlsHelper {
         let bytes = pk.to_compressed();
         PublicKey::from_bytes(bytes).unwrap()
     }
+
+    pub fn blstrs_to_blsttc_sk(sk: Scalar) -> SecretKey {
+        let bytes = sk.to_bytes_be();
+        SecretKey::from_bytes(bytes).unwrap()
+    }
 }
 
 pub(crate) fn sha3_256(input: &[u8]) -> [u8; 32] {
@@ -202,9 +207,9 @@ mod tests {
     pub struct NonZeroTinyInt(NonZeroU8);
 
     impl NonZeroTinyInt {
-        // pub fn coerce<T: From<u8>>(self) -> T {
-        //     self.0.get().into()
-        // }
+        pub fn coerce<T: From<u8>>(self) -> T {
+            self.0.get().into()
+        }
     }
 
     impl std::fmt::Debug for NonZeroTinyInt {
