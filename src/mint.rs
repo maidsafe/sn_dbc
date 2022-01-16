@@ -29,7 +29,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::iter::FromIterator;
 
-pub type MintNodeSignatures = BTreeMap<KeyImage, (PublicKeySet, NodeSignature)>;
+// note: Inputs are not guaranteed to use unique KeyImage, so we cannot
+//       use it as the map key.  Instead we key by input index which
+//       is the position of the MlsagSignature in RingCtTransaction.mlsags.
+//       We may want to revisit this.
+pub type MintNodeSignature = (KeyImage, (PublicKeySet, NodeSignature));
+pub type MintNodeSignatures = BTreeMap<usize, MintNodeSignature>;
 
 pub fn genesis_dbc_input() -> KeyImage {
     use blsttc::group::CurveProjective;
@@ -41,7 +46,7 @@ pub struct GenesisDbcShare {
     pub ringct_material: RingCtMaterial,
     pub dbc_content: DbcContent,
     pub transaction: RingCtTransaction,
-    pub revealed_commitment: RevealedCommitment,
+    pub revealed_commitments: Vec<RevealedCommitment>,
     pub public_key_set: PublicKeySet,
     pub transaction_sig: NodeSignature,
     pub secret_key: Scalar,
@@ -129,7 +134,7 @@ impl<K: KeyManager> MintNode<K> {
             ringct_material,
             dbc_content,
             transaction,
-            revealed_commitment: revealed_commitments[0], // output commitments
+            revealed_commitments, // output commitments
             public_key_set: secret_key_set_ttc.public_keys(),
             transaction_sig,
             secret_key,
@@ -232,10 +237,7 @@ impl<K: KeyManager> MintNode<K> {
         Ok(reissue_share)
     }
 
-    fn sign_transaction(
-        &self,
-        transaction: &RingCtTransaction,
-    ) -> Result<BTreeMap<KeyImage, (PublicKeySet, NodeSignature)>> {
+    fn sign_transaction(&self, transaction: &RingCtTransaction) -> Result<MintNodeSignatures> {
         let sig = self
             .key_manager
             .sign(&Hash::from(transaction.hash()))
@@ -246,15 +248,12 @@ impl<K: KeyManager> MintNode<K> {
             .public_key_set()
             .map_err(|e| Error::Signing(e.to_string()))?;
 
-        let v: Vec<KeyImage> = transaction
+        Ok(transaction
             .mlsags
             .iter()
-            .map(|m| m.key_image.to_compressed())
-            .collect();
-
-        Ok(BTreeMap::from_iter(
-            v.iter().cloned().zip(std::iter::repeat((pks, sig))),
-        ))
+            .enumerate()
+            .map(|(i, m)| (i, (m.key_image.to_compressed(), (pks.clone(), sig.clone()))))
+            .collect())
     }
 }
 
@@ -300,8 +299,8 @@ mod tests {
             content: genesis.dbc_content,
             transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
-                genesis_dbc_input(),
-                (genesis_key, genesis_sig),
+                0,
+                (genesis_dbc_input(), (genesis_key, genesis_sig)),
             )]),
             spent_proofs: genesis.spent_proofs,
         };
@@ -324,8 +323,7 @@ mod tests {
 
         let genesis_owner = crate::bls_dkg_id(&mut rng);
         let genesis_key = genesis_owner.public_key_set.public_key();
-        let key_manager =
-            SimpleKeyManager::new(SimpleSigner::from(genesis_owner.clone()), genesis_key);
+        let key_manager = SimpleKeyManager::new(SimpleSigner::from(genesis_owner), genesis_key);
         let mut genesis_node = MintNode::new(key_manager.clone());
 
         let genesis = genesis_node.issue_genesis_dbc(output_amount, &mut rng8)?;
@@ -337,8 +335,8 @@ mod tests {
             content: genesis.dbc_content,
             transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
-                genesis_dbc_input(),
-                (genesis_key, genesis_sig),
+                0,
+                (genesis_dbc_input(), (genesis_key, genesis_sig)),
             )]),
             spent_proofs: genesis.spent_proofs,
         };
@@ -350,7 +348,7 @@ mod tests {
         let (reissue_tx, revealed_commitments, _material) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
                 genesis.secret_key,
-                AmountSecrets::from(genesis.revealed_commitment),
+                AmountSecrets::from(genesis.revealed_commitments[0]),
                 vec![], // genesis is only input, so no decoys.
                 &mut rng8,
             )
@@ -362,7 +360,7 @@ mod tests {
         let tx_hash = &Hash::from(reissue_tx.hash());
 
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
-        let spentbook_sig_share = genesis_node.key_manager.sign(&tx_hash)?;
+        let spentbook_sig_share = genesis_node.key_manager.sign(tx_hash)?;
 
         // there is only one input (genesis), so no decoys are available.
         let public_commitments: Vec<G1Affine> = genesis_dbc
@@ -373,12 +371,15 @@ mod tests {
             .collect();
 
         let rr = ReissueRequestBuilder::new(reissue_tx.clone())
-            .add_spent_proof_share(SpentProofShare {
-                key_image: reissue_tx.mlsags[0].key_image.to_compressed(),
-                spentbook_pks,
-                spentbook_sig_share,
-                public_commitments,
-            })
+            .add_spent_proof_share(
+                0,
+                SpentProofShare {
+                    key_image: reissue_tx.mlsags[0].key_image.to_compressed(),
+                    spentbook_pks,
+                    spentbook_sig_share,
+                    public_commitments,
+                },
+            )
             .build()?;
 
         let reissue_share = match genesis_node.reissue(rr) {
@@ -400,7 +401,6 @@ mod tests {
                 return Ok(());
             }
             Err(e) => {
-                println!("got error: {:#?}", e);
                 return Err(e);
             }
         };
@@ -477,7 +477,7 @@ mod tests {
         let (reissue_tx, revealed_commitments, _material) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
                 genesis.secret_key,
-                AmountSecrets::from(genesis.revealed_commitment),
+                AmountSecrets::from(genesis.revealed_commitments[0]),
                 vec![], // genesis is input, no decoys possible.
                 &mut rng8,
             )
@@ -492,7 +492,7 @@ mod tests {
         let tx_hash = &Hash::from(reissue_tx.hash());
 
         let spentbook_pks = genesis_node.key_manager.public_key_set()?;
-        let spentbook_sig_share = genesis_node.key_manager.sign(&tx_hash)?;
+        let spentbook_sig_share = genesis_node.key_manager.sign(tx_hash)?;
 
         // there is only one input (genesis), so no decoys are available.
         let public_commitments: Vec<G1Affine> = genesis
@@ -505,15 +505,18 @@ mod tests {
 
         let key_image = reissue_tx.mlsags[0].key_image.to_compressed();
         let rr1 = ReissueRequestBuilder::new(reissue_tx)
-            .add_spent_proof_share(SpentProofShare {
-                key_image,
-                spentbook_pks,
-                spentbook_sig_share,
-                public_commitments,
-            })
+            .add_spent_proof_share(
+                0,
+                SpentProofShare {
+                    key_image,
+                    spentbook_pks,
+                    spentbook_sig_share,
+                    public_commitments,
+                },
+            )
             .build()?;
 
-        let reissue_share = match genesis_node.reissue(rr1.clone()) {
+        let reissue_share = match genesis_node.reissue(rr1) {
             Ok(rs) => {
                 // Verify that at least one input (output in this tx) was present.
                 assert!(!input_amounts.is_empty());
@@ -527,7 +530,6 @@ mod tests {
                 return Ok(());
             }
             Err(e) => {
-                println!("First reissue failed!");
                 return Err(e);
             }
         };
@@ -567,7 +569,7 @@ mod tests {
             .collect();
 
         let (reissue_tx2, revealed_commitments, material) = crate::TransactionBuilder::default()
-            .add_inputs_by_secrets(input_dbc_secrets.clone(), &mut rng8)
+            .add_inputs_by_secrets(input_dbc_secrets, &mut rng8)
             .add_outputs(outputs.clone())
             .build(&mut rng8)?;
 
@@ -605,12 +607,15 @@ mod tests {
             // note: alternate way to obtain public_commitments without RingCtMaterial
             // exists as comment in commit: b1502a050967f3b04659be96ea8ba745d7b49f2b
 
-            rr2_builder = rr2_builder.add_spent_proof_share(SpentProofShare {
-                key_image: in_mlsag.key_image.to_compressed(),
-                public_commitments,
-                spentbook_pks,
-                spentbook_sig_share,
-            });
+            rr2_builder = rr2_builder.add_spent_proof_share(
+                i,
+                SpentProofShare {
+                    key_image: in_mlsag.key_image.to_compressed(),
+                    public_commitments,
+                    spentbook_pks,
+                    spentbook_sig_share,
+                },
+            );
         }
 
         let rr2 = rr2_builder.build()?;
@@ -670,7 +675,7 @@ mod tests {
                 }
             }
             Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {
-                assert!(invalid_spent_proofs.len() > 0);
+                assert!(!invalid_spent_proofs.is_empty());
             }
             Err(Error::TransactionMustHaveAnInput) => {
                 assert_eq!(input_amounts.len(), 0);
@@ -701,14 +706,12 @@ mod tests {
     }
 
     fn gen_decoy_inputs(num: usize, mut rng: impl RngCore) -> Vec<DecoyInput> {
-        let v = (0..num)
+        (0..num)
             .map(|_| DecoyInput {
                 public_key: G1Projective::random(&mut rng).to_affine(),
                 commitment: G1Projective::random(&mut rng).to_affine(),
             })
-            .collect();
-        println!("num: {}, v: {:#?}", num, v);
-        v
+            .collect()
     }
 
     /*
@@ -748,7 +751,6 @@ mod tests {
         let (_transaction, revealed_commitments, _material) = crate::TransactionBuilder::default()
             .add_output(output)
             .build(&mut rng8)?;
-
         let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
         let secret_key = Scalar::default(); // fixme
         let decoy_inputs = vec![]; // genesis is only available input, so no decoys.

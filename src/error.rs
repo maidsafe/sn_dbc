@@ -26,8 +26,6 @@ pub enum Error {
     FailedSignature,
     #[error("Unrecognised authority.")]
     UnrecognisedAuthority,
-    #[error("ReissueRequestBuilder is missing a reissue transaction")]
-    MissingReissueTransaction,
     #[error("At least one transaction input is missing a signature.")]
     MissingSignatureForInput,
     #[error("At least one input is missing a spent proof for {0:?}")]
@@ -40,8 +38,6 @@ pub enum Error {
     TransactionMustHaveAnInput,
     #[error("Dbc Content is not a member of transaction outputs")]
     DbcContentNotPresentInTransactionOutput,
-    #[error("Dbc Content parents is not the same transaction inputs")]
-    DbcContentParentsDifferentFromTransactionInputs,
 
     #[error("The number of SpentProof does not match the number of input MlsagSignature")]
     SpentProofInputMismatch,
@@ -56,7 +52,7 @@ pub enum Error {
     ReissueRequestPublicCommitmentMismatch,
 
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
-    ReissueRequestMissingSpentProofShare(KeyImage),
+    ReissueRequestMissingSpentProofShare(usize),
 
     #[error("The PublicKeySet differs between ReissueShare entries")]
     ReissueSharePublicKeySetMismatch,
@@ -66,9 +62,6 @@ pub enum Error {
 
     #[error("MintNodeSignature not found for an input in ReissueTransaction")]
     ReissueShareMintNodeSignatureNotFoundForInput,
-
-    #[error("The DbcTransaction in ReissueShare differs from that of ReissueTransaction")]
-    ReissueShareDbcTransactionMismatch,
 
     #[error("No reissue shares")]
     NoReissueShares,
