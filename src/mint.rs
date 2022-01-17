@@ -33,8 +33,8 @@ use std::iter::FromIterator;
 //       use it as the map key.  Instead we key by input index which
 //       is the position of the MlsagSignature in RingCtTransaction.mlsags.
 //       We may want to revisit this.
-pub type MintNodeSignature = (KeyImage, (PublicKeySet, NodeSignature));
-pub type MintNodeSignatures = BTreeMap<usize, MintNodeSignature>;
+pub type MintNodeSignature = (PublicKeySet, NodeSignature);
+pub type MintNodeSignatures = BTreeMap<KeyImage, MintNodeSignature>;
 
 pub fn genesis_dbc_input() -> KeyImage {
     use blsttc::group::CurveProjective;
@@ -185,6 +185,24 @@ impl<K: KeyManager> MintNode<K> {
             return Err(Error::SpentProofInputMismatch);
         }
 
+        let keyimage_unique: BTreeSet<KeyImage> = transaction
+            .mlsags
+            .iter()
+            .map(|m| m.key_image.to_compressed())
+            .collect();
+        if keyimage_unique.len() != transaction.mlsags.len() {
+            return Err(Error::KeyImageNotUniqueAcrossInputs);
+        }
+
+        let pubkey_unique: BTreeSet<KeyImage> = transaction
+            .outputs
+            .iter()
+            .map(|o| o.public_key().to_compressed())
+            .collect();
+        if pubkey_unique.len() != transaction.outputs.len() {
+            return Err(Error::PublicKeyNotUniqueAcrossOutputs);
+        }
+
         // We must get the spent_proofs into the same order as mlsags
         // so that resulting public_commitments will be in the right order.
         let mut spent_proofs_found: Vec<(usize, SpentProof)> = spent_proofs
@@ -197,6 +215,10 @@ impl<K: KeyManager> MintNode<K> {
                     .map(|idx| (idx, s))
             })
             .collect();
+
+        // note: since we already verified key_image is unique amongst
+        // mlsags, this check ensures it is also unique amongst SpentProofs
+        // as well as matching mlsag key images.
         if spent_proofs_found.len() != transaction.mlsags.len() {
             return Err(Error::SpentProofKeyImageMismatch);
         }
@@ -251,8 +273,7 @@ impl<K: KeyManager> MintNode<K> {
         Ok(transaction
             .mlsags
             .iter()
-            .enumerate()
-            .map(|(i, m)| (i, (m.key_image.to_compressed(), (pks.clone(), sig.clone()))))
+            .map(|m| (m.key_image.to_compressed(), (pks.clone(), sig.clone())))
             .collect())
     }
 }
@@ -299,8 +320,8 @@ mod tests {
             content: genesis.dbc_content,
             transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
-                0,
-                (genesis_dbc_input(), (genesis_key, genesis_sig)),
+                genesis_dbc_input(),
+                (genesis_key, genesis_sig),
             )]),
             spent_proofs: genesis.spent_proofs,
         };
@@ -335,15 +356,19 @@ mod tests {
             content: genesis.dbc_content,
             transaction: genesis.transaction,
             transaction_sigs: BTreeMap::from_iter([(
-                0,
-                (genesis_dbc_input(), (genesis_key, genesis_sig)),
+                genesis_dbc_input(),
+                (genesis_key, genesis_sig),
             )]),
             spent_proofs: genesis.spent_proofs,
         };
 
-        let output_owner = crate::bls_dkg_id(&mut rng);
-        let output_owner_pk =
-            BlsHelper::blsttc_to_blstrs_pubkey(&output_owner.public_key_set.public_key());
+        let output_owners: Vec<bls_dkg::outcome::Outcome> = (0..output_amounts.len())
+            .map(|_| crate::bls_dkg_id(&mut rng))
+            .collect();
+        let output_owner_pks: Vec<G1Affine> = output_owners
+            .iter()
+            .map(|o| BlsHelper::blsttc_to_blstrs_pubkey(&o.public_key_set.public_key()))
+            .collect();
 
         let (reissue_tx, revealed_commitments, _material) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
@@ -352,10 +377,15 @@ mod tests {
                 vec![], // genesis is only input, so no decoys.
                 &mut rng8,
             )
-            .add_outputs(output_amounts.iter().map(|a| crate::Output {
-                amount: *a,
-                public_key: output_owner_pk,
-            }))
+            .add_outputs(
+                output_amounts
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, a)| crate::Output {
+                        amount: *a,
+                        public_key: output_owner_pks[idx],
+                    }),
+            )
             .build(&mut rng8)?;
         let tx_hash = &Hash::from(reissue_tx.hash());
 
@@ -410,9 +440,9 @@ mod tests {
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
         let output_dbcs = dbc_builder.build()?;
 
-        for dbc in output_dbcs.iter() {
+        for (idx, dbc) in output_dbcs.iter().enumerate() {
             let dbc_amount =
-                DbcHelper::decrypt_amount(&output_owner, &dbc.content.amount_secrets_cipher)?;
+                DbcHelper::decrypt_amount(&output_owners[idx], &dbc.content.amount_secrets_cipher)?;
             assert!(output_amounts.iter().any(|a| *a == dbc_amount));
             assert!(dbc.confirm_valid(&key_manager).is_ok());
         }
@@ -420,8 +450,12 @@ mod tests {
         assert_eq!(
             output_dbcs
                 .iter()
-                .map(|dbc| {
-                    DbcHelper::decrypt_amount(&output_owner, &dbc.content.amount_secrets_cipher)
+                .enumerate()
+                .map(|(idx, dbc)| {
+                    DbcHelper::decrypt_amount(
+                        &output_owners[idx],
+                        &dbc.content.amount_secrets_cipher,
+                    )
                 })
                 .sum::<Result<Amount, _>>()?,
             output_amount
@@ -556,14 +590,17 @@ mod tests {
             })
             .collect::<Result<Vec<(Scalar, crate::AmountSecrets, Vec<DecoyInput>)>>>()?;
 
-        let outputs_owner = crate::bls_dkg_id(&mut rng);
+        let outputs_owners: Vec<bls_dkg::outcome::Outcome> = (0..=output_amounts.len())
+            .map(|_| crate::bls_dkg_id(&mut rng))
+            .collect();
 
         let outputs: Vec<Output> = output_amounts
             .iter()
-            .map(|amount| crate::Output {
+            .enumerate()
+            .map(|(idx, amount)| crate::Output {
                 amount: *amount,
                 public_key: BlsHelper::blsttc_to_blstrs_pubkey(
-                    &outputs_owner.public_key_set.public_key(),
+                    &outputs_owners[idx].public_key_set.public_key(),
                 ),
             })
             .collect();
@@ -647,9 +684,10 @@ mod tests {
                 assert_eq!(
                     output_dbcs
                         .iter()
-                        .map(|dbc| {
+                        .enumerate()
+                        .map(|(idx, dbc)| {
                             DbcHelper::decrypt_amount(
-                                &outputs_owner,
+                                &outputs_owners[idx],
                                 &dbc.content.amount_secrets_cipher,
                             )
                         })
