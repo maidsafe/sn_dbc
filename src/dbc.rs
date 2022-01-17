@@ -22,7 +22,7 @@ pub type KeyImage = [u8; 48]; // G1 compressed
 pub struct Dbc {
     pub content: DbcContent,
     pub transaction: RingCtTransaction,
-    pub transaction_sigs: BTreeMap<usize, (KeyImage, (PublicKey, Signature))>,
+    pub transaction_sigs: BTreeMap<KeyImage, (PublicKey, Signature)>,
     pub spent_proofs: BTreeSet<SpentProof>,
 }
 
@@ -39,8 +39,7 @@ impl Dbc {
         sha3.update(&self.content.hash().0);
         sha3.update(&self.transaction.hash());
 
-        for (idx, (in_key, (mint_key, mint_sig))) in self.transaction_sigs.iter() {
-            sha3.update(&idx.to_le_bytes());
+        for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
             sha3.update(in_key);
             sha3.update(&mint_key.to_bytes());
             sha3.update(&mint_sig.to_bytes());
@@ -118,7 +117,7 @@ mod tests {
         dbc_owner: SecretKey,
         dbc: Dbc,
         n_ways: u8,
-        output_owner: PublicKey,
+        output_owners: Vec<PublicKey>,
         spentbook_node: &MintNode<SimpleKeyManager>,
         mut rng8: impl RngCore + rand_core::CryptoRng,
     ) -> Result<(ReissueRequest, Vec<RevealedCommitment>)> {
@@ -135,10 +134,14 @@ mod tests {
                 decoy_inputs,
                 &mut rng8,
             )
-            .add_outputs(divide(amount, n_ways).map(|amount| Output {
-                amount,
-                public_key: BlsHelper::blsttc_to_blstrs_pubkey(&output_owner),
-            }))
+            .add_outputs(
+                divide(amount, n_ways)
+                    .enumerate()
+                    .map(|(idx, amount)| Output {
+                        amount,
+                        public_key: BlsHelper::blsttc_to_blstrs_pubkey(&output_owners[idx]),
+                    }),
+            )
             .build(&mut rng8)?;
 
         let tx_hash = Hash::from(reissue_tx.hash());
@@ -222,6 +225,7 @@ mod tests {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
+        // let n_inputs = n_inputs.coerce::<u8>();
         let amount = 100;
         let mint_owner = crate::bls_dkg_id(&mut rng);
 
@@ -244,14 +248,10 @@ mod tests {
                 .transaction
                 .mlsags
                 .iter()
-                .enumerate()
-                .map(|(idx, mlsag)| {
+                .map(|mlsag| {
                     (
-                        idx,
-                        (
-                            mlsag.key_image.to_compressed(),
-                            (mint_owner.public_key_set.public_key(), genesis_sig.clone()),
-                        ),
+                        mlsag.key_image.to_compressed(),
+                        (mint_owner.public_key_set.public_key(), genesis_sig.clone()),
                     )
                 })
                 .collect(),
@@ -260,14 +260,23 @@ mod tests {
         };
 
         // let input_owner = crate::bls_dkg_id();
-        let input_owner = SecretKeySet::random(1, &mut rng);
-        let input_owner_blstrs = BlsHelper::blsttc_to_blstrs_sk(input_owner.secret_key());
+        let input_owners: Vec<SecretKeySet> = (0..=n_inputs.coerce())
+            .map(|_| SecretKeySet::random(1, &mut rng))
+            .collect();
+        let input_owners_blstrs: Vec<blstrs::Scalar> = input_owners
+            .iter()
+            .map(|sks| BlsHelper::blsttc_to_blstrs_sk(sks.secret_key()))
+            .collect();
 
         let (reissue_request, revealed_commitments) = prepare_even_split(
             BlsHelper::blstrs_to_blsttc_sk(genesis.secret_key),
             genesis_dbc,
             n_inputs.coerce(),
-            input_owner.public_keys().public_key(),
+            input_owners
+                .iter()
+                .map(|sks| sks.public_keys().public_key())
+                .collect(),
+            // input_owner.public_keys().public_key(),
             &genesis_node,
             &mut rng8,
         )?;
@@ -282,12 +291,15 @@ mod tests {
         let inputs: Vec<(blstrs::Scalar, AmountSecrets, Vec<blst_ringct::DecoyInput>)> =
             output_dbcs
                 .into_iter()
-                .map(|dbc| {
-                    let amount_secrets =
-                        AmountSecrets::try_from((&input_owner, &dbc.content.amount_secrets_cipher))
-                            .unwrap();
+                .enumerate()
+                .map(|(idx, dbc)| {
+                    let amount_secrets = AmountSecrets::try_from((
+                        &input_owners[idx],
+                        &dbc.content.amount_secrets_cipher,
+                    ))
+                    .unwrap();
                     let decoy_inputs = vec![]; // todo
-                    (input_owner_blstrs, amount_secrets, decoy_inputs)
+                    (input_owners_blstrs[idx], amount_secrets, decoy_inputs)
                 })
                 .collect();
 
@@ -330,22 +342,21 @@ mod tests {
         let reissue_share = genesis_node.reissue(rr)?;
         assert_eq!(reissue_tx.hash(), reissue_share.transaction.hash());
 
-        let (mint_key_set, mint_sig_share) = &reissue_share
-            .mint_node_signatures
-            .values()
-            .next()
-            .unwrap()
-            .1;
+        let (mint_key_set, mint_sig_share) =
+            &reissue_share.mint_node_signatures.values().next().unwrap();
+
         let mint_sig = mint_key_set
             .combine_signatures(vec![mint_sig_share.threshold_crypto()])
             .unwrap();
 
         let fuzzed_amt_secrets =
             AmountSecrets::from_amount(amount + extra_output_amount.coerce::<Amount>(), &mut rng8);
-        let fuzzed_content =
-            DbcContent::from((input_owner.public_keys().public_key(), fuzzed_amt_secrets));
+        let fuzzed_content = DbcContent::from((
+            input_owners[0].public_keys().public_key(),
+            fuzzed_amt_secrets,
+        ));
 
-        let mut fuzzed_transaction_sigs: BTreeMap<usize, (KeyImage, (PublicKey, Signature))> =
+        let mut fuzzed_transaction_sigs: BTreeMap<KeyImage, (PublicKey, Signature)> =
             BTreeMap::new();
 
         fuzzed_transaction_sigs.extend(
@@ -353,13 +364,10 @@ mod tests {
                 .mint_node_signatures
                 .iter()
                 .take(n_valid_sigs.coerce())
-                .map(|(idx, (in_owner, _))| {
+                .map(|(in_owner, _)| {
                     (
-                        *idx,
-                        (
-                            *in_owner,
-                            (genesis.public_key_set.public_key(), mint_sig.clone()),
-                        ),
+                        *in_owner,
+                        (genesis.public_key_set.public_key(), mint_sig.clone()),
                     )
                 }),
         );
@@ -367,14 +375,13 @@ mod tests {
         let mut repeating_inputs = reissue_tx
             .mlsags
             .iter()
-            .enumerate()
             .cycle()
             // skip the valid sigs so that we don't immediately overwrite them
             .skip(n_valid_sigs.coerce());
 
         // Invalid mint signatures BUT signing correct message
         for _ in 0..n_wrong_signer_sigs.coerce() {
-            if let Some((idx, input)) = repeating_inputs.next() {
+            if let Some(input) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id(&mut rng);
                 let key_manager = SimpleKeyManager::new(
                     SimpleSigner::from(id.clone()),
@@ -388,18 +395,15 @@ mod tests {
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
                     .unwrap();
                 fuzzed_transaction_sigs.insert(
-                    idx,
-                    (
-                        input.key_image.to_compressed(),
-                        (id.public_key_set.public_key(), trans_sig),
-                    ),
+                    input.key_image.to_compressed(),
+                    (id.public_key_set.public_key(), trans_sig),
                 );
             }
         }
 
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_msg_sigs.coerce() {
-            if let Some((idx, input)) = repeating_inputs.next() {
+            if let Some(input) = repeating_inputs.next() {
                 let wrong_msg_sig = genesis_node.key_manager.sign(&Hash([0u8; 32])).unwrap();
                 let wrong_msg_mint_sig = genesis_node
                     .key_manager
@@ -409,11 +413,8 @@ mod tests {
                     .unwrap();
 
                 fuzzed_transaction_sigs.insert(
-                    idx,
-                    (
-                        input.key_image.to_compressed(),
-                        (genesis.public_key_set.public_key(), wrong_msg_mint_sig),
-                    ),
+                    input.key_image.to_compressed(),
+                    (genesis.public_key_set.public_key(), wrong_msg_mint_sig),
                 );
             }
         }
@@ -421,11 +422,8 @@ mod tests {
         // Valid mint signatures for inputs not present in the transaction
         for _ in 0..n_extra_input_sigs.coerce() {
             fuzzed_transaction_sigs.insert(
-                rand::random::<usize>(),
-                (
-                    [0u8; 48],
-                    (genesis.public_key_set.public_key(), mint_sig.clone()),
-                ),
+                [0u8; 48],
+                (genesis.public_key_set.public_key(), mint_sig.clone()),
             );
         }
 
@@ -442,7 +440,8 @@ mod tests {
         let validation_res = dbc.confirm_valid(&key_manager);
 
         let dbc_amount =
-            AmountSecrets::try_from((&input_owner, &dbc.content.amount_secrets_cipher))?.amount();
+            AmountSecrets::try_from((&input_owners[0], &dbc.content.amount_secrets_cipher))?
+                .amount();
 
         match validation_res {
             Ok(()) => {
@@ -467,7 +466,7 @@ mod tests {
             Err(Error::UnknownInput) => {
                 assert!(n_extra_input_sigs.coerce::<u8>() > 0);
                 assert_ne!(
-                    Vec::from_iter(dbc.transaction_sigs.values().map(|(k, _)| *k)),
+                    Vec::from_iter(dbc.transaction_sigs.keys().copied()),
                     dbc.transaction
                         .mlsags
                         .iter()
@@ -496,14 +495,14 @@ mod tests {
                 assert!(dbc
                     .transaction_sigs
                     .values()
-                    .any(|(_, (pk, _))| key_manager.verify_known_key(pk).is_err()));
+                    .any(|(pk, _)| key_manager.verify_known_key(pk).is_err()));
             }
             Err(Error::Signing(s)) if s == Error::UnrecognisedAuthority.to_string() => {
                 assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
                 assert!(dbc
                     .transaction_sigs
                     .values()
-                    .any(|(_, (pk, _))| key_manager.verify_known_key(pk).is_err()));
+                    .any(|(pk, _)| key_manager.verify_known_key(pk).is_err()));
             }
             res => panic!("Unexpected verification result {:?}", res),
         }

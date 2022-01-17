@@ -241,14 +241,14 @@ impl DbcBuilder {
             let mut node_shares: Vec<NodeSignature> = rs
                 .mint_node_signatures
                 .iter()
-                .map(|e| e.1 .1 .1.clone())
+                .map(|e| e.1 .1.clone())
                 .collect();
             mint_sig_shares.append(&mut node_shares);
 
             let pub_key_sets: HashSet<PublicKeySet> = rs
                 .mint_node_signatures
                 .iter()
-                .map(|e| e.1 .1 .0.clone())
+                .map(|e| e.1 .0.clone())
                 .collect();
 
             // add pubkeyset to HashSet, so we can verify there is only one distinct PubKeySet
@@ -260,11 +260,11 @@ impl DbcBuilder {
             }
 
             // Verify that each input has a NodeSignature
-            for (idx, mlsag) in rs.transaction.mlsags.iter().enumerate() {
+            for mlsag in rs.transaction.mlsags.iter() {
                 if !rs
                     .mint_node_signatures
-                    .iter()
-                    .any(|(i, (k, _))| *i == idx && *k == mlsag.key_image.to_compressed())
+                    .keys()
+                    .any(|k| *k == mlsag.key_image.to_compressed())
                 {
                     return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
                 }
@@ -322,14 +322,10 @@ impl DbcBuilder {
                     transaction_sigs: transaction
                         .mlsags
                         .iter()
-                        .enumerate()
-                        .map(|(idx, mlsag)| {
+                        .map(|mlsag| {
                             (
-                                idx,
-                                (
-                                    mlsag.key_image.to_compressed(),
-                                    (mint_public_key_set.public_key(), mint_sig.clone()),
-                                ),
+                                mlsag.key_image.to_compressed(),
+                                (mint_public_key_set.public_key(), mint_sig.clone()),
                             )
                         })
                         .collect(),
