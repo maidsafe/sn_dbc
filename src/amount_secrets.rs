@@ -31,7 +31,7 @@ use crate::{Amount, Error};
 const AMT_SIZE: usize = 8; // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AmountSecrets(RevealedCommitment);
 
 impl AmountSecrets {

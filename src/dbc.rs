@@ -91,8 +91,9 @@ mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, AmountSecrets, BlsHelper, DbcBuilder, Hash, KeyManager, MintNode, ReissueRequest,
-        ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SpentProofShare,
+        Amount, AmountSecrets, BlsHelper, DbcBuilder, DbcPacketBuilder, DerivedSecretKeySet, Hash,
+        KeyManager, MintNode, ReissueRequest, ReissueRequestBuilder, SimpleKeyManager,
+        SimpleSigner, SpentProofShare,
     };
     use blst_ringct::ringct::RingCtMaterial;
     use blst_ringct::{Output, RevealedCommitment};
@@ -100,7 +101,6 @@ mod tests {
     use rand::SeedableRng;
     use rand_core::RngCore;
     use rand_core::SeedableRng as SeedableRngCore;
-    use std::convert::TryFrom;
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
         (0..n_ways).into_iter().map(move |i| {
@@ -115,14 +115,12 @@ mod tests {
     fn prepare_even_split(
         // dbc_owner: &bls_dkg::outcome::Outcome,
         dbc_owner: SecretKey,
-        dbc: Dbc,
+        amount_secrets: AmountSecrets,
         n_ways: u8,
         output_owners: Vec<PublicKey>,
         spentbook_node: &MintNode<SimpleKeyManager>,
         mut rng8: impl RngCore + rand_core::CryptoRng,
     ) -> Result<(ReissueRequest, Vec<RevealedCommitment>)> {
-        let amount_secrets =
-            AmountSecrets::try_from((&dbc_owner, &dbc.content.amount_secrets_cipher))?;
         let amount = amount_secrets.amount();
 
         let decoy_inputs = vec![]; // for now.
@@ -187,7 +185,8 @@ mod tests {
         assert_eq!(revealed_commitments.len(), 1);
 
         let input_content =
-            DbcContent::from((public_key, AmountSecrets::from(revealed_commitments[0])));
+            // DbcContent::from((public_key, AmountSecrets::from(revealed_commitments[0])));
+            DbcContent::from(public_key);
 
         let dbc = Dbc {
             content: input_content,
@@ -237,69 +236,63 @@ mod tests {
 
         let genesis = genesis_node.issue_genesis_dbc(amount, &mut rng8)?;
 
-        let genesis_sig = genesis
-            .public_key_set
-            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])
-            .unwrap();
-
-        let genesis_dbc = Dbc {
-            content: genesis.dbc_content.clone(),
-            transaction_sigs: genesis
-                .transaction
-                .mlsags
-                .iter()
-                .map(|mlsag| {
-                    (
-                        mlsag.key_image.to_compressed(),
-                        (mint_owner.public_key_set.public_key(), genesis_sig.clone()),
-                    )
-                })
-                .collect(),
-            transaction: genesis.transaction.clone(),
-            spent_proofs: genesis.spent_proofs.clone(),
-        };
-
         // let input_owner = crate::bls_dkg_id();
-        let input_owners: Vec<SecretKeySet> = (0..=n_inputs.coerce())
-            .map(|_| SecretKeySet::random(1, &mut rng))
-            .collect();
-        let input_owners_blstrs: Vec<blstrs::Scalar> = input_owners
-            .iter()
-            .map(|sks| BlsHelper::blsttc_to_blstrs_sk(sks.secret_key()))
+        let input_owners: Vec<DerivedSecretKeySet> = (0..=n_inputs.coerce())
+            .map(|_| {
+                DerivedSecretKeySet::from_secret_key_set(
+                    SecretKeySet::random(1, &mut rng),
+                    &mut rng8,
+                )
+            })
             .collect();
 
         let (reissue_request, revealed_commitments) = prepare_even_split(
             BlsHelper::blstrs_to_blsttc_sk(genesis.secret_key),
-            genesis_dbc,
+            genesis.amount_secrets.clone(),
             n_inputs.coerce(),
             input_owners
                 .iter()
-                .map(|sks| sks.public_keys().public_key())
+                .map(|d| d.derive().public_keys().public_key())
                 .collect(),
-            // input_owner.public_keys().public_key(),
             &genesis_node,
             &mut rng8,
         )?;
 
         let split_reissue_share = genesis_node.reissue(reissue_request)?;
 
-        let mut dbc_builder = DbcBuilder::new(revealed_commitments);
+        let mut dbc_builder = DbcBuilder::new(revealed_commitments.clone());
         dbc_builder = dbc_builder.add_reissue_share(split_reissue_share);
         let output_dbcs = dbc_builder.build()?;
 
+        let mut packet_builder = DbcPacketBuilder::default();
+        for (idx, (dbc, revealed_commitment)) in output_dbcs
+            .into_iter()
+            .zip(revealed_commitments)
+            .enumerate()
+        {
+            let amount_secrets = AmountSecrets::from(revealed_commitment);
+            packet_builder =
+                packet_builder.add_dbc(dbc, input_owners[idx].clone().into(), amount_secrets);
+        }
+        let dbc_packets = packet_builder.build()?;
+
         // The outputs become inputs for next reissue.
         let inputs: Vec<(blstrs::Scalar, AmountSecrets, Vec<blst_ringct::DecoyInput>)> =
-            output_dbcs
+            dbc_packets
                 .into_iter()
-                .enumerate()
-                .map(|(idx, dbc)| {
-                    let amount_secrets = AmountSecrets::try_from((
-                        &input_owners[idx],
-                        &dbc.content.amount_secrets_cipher,
-                    ))
-                    .unwrap();
+                .map(|dbc_packet| {
                     let decoy_inputs = vec![]; // todo
-                    (input_owners_blstrs[idx], amount_secrets, decoy_inputs)
+                    (
+                        BlsHelper::blsttc_to_blstrs_sk(
+                            dbc_packet
+                                .derived_owner()
+                                .derive_secret_key_set()
+                                .unwrap()
+                                .secret_key(),
+                        ),
+                        dbc_packet.into(),
+                        decoy_inputs,
+                    )
                 })
                 .collect();
 
@@ -351,10 +344,10 @@ mod tests {
 
         let fuzzed_amt_secrets =
             AmountSecrets::from_amount(amount + extra_output_amount.coerce::<Amount>(), &mut rng8);
-        let fuzzed_content = DbcContent::from((
-            input_owners[0].public_keys().public_key(),
-            fuzzed_amt_secrets,
-        ));
+        let fuzzed_content = DbcContent::from(
+            input_owners[0].derive().public_keys().public_key(),
+            // fuzzed_amt_secrets,
+        );
 
         let mut fuzzed_transaction_sigs: BTreeMap<KeyImage, (PublicKey, Signature)> =
             BTreeMap::new();
@@ -439,9 +432,9 @@ mod tests {
             SimpleKeyManager::new(SimpleSigner::from(id), genesis.public_key_set.public_key());
         let validation_res = dbc.confirm_valid(&key_manager);
 
-        let dbc_amount =
-            AmountSecrets::try_from((&input_owners[0], &dbc.content.amount_secrets_cipher))?
-                .amount();
+        let dbc_amount = fuzzed_amt_secrets.amount();
+        // AmountSecrets::try_from((&input_owners[0], &dbc.content.amount_secrets_cipher))?
+        //     .amount();
 
         match validation_res {
             Ok(()) => {

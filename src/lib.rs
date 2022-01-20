@@ -22,10 +22,12 @@ mod spent_proof;
 
 pub use crate::{
     amount_secrets::AmountSecrets,
-    builder::{DbcBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
+    builder::{DbcBuilder, DbcPacketBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
     dbc::{Dbc, KeyImage},
     dbc_content::{Amount, DbcContent},
-    dbc_packet::{DbcPacket, DerivedKeySet},
+    dbc_packet::{
+        DbcPacket, DerivedOwner, DerivedPublicKey, DerivedPublicKeySet, DerivedSecretKeySet,
+    },
     error::{Error, Result},
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
