@@ -8,8 +8,8 @@ use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, Error, NodeSignature, ReissueRequest, ReissueShare,
-    Result, SpentProof, SpentProofShare,
+    Amount, AmountSecrets, Dbc, DbcContent, DbcPacket, DerivedOwner, Error, NodeSignature,
+    ReissueRequest, ReissueShare, Result, SpentProof, SpentProofShare,
 };
 
 #[derive(Default)]
@@ -306,18 +306,17 @@ impl DbcBuilder {
             .outputs
             .iter()
             .map(|output| {
-                let amount_secrets_list: Vec<AmountSecrets> = output_commitments
+                let amount_secrets_list = output_commitments
                     .iter()
                     .filter(|(c, _)| *c == output.commitment())
-                    .map(|(_, r)| AmountSecrets::from(*r))
-                    .collect();
-                assert_eq!(amount_secrets_list.len(), 1);
+                    .map(|(_, r)| AmountSecrets::from(*r));
+                assert_eq!(amount_secrets_list.count(), 1);
 
                 Dbc {
-                    content: DbcContent::from((
+                    content: DbcContent::from(
                         *output.public_key(),
-                        amount_secrets_list[0].clone(),
-                    )),
+                        // amount_secrets_list[0].clone(),
+                    ),
                     transaction: transaction.clone(),
                     transaction_sigs: transaction
                         .mlsags
@@ -338,5 +337,32 @@ impl DbcBuilder {
         // output_dbcs.sort_by_key(Dbc::owner);
 
         Ok(output_dbcs)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct DbcPacketBuilder {
+    dbcs: Vec<(Dbc, DerivedOwner, AmountSecrets)>,
+}
+
+impl DbcPacketBuilder {
+    pub fn add_dbc(
+        mut self,
+        dbc: Dbc,
+        derived_owner: DerivedOwner,
+        amount_secrets: AmountSecrets,
+    ) -> Self {
+        self.dbcs.push((dbc, derived_owner, amount_secrets));
+        self
+    }
+
+    pub fn build(self) -> Result<Vec<DbcPacket>> {
+        let mut dbc_packets: Vec<DbcPacket> = Default::default();
+        for (dbc, derived_owner, amount_secrets) in self.dbcs.into_iter() {
+            let dbc_packet = DbcPacket::from((dbc, derived_owner, amount_secrets));
+            dbc_packet.verify_owner_derivation_index()?;
+            dbc_packets.push(dbc_packet);
+        }
+        Ok(dbc_packets)
     }
 }

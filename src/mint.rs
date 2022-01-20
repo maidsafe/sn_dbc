@@ -14,8 +14,8 @@
 // Outputs <= input value
 
 use crate::{
-    Amount, AmountSecrets, DbcContent, Error, Hash, KeyImage, KeyManager, NodeSignature,
-    PublicKeySet, Result, SpentProof, SpentProofShare,
+    Amount, AmountSecrets, DbcContent, DerivedSecretKeySet, Error, Hash, KeyImage, KeyManager,
+    NodeSignature, PublicKeySet, Result, SpentProof, SpentProofShare,
 };
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
@@ -45,6 +45,8 @@ pub fn genesis_dbc_input() -> KeyImage {
 pub struct GenesisDbcShare {
     pub ringct_material: RingCtMaterial,
     pub dbc_content: DbcContent,
+    pub amount_secrets: AmountSecrets,
+    pub derived_secret_key_set: DerivedSecretKeySet,
     pub transaction: RingCtTransaction,
     pub revealed_commitments: Vec<RevealedCommitment>,
     pub public_key_set: PublicKeySet,
@@ -89,13 +91,17 @@ impl<K: KeyManager> MintNode<K> {
         // temporary: we bypass KeyManager and create a deterministic
         // secret key, used by all MintNodes.
         let poly = Poly::one();
-        let mut sk_bytes = [0u8; 32];
+        let mut sk_bytes = [0u8; 32]; // This is the genesis "well-known" secret key.
         sk_bytes.copy_from_slice(&poly.to_bytes());
 
-        let secret_key_set_ttc = SecretKeySet::from(poly);
+        let secret_key_set = SecretKeySet::from(poly);
+        let derived_secret_key_set =
+            DerivedSecretKeySet::from_secret_key_set(secret_key_set, &mut rng);
 
         // create sk and derive pk.
-        let secret_key = Scalar::from_bytes_le(&sk_bytes).unwrap();
+        let secret_key =
+            Scalar::from_bytes_be(&derived_secret_key_set.derive().secret_key().to_bytes())
+                .unwrap();
         let public_key = (G1Affine::generator() * secret_key).to_affine();
 
         let true_input = TrueInput {
@@ -120,7 +126,10 @@ impl<K: KeyManager> MintNode<K> {
             .expect("Failed to sign transaction");
 
         let dbc_content =
-            DbcContent::from((public_key, AmountSecrets::from(revealed_commitments[0])));
+            // DbcContent::from((public_key, AmountSecrets::from(revealed_commitments[0])));
+            DbcContent::from(public_key);
+
+        let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
 
         // Here we sign as the mint.
         let transaction_sig = self
@@ -133,9 +142,11 @@ impl<K: KeyManager> MintNode<K> {
         Ok(GenesisDbcShare {
             ringct_material,
             dbc_content,
+            amount_secrets,
+            public_key_set: derived_secret_key_set.derive().public_keys(),
+            derived_secret_key_set,
             transaction,
             revealed_commitments, // output commitments
-            public_key_set: secret_key_set_ttc.public_keys(),
             transaction_sig,
             secret_key,
             spent_proofs,
@@ -287,12 +298,11 @@ mod tests {
     use rand::SeedableRng;
     use rand_core::SeedableRng as SeedableRngCore;
     use std::collections::BTreeSet;
-    use std::convert::TryFrom;
 
     use crate::{
         tests::{TinyInt, TinyVec},
-        BlsHelper, Dbc, DbcBuilder, DbcHelper, ReissueRequestBuilder, SimpleKeyManager,
-        SimpleSigner, SpentProofShare,
+        AmountSecrets, BlsHelper, Dbc, DbcBuilder, DbcPacketBuilder, DerivedPublicKeySet,
+        ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SpentProofShare,
     };
 
     #[quickcheck]
@@ -362,13 +372,18 @@ mod tests {
             spent_proofs: genesis.spent_proofs,
         };
 
-        let output_owners: Vec<bls_dkg::outcome::Outcome> = (0..output_amounts.len())
-            .map(|_| crate::bls_dkg_id(&mut rng))
+        let output_owners: Vec<DerivedPublicKeySet> = (0..output_amounts.len())
+            .map(|_| {
+                DerivedPublicKeySet::from_public_key_set(
+                    crate::bls_dkg_id(&mut rng).public_key_set,
+                    &mut rng8,
+                )
+            })
             .collect();
-        let output_owner_pks: Vec<G1Affine> = output_owners
-            .iter()
-            .map(|o| BlsHelper::blsttc_to_blstrs_pubkey(&o.public_key_set.public_key()))
-            .collect();
+        // let output_owner_pks: Vec<G1Affine> = output_owners
+        //     .iter()
+        //     .map(|o| BlsHelper::blsttc_to_blstrs_pubkey(&o.public_key_set.public_key()))
+        //     .collect();
 
         let (reissue_tx, revealed_commitments, _material) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
@@ -383,7 +398,9 @@ mod tests {
                     .enumerate()
                     .map(|(idx, a)| crate::Output {
                         amount: *a,
-                        public_key: output_owner_pks[idx],
+                        public_key: BlsHelper::blsttc_to_blstrs_pubkey(
+                            &output_owners[idx].derive().public_key(),
+                        ),
                     }),
             )
             .build(&mut rng8)?;
@@ -436,28 +453,33 @@ mod tests {
         };
 
         // Aggregate ReissueShare to build output DBCs
-        let mut dbc_builder = DbcBuilder::new(revealed_commitments);
+        let mut dbc_builder = DbcBuilder::new(revealed_commitments.clone());
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
         let output_dbcs = dbc_builder.build()?;
 
-        for (idx, dbc) in output_dbcs.iter().enumerate() {
-            let dbc_amount =
-                DbcHelper::decrypt_amount(&output_owners[idx], &dbc.content.amount_secrets_cipher)?;
+        let mut packet_builder = DbcPacketBuilder::default();
+        for (idx, (dbc, revealed_commitment)) in output_dbcs
+            .into_iter()
+            .zip(revealed_commitments)
+            .enumerate()
+        {
+            let amount_secrets = AmountSecrets::from(revealed_commitment);
+            packet_builder =
+                packet_builder.add_dbc(dbc, output_owners[idx].clone().into(), amount_secrets);
+        }
+        let output_dbc_packets = packet_builder.build()?;
+
+        for dbc_packet in output_dbc_packets.iter() {
+            let dbc_amount = dbc_packet.amount_secrets().amount();
             assert!(output_amounts.iter().any(|a| *a == dbc_amount));
-            assert!(dbc.confirm_valid(&key_manager).is_ok());
+            assert!(dbc_packet.dbc().confirm_valid(&key_manager).is_ok());
         }
 
         assert_eq!(
-            output_dbcs
+            output_dbc_packets
                 .iter()
-                .enumerate()
-                .map(|(idx, dbc)| {
-                    DbcHelper::decrypt_amount(
-                        &output_owners[idx],
-                        &dbc.content.amount_secrets_cipher,
-                    )
-                })
-                .sum::<Result<Amount, _>>()?,
+                .map(|dbc_packet| dbc_packet.amount_secrets().amount())
+                .sum::<Amount>(),
             output_amount
         );
 
@@ -576,12 +598,13 @@ mod tests {
         let input_dbc_secrets = input_dbcs
             .iter()
             .map(|dbc| {
-                let (_, sks) =
+                let (amount, sks) =
                     &owner_amounts_and_keys[&BlsHelper::blstrs_to_blsttc_pubkey(&dbc.owner())];
-                let amount_secrets = AmountSecrets::try_from((
-                    &sks.secret_key(),
-                    &dbc.content.amount_secrets_cipher,
-                ))?;
+                // let amount_secrets = AmountSecrets::try_from((
+                //     &sks.secret_key(),
+                //     &dbc.content.amount_secrets_cipher,
+                // ))?;
+                let amount_secrets = AmountSecrets::from_amount(*amount, &mut rng8);
                 let secret_key_blstrs = BlsHelper::blsttc_to_blstrs_sk(sks.secret_key());
 
                 // note: decoy inputs can be created from OutputProof + dbc owner's pubkey.
@@ -667,7 +690,7 @@ mod tests {
 
                 // The output amounts (from params) should correspond to the actual output_amounts
                 assert_eq!(
-                    BTreeSet::from_iter(dbc_output_amounts),
+                    BTreeSet::from_iter(dbc_output_amounts.clone()),
                     BTreeSet::from_iter(output_amounts)
                 );
 
@@ -685,13 +708,14 @@ mod tests {
                     output_dbcs
                         .iter()
                         .enumerate()
-                        .map(|(idx, dbc)| {
-                            DbcHelper::decrypt_amount(
-                                &outputs_owners[idx],
-                                &dbc.content.amount_secrets_cipher,
-                            )
+                        .map(|(idx, _dbc)| {
+                            // DbcHelper::decrypt_amount(
+                            //     &outputs_owners[idx],
+                            //     &dbc.content.amount_secrets_cipher,
+                            // )
+                            dbc_output_amounts[idx]
                         })
-                        .sum::<Result<Amount, _>>()?,
+                        .sum::<Amount>(),
                     output_total_amount
                 );
             }
