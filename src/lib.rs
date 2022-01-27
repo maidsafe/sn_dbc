@@ -281,17 +281,27 @@ mod tests {
     pub struct SpentBookMock {
         pub key_manager: SimpleKeyManager,
         pub transactions: BTreeMap<KeyImage, RingCtTransaction>,
-        pub genesis_input_key_image: KeyImage,
+        pub genesis_input_key_image: Option<KeyImage>,
+    }
+
+    impl From<SimpleKeyManager> for SpentBookMock {
+        fn from(key_manager: SimpleKeyManager) -> Self {
+            Self {
+                key_manager,
+                transactions: Default::default(),
+                genesis_input_key_image: None,
+            }
+        }
     }
 
     impl From<(SimpleKeyManager, KeyImage)> for SpentBookMock {
         fn from(params: (SimpleKeyManager, KeyImage)) -> Self {
-            let (key_manager, genesis_input_key_image) = params;
+            let (key_manager, key_image) = params;
 
             Self {
                 key_manager,
                 transactions: Default::default(),
-                genesis_input_key_image,
+                genesis_input_key_image: Some(key_image),
             }
         }
     }
@@ -316,8 +326,15 @@ mod tests {
             let spentbook_pks = self.key_manager.public_key_set()?;
             let spentbook_sig_share = self.key_manager.sign(&tx_hash)?;
 
+            // If this is the very first tx logged and genesis key_image was not
+            // provided, then it becomes the genesis tx.
+            let genesis_input_key_image = match self.genesis_input_key_image {
+                Some(k) => k,
+                None => key_image,
+            };
+
             // public_commitments should only be empty for the genesis transaction.
-            let public_commitments: Vec<G1Affine> = if key_image == self.genesis_input_key_image {
+            let public_commitments: Vec<G1Affine> = if key_image == genesis_input_key_image {
                 vec![]
             } else {
                 // Todo: make this cleaner and more efficient.
@@ -363,6 +380,10 @@ mod tests {
                 .entry(key_image)
                 .or_insert_with(|| tx.clone());
             if existing_tx.hash() == tx.hash() {
+                if self.genesis_input_key_image.is_none() {
+                    self.genesis_input_key_image = Some(genesis_input_key_image);
+                }
+
                 Ok(SpentProofShare {
                     key_image,
                     spentbook_pks,

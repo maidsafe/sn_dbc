@@ -293,16 +293,15 @@ mod tests {
 
         let amount = 100;
 
-        let spentbook_key_manager =
-            SimpleKeyManager::new(SimpleSigner::from(crate::bls_dkg_id(&mut rng)));
+        let mut spentbook = SpentBookMock::from(SimpleKeyManager::new(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )));
 
         let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )))
-        .trust_spentbook_public_key(spentbook_key_manager.public_key_set()?.public_key())?
+        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
         .issue_genesis_dbc(amount, &mut rng8)?;
-
-        let mut spentbook = SpentBookMock::from((spentbook_key_manager, genesis.input_key_image));
 
         let _genesis_spent_proof_share =
             spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;

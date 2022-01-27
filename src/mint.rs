@@ -321,16 +321,15 @@ mod tests {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-        let spentbook_key_manager =
-            SimpleKeyManager::new(SimpleSigner::from(crate::bls_dkg_id(&mut rng)));
+        let mut spentbook = SpentBookMock::from(SimpleKeyManager::new(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )));
 
         let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )))
-        .trust_spentbook_public_key(spentbook_key_manager.public_key_set()?.public_key())?
+        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
         .issue_genesis_dbc(1000, &mut rng8)?;
-
-        let mut spentbook = SpentBookMock::from((spentbook_key_manager, genesis.input_key_image));
 
         let mint_sig = mint_node
             .key_manager()
@@ -392,16 +391,15 @@ mod tests {
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
 
-        let spentbook_key_manager =
-            SimpleKeyManager::new(SimpleSigner::from(crate::bls_dkg_id(&mut rng)));
+        let mut spentbook = SpentBookMock::from(SimpleKeyManager::new(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )));
 
         let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )))
-        .trust_spentbook_public_key(spentbook_key_manager.public_key_set()?.public_key())?
+        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
         .issue_genesis_dbc(output_amount, &mut rng8)?;
-
-        let mut spentbook = SpentBookMock::from((spentbook_key_manager, genesis.input_key_image));
 
         let _genesis_spent_proof_share =
             spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
@@ -533,16 +531,15 @@ mod tests {
         // something like:  genesis --> 100 outputs --> x outputs --> y outputs.
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
-        let spentbook_key_manager =
-            SimpleKeyManager::new(SimpleSigner::from(crate::bls_dkg_id(&mut rng)));
+        let mut spentbook = SpentBookMock::from(SimpleKeyManager::new(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )));
 
         let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )))
-        .trust_spentbook_public_key(spentbook_key_manager.public_key_set()?.public_key())?
+        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
         .issue_genesis_dbc(genesis_amount, &mut rng8)?;
-
-        let mut spentbook = SpentBookMock::from((spentbook_key_manager, genesis.input_key_image));
 
         let _genesis_spent_proof_share =
             spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
