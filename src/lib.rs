@@ -31,10 +31,7 @@ pub use crate::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
         SimpleSigner,
     },
-    mint::{
-        genesis_dbc_input, GenesisDbcShare, MintNode, MintNodeSignatures, ReissueRequest,
-        ReissueShare,
-    },
+    mint::{GenesisDbcShare, MintNode, MintNodeSignatures, ReissueRequest, ReissueShare},
     spent_proof::{SpentProof, SpentProofShare},
 };
 

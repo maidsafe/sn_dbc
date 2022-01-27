@@ -15,7 +15,7 @@
 
 use crate::{
     Amount, AmountSecrets, DbcContent, DerivedOwner, Error, Hash, KeyImage, KeyManager,
-    NodeSignature, OwnerBase, PublicKeySet, Result, SpentProof, SpentProofShare,
+    NodeSignature, OwnerBase, PublicKey, PublicKeySet, Result, SpentProof, SpentProofShare,
 };
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
@@ -36,18 +36,6 @@ use std::iter::FromIterator;
 pub type MintNodeSignature = (PublicKeySet, NodeSignature);
 pub type MintNodeSignatures = BTreeMap<KeyImage, MintNodeSignature>;
 
-pub fn genesis_dbc_input(share: &GenesisDbcShare) -> Result<KeyImage> {
-    Ok(share
-        .ringct_material
-        .inputs
-        .get(0)
-        .ok_or(Error::TransactionMustHaveAnInput)?
-        .true_input
-        .key_image()
-        .to_affine()
-        .to_compressed())
-}
-
 #[derive(Clone)]
 pub struct GenesisDbcShare {
     pub ringct_material: RingCtMaterial,
@@ -59,6 +47,7 @@ pub struct GenesisDbcShare {
     pub public_key_set: PublicKeySet,
     pub transaction_sig: NodeSignature,
     pub secret_key: Scalar,
+    pub input_key_image: KeyImage,
 }
 
 // #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
@@ -89,11 +78,18 @@ impl<K: KeyManager> MintNode<K> {
         Self { key_manager }
     }
 
+    pub fn trust_spentbook_public_key(mut self, public_key: PublicKey) -> Result<Self> {
+        self.key_manager
+            .add_known_key(public_key)
+            .map_err(|e| Error::Signing(e.to_string()))?;
+        Ok(self)
+    }
+
     pub fn issue_genesis_dbc(
-        &mut self,
+        self,
         amount: Amount,
         mut rng: impl RngCore + rand_core::CryptoRng,
-    ) -> Result<GenesisDbcShare> {
+    ) -> Result<(Self, GenesisDbcShare)> {
         // Make a secret key for the input to Genesis Tx.
         let input_poly = Poly::zero();
         let input_secret_key_set = SecretKeySet::from(input_poly);
@@ -123,6 +119,8 @@ impl<K: KeyManager> MintNode<K> {
             },
         };
 
+        let input_key_image = true_input.key_image().to_compressed();
+
         // note: no decoy inputs because no other DBCs exist prior to genesis DBC.
         let decoy_inputs = vec![];
 
@@ -149,17 +147,21 @@ impl<K: KeyManager> MintNode<K> {
             .sign(&Hash::from(transaction.hash()))
             .map_err(|e| Error::Signing(e.to_string()))?;
 
-        Ok(GenesisDbcShare {
-            ringct_material,
-            dbc_content,
-            amount_secrets,
-            public_key_set,
-            derived_owner,
-            transaction,
-            revealed_commitments, // output commitments
-            transaction_sig,
-            secret_key,
-        })
+        Ok((
+            self,
+            GenesisDbcShare {
+                ringct_material,
+                dbc_content,
+                amount_secrets,
+                public_key_set,
+                derived_owner,
+                transaction,
+                revealed_commitments, // output commitments
+                transaction_sig,
+                secret_key,
+                input_key_image,
+            },
+        ))
     }
 
     pub fn key_manager(&self) -> &K {
@@ -195,7 +197,7 @@ impl<K: KeyManager> MintNode<K> {
         // 6. create SpentProofShare and return it.
     }
 
-    pub fn reissue(&mut self, reissue_req: ReissueRequest) -> Result<ReissueShare> {
+    pub fn reissue(&self, reissue_req: ReissueRequest) -> Result<ReissueShare> {
         let ReissueRequest {
             transaction,
             spent_proofs,
@@ -260,11 +262,12 @@ impl<K: KeyManager> MintNode<K> {
 
         // Validate that each input has not yet been spent.
         // iterate over mlsags.  each has key_image()
+        //
+        // note: for the proofs to validate, our key_manager must have/know
+        // the pubkey of the spentbook section that signed the proof.
+        // This is a responsibility of our caller, not this crate.
         for proof in spent_proofs_sorted.iter() {
-            // proof.validate(transaction_hash, self.key_manager())?;
-
-            // fixme: this does not validate that signing key belongs to spentbook.
-            proof.validate_unsafe(transaction_hash)?;
+            proof.validate(transaction_hash, self.key_manager())?;
         }
 
         let transaction_sigs = self.sign_transaction(&transaction)?;
@@ -318,15 +321,16 @@ mod tests {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-        let mint_owner = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::new(SimpleSigner::from(mint_owner));
-        let mut mint_node = MintNode::new(key_manager);
-        let genesis = mint_node.issue_genesis_dbc(1000, &mut rng8).unwrap();
+        let spentbook_key_manager =
+            SimpleKeyManager::new(SimpleSigner::from(crate::bls_dkg_id(&mut rng)));
 
-        let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
-        let input_key_image = genesis_dbc_input(&genesis)?;
-        let mut spentbook = SpentBookMock::from((spentbook_key_manager, input_key_image));
+        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )))
+        .trust_spentbook_public_key(spentbook_key_manager.public_key_set()?.public_key())?
+        .issue_genesis_dbc(1000, &mut rng8)?;
+
+        let mut spentbook = SpentBookMock::from((spentbook_key_manager, genesis.input_key_image));
 
         let mint_sig = mint_node
             .key_manager()
@@ -334,7 +338,7 @@ mod tests {
             .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
 
         let spent_proof_share =
-            spentbook.log_spent(input_key_image, genesis.transaction.clone())?;
+            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
 
         let spentbook_sig =
             spent_proof_share
@@ -360,7 +364,7 @@ mod tests {
             content: genesis.dbc_content,
             transaction: genesis.transaction.clone(),
             transaction_sigs: BTreeMap::from_iter([(
-                input_key_image,
+                genesis.input_key_image,
                 (
                     mint_node.key_manager().public_key_set()?.public_key(),
                     mint_sig,
@@ -372,7 +376,6 @@ mod tests {
         let validation = genesis_dbc.confirm_valid(
             &genesis.derived_owner.base_secret_key()?,
             &mint_node.key_manager,
-            &spentbook.key_manager,
         );
         assert!(validation.is_ok());
 
@@ -389,20 +392,19 @@ mod tests {
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
 
-        let mint_owner = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::new(SimpleSigner::from(mint_owner));
-        let mut mint_node = MintNode::new(key_manager);
-        let genesis = mint_node
-            .issue_genesis_dbc(output_amount, &mut rng8)
-            .unwrap();
+        let spentbook_key_manager =
+            SimpleKeyManager::new(SimpleSigner::from(crate::bls_dkg_id(&mut rng)));
 
-        let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
-        let input_key_image = genesis_dbc_input(&genesis)?;
-        let mut spentbook = SpentBookMock::from((spentbook_key_manager, input_key_image));
+        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )))
+        .trust_spentbook_public_key(spentbook_key_manager.public_key_set()?.public_key())?
+        .issue_genesis_dbc(output_amount, &mut rng8)?;
+
+        let mut spentbook = SpentBookMock::from((spentbook_key_manager, genesis.input_key_image));
 
         let _genesis_spent_proof_share =
-            spentbook.log_spent(input_key_image, genesis.transaction.clone())?;
+            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
 
         let owners: Vec<DerivedOwner> = (0..output_amounts.len())
             .map(|_| {
@@ -476,7 +478,6 @@ mod tests {
                 .confirm_valid(
                     &derived_owner.base_secret_key().unwrap(),
                     mint_node.key_manager(),
-                    &spentbook.key_manager
                 )
                 .is_ok());
         }
@@ -532,20 +533,19 @@ mod tests {
         // something like:  genesis --> 100 outputs --> x outputs --> y outputs.
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
-        let mint_owner = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::new(SimpleSigner::from(mint_owner));
-        let mut mint_node = MintNode::new(key_manager);
-        let genesis = mint_node
-            .issue_genesis_dbc(genesis_amount, &mut rng8)
-            .unwrap();
+        let spentbook_key_manager =
+            SimpleKeyManager::new(SimpleSigner::from(crate::bls_dkg_id(&mut rng)));
 
-        let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
-        let input_key_image = genesis_dbc_input(&genesis)?;
-        let mut spentbook = SpentBookMock::from((spentbook_key_manager, input_key_image));
+        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )))
+        .trust_spentbook_public_key(spentbook_key_manager.public_key_set()?.public_key())?
+        .issue_genesis_dbc(genesis_amount, &mut rng8)?;
+
+        let mut spentbook = SpentBookMock::from((spentbook_key_manager, genesis.input_key_image));
 
         let _genesis_spent_proof_share =
-            spentbook.log_spent(input_key_image, genesis.transaction.clone())?;
+            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
 
         let (reissue_tx, revealed_commitments, _material, output_owners) =
             crate::TransactionBuilder::default()
@@ -713,11 +713,8 @@ mod tests {
                 let output_dbcs = dbc_builder.build()?;
 
                 for (dbc, derived_owner, _amount_secrets) in output_dbcs.iter() {
-                    let dbc_confirm_result = dbc.confirm_valid(
-                        &derived_owner.base_secret_key()?,
-                        &mint_node.key_manager,
-                        &spentbook.key_manager,
-                    );
+                    let dbc_confirm_result = dbc
+                        .confirm_valid(&derived_owner.base_secret_key()?, &mint_node.key_manager);
                     assert!(dbc_confirm_result.is_ok());
                 }
 

@@ -30,6 +30,7 @@ impl NodeSignature {
 
 pub trait KeyManager {
     type Error: std::error::Error;
+    fn add_known_key(&mut self, key: PublicKey) -> Result<(), Self::Error>;
     fn sign_with_child_key(&self, idx: &[u8], tx_hash: &Hash)
         -> Result<NodeSignature, Self::Error>;
     fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature, Self::Error>;
@@ -105,6 +106,11 @@ impl SimpleKeyManager {
 
 impl KeyManager for SimpleKeyManager {
     type Error = crate::Error;
+
+    fn add_known_key(&mut self, key: PublicKey) -> Result<()> {
+        self.cache.add_known_key(key);
+        Ok(())
+    }
 
     fn public_key_set(&self) -> Result<PublicKeySet> {
         Ok(self.signer.public_key_set())

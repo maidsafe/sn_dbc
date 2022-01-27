@@ -94,15 +94,6 @@ impl SpentProof {
             .map_err(|_| Error::InvalidSpentProofSignature(self.key_image))?;
         Ok(())
     }
-
-    // This is unsafe (and temporary) because it does not verify that
-    // self.spentbook_pub_key actually belongs to the spentbook.
-    pub(crate) fn validate_unsafe(&self, tx: Hash) -> Result<()> {
-        match self.spentbook_pub_key.verify(&self.spentbook_sig, &tx) {
-            true => Ok(()),
-            false => Err(Error::InvalidSpentProofSignature(self.key_image)),
-        }
-    }
 }
 
 impl PartialOrd for SpentProof {
