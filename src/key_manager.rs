@@ -91,21 +91,15 @@ impl SimpleSigner {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimpleKeyManager {
     signer: SimpleSigner,
-    genesis_key: PublicKey,
     cache: Keys,
 }
 
 impl SimpleKeyManager {
-    pub fn new(signer: SimpleSigner, genesis_key: PublicKey) -> Self {
+    pub fn new(signer: SimpleSigner) -> Self {
         let public_key_set = signer.public_key_set();
         let mut cache = Keys::default();
-        cache.add_known_key(genesis_key);
         cache.add_known_key(public_key_set.public_key());
-        Self {
-            signer,
-            genesis_key,
-            cache,
-        }
+        Self { signer, cache }
     }
 }
 

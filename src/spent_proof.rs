@@ -76,7 +76,6 @@ pub struct SpentProof {
 }
 
 impl SpentProof {
-
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
@@ -87,7 +86,7 @@ impl SpentProof {
             bytes.extend(&pc.to_compressed());
         }
         bytes
-    }    
+    }
 
     pub fn validate<K: KeyManager>(&self, tx: Hash, verifier: &K) -> Result<()> {
         verifier
