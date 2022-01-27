@@ -319,23 +319,18 @@ mod tests {
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
         let mint_owner = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(mint_owner.clone()),
-            mint_owner.public_key_set.public_key(),
-        );
+        let key_manager = SimpleKeyManager::new(SimpleSigner::from(mint_owner));
         let mut mint_node = MintNode::new(key_manager);
         let genesis = mint_node.issue_genesis_dbc(1000, &mut rng8).unwrap();
 
         let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(spentbook_owner),
-            genesis.public_key_set.public_key(),
-        );
+        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
         let input_key_image = genesis_dbc_input(&genesis)?;
         let mut spentbook = SpentBookMock::from((spentbook_key_manager, input_key_image));
 
-        let mint_sig = mint_owner
-            .public_key_set
+        let mint_sig = mint_node
+            .key_manager()
+            .public_key_set()?
             .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
 
         let spent_proof_share =
@@ -366,7 +361,10 @@ mod tests {
             transaction: genesis.transaction.clone(),
             transaction_sigs: BTreeMap::from_iter([(
                 input_key_image,
-                (mint_owner.public_key_set.public_key(), mint_sig),
+                (
+                    mint_node.key_manager().public_key_set()?.public_key(),
+                    mint_sig,
+                ),
             )]),
             spent_proofs,
         };
@@ -392,20 +390,14 @@ mod tests {
         let output_amount = output_amounts.iter().sum();
 
         let mint_owner = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(mint_owner.clone()),
-            mint_owner.public_key_set.public_key(),
-        );
+        let key_manager = SimpleKeyManager::new(SimpleSigner::from(mint_owner));
         let mut mint_node = MintNode::new(key_manager);
         let genesis = mint_node
             .issue_genesis_dbc(output_amount, &mut rng8)
             .unwrap();
 
         let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(spentbook_owner),
-            genesis.public_key_set.public_key(),
-        );
+        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
         let input_key_image = genesis_dbc_input(&genesis)?;
         let mut spentbook = SpentBookMock::from((spentbook_key_manager, input_key_image));
 
@@ -541,20 +533,14 @@ mod tests {
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
         let mint_owner = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(mint_owner.clone()),
-            mint_owner.public_key_set.public_key(),
-        );
+        let key_manager = SimpleKeyManager::new(SimpleSigner::from(mint_owner));
         let mut mint_node = MintNode::new(key_manager);
         let genesis = mint_node
             .issue_genesis_dbc(genesis_amount, &mut rng8)
             .unwrap();
 
         let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(spentbook_owner),
-            genesis.public_key_set.public_key(),
-        );
+        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
         let input_key_image = genesis_dbc_input(&genesis)?;
         let mut spentbook = SpentBookMock::from((spentbook_key_manager, input_key_image));
 
@@ -828,8 +814,7 @@ mod tests {
 
             let genesis_owner = crate::bls_dkg_id(&mut rng);
             let key_manager = SimpleKeyManager::new(
-                SimpleSigner::from(genesis_owner.clone()),
-                genesis_owner.public_key_set.public_key(),
+                SimpleSigner::from(genesis_owner),
             );
             let mut genesis_node = MintNode::new(key_manager);
 
@@ -897,8 +882,7 @@ mod tests {
                 let genesis_key = genesis_owner.public_key_set.public_key();
 
                 let key_manager = SimpleKeyManager::new(
-                    SimpleSigner::from(genesis_owner.clone()),
-                    genesis_owner.public_key_set.public_key(),
+                    SimpleSigner::from(genesis_owner),
                 );
                 let mut genesis_node = MintNode::new(key_manager.clone());
 

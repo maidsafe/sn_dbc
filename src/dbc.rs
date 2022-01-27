@@ -267,16 +267,10 @@ mod tests {
         };
 
         let id = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(id.clone()),
-            id.public_key_set.public_key(),
-        );
+        let key_manager = SimpleKeyManager::new(SimpleSigner::from(id));
 
         let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(spentbook_owner.clone()),
-            spentbook_owner.public_key_set.public_key(),
-        );
+        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
 
         assert!(matches!(
             dbc.confirm_valid(
@@ -306,19 +300,13 @@ mod tests {
         let amount = 100;
         let mint_owner = crate::bls_dkg_id(&mut rng);
 
-        let key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(mint_owner.clone()),
-            mint_owner.public_key_set.public_key(),
-        );
-        let mut genesis_node = MintNode::new(key_manager);
+        let key_manager = SimpleKeyManager::new(SimpleSigner::from(mint_owner));
+        let mut mint_node = MintNode::new(key_manager);
 
         let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(
-            SimpleSigner::from(spentbook_owner.clone()),
-            spentbook_owner.public_key_set.public_key(),
-        );
+        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
 
-        let genesis = genesis_node.issue_genesis_dbc(amount, &mut rng8)?;
+        let genesis = mint_node.issue_genesis_dbc(amount, &mut rng8)?;
         let genesis_input_key_image = genesis.ringct_material.inputs[0]
             .true_input
             .key_image()
@@ -352,7 +340,7 @@ mod tests {
             Hash::from(reissue_request.transaction.hash())
         ));
 
-        let split_reissue_share = genesis_node.reissue(reissue_request)?;
+        let split_reissue_share = mint_node.reissue(reissue_request)?;
 
         let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
         dbc_builder = dbc_builder.add_reissue_share(split_reissue_share);
@@ -406,7 +394,7 @@ mod tests {
         }
 
         let rr = rr_builder.build()?;
-        let reissue_share = genesis_node.reissue(rr)?;
+        let reissue_share = mint_node.reissue(rr)?;
         assert_eq!(reissue_tx.hash(), reissue_share.transaction.hash());
 
         let (mint_key_set, mint_sig_share) =
@@ -429,17 +417,13 @@ mod tests {
         let mut fuzzed_transaction_sigs: BTreeMap<KeyImage, (PublicKey, Signature)> =
             BTreeMap::new();
 
+        let mint_pk = mint_node.key_manager().public_key_set()?.public_key();
         fuzzed_transaction_sigs.extend(
             reissue_share
                 .mint_node_signatures
                 .iter()
                 .take(n_valid_sigs.coerce())
-                .map(|(in_owner, _)| {
-                    (
-                        *in_owner,
-                        (mint_owner.public_key_set.public_key(), mint_sig.clone()),
-                    )
-                }),
+                .map(|(in_owner, _)| (*in_owner, (mint_pk, mint_sig.clone()))),
         );
 
         let mut repeating_inputs = reissue_tx
@@ -453,20 +437,17 @@ mod tests {
         for _ in 0..n_wrong_signer_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id(&mut rng);
-                let key_manager = SimpleKeyManager::new(
-                    SimpleSigner::from(id.clone()),
-                    mint_owner.public_key_set.public_key(),
-                );
+                let key_manager = SimpleKeyManager::new(SimpleSigner::from(id));
                 let trans_sig_share = key_manager
                     .sign(&Hash::from(reissue_share.transaction.hash()))
                     .unwrap();
-                let trans_sig = id
-                    .public_key_set
+                let trans_sig = key_manager
+                    .public_key_set()?
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
                     .unwrap();
                 fuzzed_transaction_sigs.insert(
                     input.key_image.to_compressed(),
-                    (id.public_key_set.public_key(), trans_sig),
+                    (key_manager.public_key_set()?.public_key(), trans_sig),
                 );
             }
         }
@@ -474,15 +455,19 @@ mod tests {
         // Valid mint signatures BUT signing wrong message
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
-                let wrong_msg_sig = genesis_node.key_manager.sign(&Hash([0u8; 32])).unwrap();
-                let wrong_msg_mint_sig = mint_owner
-                    .public_key_set
+                let wrong_msg_sig = mint_node.key_manager.sign(&Hash([0u8; 32])).unwrap();
+                let wrong_msg_mint_sig = mint_node
+                    .key_manager()
+                    .public_key_set()?
                     .combine_signatures(vec![wrong_msg_sig.threshold_crypto()])
                     .unwrap();
 
                 fuzzed_transaction_sigs.insert(
                     input.key_image.to_compressed(),
-                    (mint_owner.public_key_set.public_key(), wrong_msg_mint_sig),
+                    (
+                        mint_node.key_manager.public_key_set()?.public_key(),
+                        wrong_msg_mint_sig,
+                    ),
                 );
             }
         }
@@ -491,7 +476,10 @@ mod tests {
         for _ in 0..n_extra_input_sigs.coerce() {
             fuzzed_transaction_sigs.insert(
                 [0u8; 48],
-                (mint_owner.public_key_set.public_key(), mint_sig.clone()),
+                (
+                    mint_node.key_manager().public_key_set()?.public_key(),
+                    mint_sig.clone(),
+                ),
             );
         }
 
@@ -502,7 +490,7 @@ mod tests {
             spent_proofs: reissue_share.spent_proofs.clone(), // todo: fuzz spent proofs.
         };
 
-        let key_manager = genesis_node.key_manager();
+        let key_manager = mint_node.key_manager();
         let validation_res = dbc.confirm_valid(
             &derived_owner.base_secret_key()?,
             key_manager,
