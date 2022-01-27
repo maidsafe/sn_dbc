@@ -106,7 +106,7 @@ impl<K: KeyManager> MintNode<K> {
         let poly = Poly::one();
         let secret_key_set = SecretKeySet::from(poly);
         let derived_owner =
-            DerivedOwner::from_owner_base(OwnerBase::from(secret_key_set.clone()), &mut rng);
+            DerivedOwner::from_owner_base(OwnerBase::from(secret_key_set.secret_key()), &mut rng);
         let secret_key_set_derived = secret_key_set.derive_child(&derived_owner.derivation_index);
         let public_key_set = secret_key_set_derived.public_keys();
 
