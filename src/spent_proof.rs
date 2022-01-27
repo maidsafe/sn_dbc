@@ -76,11 +76,33 @@ pub struct SpentProof {
 }
 
 impl SpentProof {
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes: Vec<u8> = Default::default();
+
+        bytes.extend(&self.key_image);
+        bytes.extend(&self.spentbook_sig.to_bytes());
+
+        for pc in self.public_commitments.iter() {
+            bytes.extend(&pc.to_compressed());
+        }
+        bytes
+    }    
+
     pub fn validate<K: KeyManager>(&self, tx: Hash, verifier: &K) -> Result<()> {
         verifier
             .verify(&tx, &self.spentbook_pub_key, &self.spentbook_sig)
             .map_err(|_| Error::InvalidSpentProofSignature(self.key_image))?;
         Ok(())
+    }
+
+    // This is unsafe (and temporary) because it does not verify that
+    // self.spentbook_pub_key actually belongs to the spentbook.
+    pub(crate) fn validate_unsafe(&self, tx: Hash) -> Result<()> {
+        match self.spentbook_pub_key.verify(&self.spentbook_sig, &tx) {
+            true => Ok(()),
+            false => Err(Error::InvalidSpentProofSignature(self.key_image)),
+        }
     }
 }
 

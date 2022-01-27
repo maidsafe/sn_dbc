@@ -14,7 +14,7 @@ mod amount_secrets;
 mod builder;
 mod dbc;
 mod dbc_content;
-mod dbc_packet;
+mod derived_owner;
 mod error;
 mod key_manager;
 mod mint;
@@ -22,12 +22,10 @@ mod spent_proof;
 
 pub use crate::{
     amount_secrets::AmountSecrets,
-    builder::{DbcBuilder, DbcPacketBuilder, Output, ReissueRequestBuilder, TransactionBuilder},
+    builder::{DbcBuilder, Output, OutputOwnerMap, ReissueRequestBuilder, TransactionBuilder},
     dbc::{Dbc, KeyImage},
     dbc_content::{Amount, DbcContent},
-    dbc_packet::{
-        DbcPacket, DerivedOwner, DerivedPublicKey, DerivedPublicKeySet, DerivedSecretKeySet,
-    },
+    derived_owner::{DerivationIndex, DerivedOwner, OwnerBase},
     error::{Error, Result},
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
@@ -144,7 +142,6 @@ impl BlsHelper {
     #[allow(dead_code)]
     pub fn blsttc_to_blstrs_sk(sk: SecretKey) -> Scalar {
         let bytes = sk.to_bytes();
-        println!("sk bytes: {:?}", bytes);
         Scalar::from_bytes_be(&bytes).unwrap()
     }
 
@@ -180,8 +177,11 @@ mod tests {
     use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
 
+    use blst_ringct::ringct::{OutputProof, RingCtTransaction};
+    use std::collections::BTreeMap;
+
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    pub struct TinyInt(u8);
+    pub struct TinyInt(pub u8);
 
     impl TinyInt {
         pub fn coerce<T: From<u8>>(self) -> T {
@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    pub struct NonZeroTinyInt(NonZeroU8);
+    pub struct NonZeroTinyInt(pub NonZeroU8);
 
     impl NonZeroTinyInt {
         pub fn coerce<T: From<u8>>(self) -> T {
@@ -276,5 +276,105 @@ mod tests {
     \xca\x71\xfb\xa1\xd9\x72\xfd\x94\xa3\x1c\x3b\xfb\xf2\x4e\x39\x38\
 ";
         assert_eq!(sha3_256(data), *expected);
+    }
+
+    /// This is a toy SpentBook used in our mint-repl, a proper implementation
+    /// will be distributed, and include signatures and be auditable.
+    #[derive(Debug, Clone)]
+    pub struct SpentBookMock {
+        pub key_manager: SimpleKeyManager,
+        pub transactions: BTreeMap<KeyImage, RingCtTransaction>,
+        pub genesis_input_key_image: KeyImage,
+    }
+
+    impl From<(SimpleKeyManager, KeyImage)> for SpentBookMock {
+        fn from(params: (SimpleKeyManager, KeyImage)) -> Self {
+            let (key_manager, genesis_input_key_image) = params;
+
+            Self {
+                key_manager,
+                transactions: Default::default(),
+                genesis_input_key_image,
+            }
+        }
+    }
+
+    impl SpentBookMock {
+        pub fn iter(&self) -> impl Iterator<Item = (&KeyImage, &RingCtTransaction)> {
+            self.transactions.iter()
+        }
+
+        #[allow(dead_code)] // fixme: remove once used in tests
+        pub fn is_spent(&self, key_image: &KeyImage) -> bool {
+            self.transactions.contains_key(key_image)
+        }
+
+        pub fn log_spent(
+            &mut self,
+            key_image: KeyImage,
+            tx: RingCtTransaction,
+        ) -> Result<SpentProofShare> {
+            let tx_hash = Hash::from(tx.hash());
+
+            let spentbook_pks = self.key_manager.public_key_set()?;
+            let spentbook_sig_share = self.key_manager.sign(&tx_hash)?;
+
+            // public_commitments should only be empty for the genesis transaction.
+            let public_commitments: Vec<G1Affine> = if key_image == self.genesis_input_key_image {
+                vec![]
+            } else {
+                // Todo: make this cleaner and more efficient.
+                //       spentbook needs to also be indexed by OutputProof PublicKey.
+                //       perhaps map PublicKey --> KeyImage.
+                tx.mlsags
+                    .iter()
+                    .flat_map(|mlsag| {
+                        if mlsag.key_image.to_compressed() != key_image {
+                            vec![]
+                        } else {
+                            let commitments: Vec<G1Affine> = mlsag
+                                .public_keys()
+                                .iter()
+                                .filter_map(|pk| {
+                                    let output_proofs: Vec<&OutputProof> = self
+                                        .transactions
+                                        .values()
+                                        .filter_map(|ringct_tx| {
+                                            ringct_tx
+                                                .outputs
+                                                .iter()
+                                                .find(|proof| proof.public_key() == pk)
+                                        })
+                                        .collect();
+                                    assert_eq!(output_proofs.len(), 1);
+                                    match output_proofs.is_empty() {
+                                        true => None,
+                                        false => Some(output_proofs[0].commitment()),
+                                    }
+                                })
+                                .collect();
+                            assert_eq!(commitments.len(), mlsag.public_keys().len());
+                            assert!(commitments.len() == mlsag.ring.len());
+                            commitments
+                        }
+                    })
+                    .collect()
+            };
+
+            let existing_tx = self
+                .transactions
+                .entry(key_image)
+                .or_insert_with(|| tx.clone());
+            if existing_tx.hash() == tx.hash() {
+                Ok(SpentProofShare {
+                    key_image,
+                    spentbook_pks,
+                    spentbook_sig_share,
+                    public_commitments,
+                })
+            } else {
+                panic!("Attempt to Double Spend")
+            }
+        }
     }
 }
