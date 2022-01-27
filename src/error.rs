@@ -28,8 +28,8 @@ pub enum Error {
     UnrecognisedAuthority,
     #[error("At least one transaction input is missing a signature.")]
     MissingSignatureForInput,
-    #[error("At least one input is missing a spent proof for {0:?}")]
-    MissingSpentProof(KeyImage),
+    #[error("At least one input is missing a spent proof")]
+    MissingSpentProof,
     #[error("Invalid SpentProof Signature for {0:?}")]
     InvalidSpentProofSignature(KeyImage),
     #[error("Mint request doesn't balance out sum(input) == sum(output)")]
@@ -38,6 +38,9 @@ pub enum Error {
     TransactionMustHaveAnInput,
     #[error("Dbc Content is not a member of transaction outputs")]
     DbcContentNotPresentInTransactionOutput,
+
+    #[error("OutputProof not found in transaction outputs")]
+    OutputProofNotFound,
 
     #[error("key image is not unique across all transaction inputs")]
     KeyImageNotUniqueAcrossInputs,
@@ -88,6 +91,15 @@ pub enum Error {
 
     #[error("Invalid Amount Commitment")]
     AmountCommitmentInvalid,
+
+    #[error("Amount Commitments do not match")]
+    AmountCommitmentsDoNotMatch,
+
+    #[error("Secret key unavailable")]
+    SecretKeyUnavailable,
+
+    #[error("Public key not found")]
+    PublicKeyNotFound,
 
     /// blst_ringct error.
     #[error("ringct error: {0}")]

@@ -8,21 +8,26 @@ use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, DbcPacket, DerivedOwner, Error, NodeSignature,
+    Amount, AmountSecrets, Dbc, DbcContent, DerivedOwner, Error, KeyImage, NodeSignature,
     ReissueRequest, ReissueShare, Result, SpentProof, SpentProofShare,
 };
 
+pub type OutputOwnerMap = BTreeMap<KeyImage, DerivedOwner>;
+
 #[derive(Default)]
-pub struct TransactionBuilder(RingCtMaterial);
+pub struct TransactionBuilder {
+    material: RingCtMaterial,
+    output_owners: OutputOwnerMap,
+}
 
 impl TransactionBuilder {
     pub fn add_input(mut self, mlsag: MlsagMaterial) -> Self {
-        self.0.inputs.push(mlsag);
+        self.material.inputs.push(mlsag);
         self
     }
 
     pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = MlsagMaterial>) -> Self {
-        self.0.inputs.extend(inputs);
+        self.material.inputs.extend(inputs);
         self
     }
 
@@ -32,7 +37,7 @@ impl TransactionBuilder {
         decoy_inputs: Vec<DecoyInput>,
         mut rng: impl RngCore,
     ) -> Self {
-        self.0
+        self.material
             .inputs
             .push(MlsagMaterial::new(true_input, decoy_inputs, &mut rng));
         self
@@ -61,7 +66,7 @@ impl TransactionBuilder {
             revealed_commitment: amount_secrets.into(),
         };
 
-        self.0
+        self.material
             .inputs
             .push(MlsagMaterial::new(true_input, decoy_inputs, &mut rng));
         self
@@ -78,22 +83,29 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn add_output(mut self, output: Output) -> Self {
-        self.0.outputs.push(output);
+    pub fn add_output(mut self, output: Output, owner: DerivedOwner) -> Self {
+        self.output_owners
+            .insert(output.public_key().to_compressed(), owner);
+        self.material.outputs.push(output);
         self
     }
 
-    pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = Output>) -> Self {
-        self.0.outputs.extend(outputs);
+    pub fn add_outputs(
+        mut self,
+        outputs: impl IntoIterator<Item = (Output, DerivedOwner)>,
+    ) -> Self {
+        for (output, owner) in outputs.into_iter() {
+            self = self.add_output(output, owner);
+        }
         self
     }
 
     pub fn input_owners(&self) -> Vec<blstrs::G1Affine> {
-        self.0.public_keys()
+        self.material.public_keys()
     }
 
     pub fn inputs_amount_sum(&self) -> Amount {
-        self.0
+        self.material
             .inputs
             .iter()
             .map(|m| m.true_input.revealed_commitment.value)
@@ -101,17 +113,27 @@ impl TransactionBuilder {
     }
 
     pub fn outputs_amount_sum(&self) -> Amount {
-        self.0.outputs.iter().map(|o| o.amount).sum()
+        self.material.outputs.iter().map(|o| o.amount).sum()
     }
 
     pub fn build(
         self,
         rng: impl RngCore + rand_core::CryptoRng,
-    ) -> Result<(RingCtTransaction, Vec<RevealedCommitment>, RingCtMaterial)> {
+    ) -> Result<(
+        RingCtTransaction,
+        Vec<RevealedCommitment>,
+        RingCtMaterial,
+        OutputOwnerMap,
+    )> {
         let result: Result<(RingCtTransaction, Vec<RevealedCommitment>)> =
-            self.0.sign(rng).map_err(|e| e.into());
+            self.material.sign(rng).map_err(|e| e.into());
         let (transaction, revealed_commitments) = result?;
-        Ok((transaction, revealed_commitments, self.0))
+        Ok((
+            transaction,
+            revealed_commitments,
+            self.material,
+            self.output_owners,
+        ))
     }
 }
 
@@ -203,14 +225,20 @@ impl ReissueRequestBuilder {
 #[derive(Debug)]
 pub struct DbcBuilder {
     pub revealed_commitments: Vec<RevealedCommitment>,
+    pub output_owners: OutputOwnerMap,
+
     pub reissue_shares: Vec<ReissueShare>,
 }
 
 impl DbcBuilder {
     /// Create a new DbcBuilder from a ReissueTransaction
-    pub fn new(revealed_commitments: Vec<RevealedCommitment>) -> Self {
+    pub fn new(
+        revealed_commitments: Vec<RevealedCommitment>,
+        output_owners: OutputOwnerMap,
+    ) -> Self {
         Self {
             revealed_commitments,
+            output_owners,
             reissue_shares: Default::default(),
         }
     }
@@ -228,7 +256,7 @@ impl DbcBuilder {
     }
 
     /// Build the output DBCs
-    pub fn build(self) -> Result<Vec<Dbc>> {
+    pub fn build(self) -> Result<Vec<(Dbc, DerivedOwner, AmountSecrets)>> {
         if self.reissue_shares.is_empty() {
             return Err(Error::NoReissueShares);
         }
@@ -301,22 +329,35 @@ impl DbcBuilder {
             .map(|r| (r.commit(&pc_gens).to_affine(), *r))
             .collect();
 
-        // Form the final output DBCs, with Mint's Signature for each.
-        let output_dbcs: Vec<Dbc> = transaction
+        let derived_owners: Vec<&DerivedOwner> = transaction
             .outputs
             .iter()
             .map(|output| {
-                let amount_secrets_list = output_commitments
+                self.output_owners
+                    .get(&output.public_key().to_compressed())
+                    .ok_or(Error::PublicKeyNotFound)
+            })
+            .collect::<Result<_>>()?;
+
+        // Form the final output DBCs, with Mint's Signature for each.
+        let output_dbcs: Vec<(Dbc, DerivedOwner, AmountSecrets)> = transaction
+            .outputs
+            .iter()
+            .zip(derived_owners)
+            .map(|(output, derived_owner)| {
+                let amount_secrets_list: Vec<AmountSecrets> = output_commitments
                     .iter()
                     .filter(|(c, _)| *c == output.commitment())
-                    .map(|(_, r)| AmountSecrets::from(*r));
-                assert_eq!(amount_secrets_list.count(), 1);
+                    .map(|(_, r)| AmountSecrets::from(*r))
+                    .collect();
+                assert_eq!(amount_secrets_list.len(), 1);
 
-                Dbc {
-                    content: DbcContent::from(
-                        *output.public_key(),
-                        // amount_secrets_list[0].clone(),
-                    ),
+                let dbc = Dbc {
+                    content: DbcContent::from((
+                        derived_owner.owner_base.clone(),
+                        derived_owner.derivation_index,
+                        amount_secrets_list[0].clone(),
+                    )),
                     transaction: transaction.clone(),
                     transaction_sigs: transaction
                         .mlsags
@@ -329,7 +370,8 @@ impl DbcBuilder {
                         })
                         .collect(),
                     spent_proofs: spent_proofs.clone(),
-                }
+                };
+                (dbc, derived_owner.clone(), amount_secrets_list[0].clone())
             })
             .collect();
 
@@ -337,32 +379,5 @@ impl DbcBuilder {
         // output_dbcs.sort_by_key(Dbc::owner);
 
         Ok(output_dbcs)
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct DbcPacketBuilder {
-    dbcs: Vec<(Dbc, DerivedOwner, AmountSecrets)>,
-}
-
-impl DbcPacketBuilder {
-    pub fn add_dbc(
-        mut self,
-        dbc: Dbc,
-        derived_owner: DerivedOwner,
-        amount_secrets: AmountSecrets,
-    ) -> Self {
-        self.dbcs.push((dbc, derived_owner, amount_secrets));
-        self
-    }
-
-    pub fn build(self) -> Result<Vec<DbcPacket>> {
-        let mut dbc_packets: Vec<DbcPacket> = Default::default();
-        for (dbc, derived_owner, amount_secrets) in self.dbcs.into_iter() {
-            let dbc_packet = DbcPacket::from((dbc, derived_owner, amount_secrets));
-            dbc_packet.verify_owner_derivation_index()?;
-            dbc_packets.push(dbc_packet);
-        }
-        Ok(dbc_packets)
     }
 }
