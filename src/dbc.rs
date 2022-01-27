@@ -63,11 +63,12 @@ impl Dbc {
 
     // Check there exists a Transaction with the output containing this Dbc
     // todo: refactor so that common validation logic is shared by MintNode::reissue() and Dbc::confirm_valid()
+    //
+    // note: for spent_proofs to validate, the mint_verifier must have/know the spentbook section's public key.
     pub fn confirm_valid<K: KeyManager>(
         &self,
         base_sk: &SecretKey,
         mint_verifier: &K,
-        spentbook_verifier: &K,
     ) -> Result<(), Error> {
         let tx_hash = Hash::from(self.transaction.hash());
 
@@ -97,7 +98,7 @@ impl Dbc {
             {
                 return Err(Error::UnknownInput);
             }
-            spent_proof.validate(tx_hash, spentbook_verifier)?;
+            spent_proof.validate(tx_hash, mint_verifier)?;
         }
 
         let owner = self.owner(base_sk)?;
@@ -267,17 +268,10 @@ mod tests {
         };
 
         let id = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::new(SimpleSigner::from(id));
-
-        let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
+        let mint_key_manager = SimpleKeyManager::new(SimpleSigner::from(id));
 
         assert!(matches!(
-            dbc.confirm_valid(
-                &derived_owner.base_secret_key()?,
-                &key_manager,
-                &spentbook_key_manager
-            ),
+            dbc.confirm_valid(&derived_owner.base_secret_key()?, &mint_key_manager,),
             Err(Error::TransactionMustHaveAnInput)
         ));
 
@@ -298,23 +292,20 @@ mod tests {
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
         let amount = 100;
-        let mint_owner = crate::bls_dkg_id(&mut rng);
 
-        let key_manager = SimpleKeyManager::new(SimpleSigner::from(mint_owner));
-        let mut mint_node = MintNode::new(key_manager);
+        let spentbook_key_manager =
+            SimpleKeyManager::new(SimpleSigner::from(crate::bls_dkg_id(&mut rng)));
 
-        let spentbook_owner = crate::bls_dkg_id(&mut rng);
-        let spentbook_key_manager = SimpleKeyManager::new(SimpleSigner::from(spentbook_owner));
+        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )))
+        .trust_spentbook_public_key(spentbook_key_manager.public_key_set()?.public_key())?
+        .issue_genesis_dbc(amount, &mut rng8)?;
 
-        let genesis = mint_node.issue_genesis_dbc(amount, &mut rng8)?;
-        let genesis_input_key_image = genesis.ringct_material.inputs[0]
-            .true_input
-            .key_image()
-            .to_compressed();
-        let mut spentbook = SpentBookMock::from((spentbook_key_manager, genesis_input_key_image));
+        let mut spentbook = SpentBookMock::from((spentbook_key_manager, genesis.input_key_image));
 
         let _genesis_spent_proof_share =
-            spentbook.log_spent(genesis_input_key_image, genesis.transaction.clone())?;
+            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
 
         let input_owners: Vec<DerivedOwner> = (0..=n_inputs.coerce())
             .map(|_| {
@@ -491,11 +482,7 @@ mod tests {
         };
 
         let key_manager = mint_node.key_manager();
-        let validation_res = dbc.confirm_valid(
-            &derived_owner.base_secret_key()?,
-            key_manager,
-            &spentbook.key_manager,
-        );
+        let validation_res = dbc.confirm_valid(&derived_owner.base_secret_key()?, key_manager);
 
         let dbc_owner = dbc.owner(&derived_owner.base_secret_key()?)?;
 
