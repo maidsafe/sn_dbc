@@ -8,7 +8,7 @@
 
 use crate::{dbc_content::OwnerPublicKey, DbcContent, Error, KeyManager, Result};
 
-use crate::{AmountSecrets, BlsHelper, Hash, SpentProof};
+use crate::{AmountSecrets, BlsHelper, SpentProof, TransactionValidator};
 use blst_ringct::ringct::{OutputProof, RingCtTransaction};
 use blst_ringct::RevealedCommitment;
 use blstrs::group::Curve;
@@ -16,7 +16,9 @@ use blsttc::{PublicKey, SecretKey, Signature};
 use std::collections::{BTreeMap, BTreeSet};
 use tiny_keccak::{Hasher, Sha3};
 
-// note: typedef should be moved into blst_ringct crate
+// todo: move this someplace better, maybe lib.rs.
+// Alternatively, we could perhaps wrap G1Affine to add Ord so it can
+// be used in a BTreeMap directly
 pub type KeyImage = [u8; 48]; // G1 compressed
 
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -70,46 +72,16 @@ impl Dbc {
         base_sk: &SecretKey,
         mint_verifier: &K,
     ) -> Result<(), Error> {
-        let tx_hash = Hash::from(self.transaction.hash());
-
-        // Verify that each input has a corresponding valid mint signature.
-        for (key_image, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
-            if !self
-                .transaction
-                .mlsags
-                .iter()
-                .any(|m| m.key_image.to_compressed() == *key_image)
-            {
-                return Err(Error::UnknownInput);
-            }
-
-            mint_verifier
-                .verify(&tx_hash, mint_key, mint_sig)
-                .map_err(|e| Error::Signing(e.to_string()))?;
-        }
-
-        // Verify that each input has a corresponding valid spent proof.
-        for spent_proof in self.spent_proofs.iter() {
-            if !self
-                .transaction
-                .mlsags
-                .iter()
-                .any(|m| m.key_image.to_compressed() == spent_proof.key_image)
-            {
-                return Err(Error::UnknownInput);
-            }
-            spent_proof.validate(tx_hash, mint_verifier)?;
-        }
+        TransactionValidator::validate(
+            mint_verifier,
+            &self.transaction,
+            &self.transaction_sigs,
+            &self.spent_proofs,
+        )?;
 
         let owner = self.owner(base_sk)?;
 
-        if self.transaction.mlsags.is_empty() {
-            Err(Error::TransactionMustHaveAnInput)
-        } else if self.transaction_sigs.len() < self.transaction.mlsags.len() {
-            Err(Error::MissingSignatureForInput)
-        } else if self.spent_proofs.len() != self.transaction.mlsags.len() {
-            Err(Error::MissingSpentProof)
-        } else if !self
+        if !self
             .transaction
             .outputs
             .iter()
@@ -123,6 +95,25 @@ impl Dbc {
 
     /// Checks if the provided AmountSecrets matches the amount commitment.
     /// note that both the amount and blinding_factor must be correct.
+    ///
+    /// Note that the mint cannot perform this check.  Only the Dbc
+    /// recipient can.
+    ///
+    /// A Dbc recipient should call this immediately upon receipt.
+    /// If the commitments do not match, then the Dbc cannot be spent
+    /// using the AmountSecrets provided.
+    ///
+    /// To clarify, the Dbc is still spendable, however the correct
+    /// AmountSecrets need to be obtained from the sender somehow.
+    ///
+    /// As an example, if the Dbc recipient is a merchant, they typically
+    /// would not provide goods to the purchaser if this check fails.
+    /// However the purchaser may still be able to remedy the situation by
+    /// providing the correct AmountSecrets to the merchant.
+    ///
+    /// If the merchant were to send the goods without first performing
+    /// this check, then they could be stuck with an unspendable Dbc
+    /// and no recourse.
     pub fn confirm_provided_amount_matches_commitment(
         &self,
         base_sk: &SecretKey,
@@ -268,7 +259,7 @@ mod tests {
         };
 
         let id = crate::bls_dkg_id(&mut rng);
-        let mint_key_manager = SimpleKeyManager::new(SimpleSigner::from(id));
+        let mint_key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
 
         assert!(matches!(
             dbc.confirm_valid(&derived_owner.base_secret_key()?, &mint_key_manager,),
@@ -293,15 +284,17 @@ mod tests {
 
         let amount = 100;
 
-        let mut spentbook = SpentBookMock::from(SimpleKeyManager::new(SimpleSigner::from(
+        let mut spentbook = SpentBookMock::from(SimpleKeyManager::from(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )));
 
-        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
+        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )))
         .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
         .issue_genesis_dbc(amount, &mut rng8)?;
+
+        spentbook.set_genesis(&genesis.ringct_material);
 
         let _genesis_spent_proof_share =
             spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
@@ -427,7 +420,7 @@ mod tests {
         for _ in 0..n_wrong_signer_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id(&mut rng);
-                let key_manager = SimpleKeyManager::new(SimpleSigner::from(id));
+                let key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
                 let trans_sig_share = key_manager
                     .sign(&Hash::from(reissue_share.transaction.hash()))
                     .unwrap();
@@ -514,7 +507,7 @@ mod tests {
             Err(Error::MissingSignatureForInput) => {
                 assert!(n_valid_sigs.coerce::<u8>() < n_inputs.coerce::<u8>());
             }
-            Err(Error::MissingSpentProof) => {
+            Err(Error::SpentProofInputMismatch) => {
                 // todo: fuzz spent proofs.
                 assert!(dbc.spent_proofs.len() < dbc.transaction.mlsags.len());
             }

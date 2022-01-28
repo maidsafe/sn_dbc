@@ -95,8 +95,8 @@ pub struct SimpleKeyManager {
     cache: Keys,
 }
 
-impl SimpleKeyManager {
-    pub fn new(signer: SimpleSigner) -> Self {
+impl From<SimpleSigner> for SimpleKeyManager {
+    fn from(signer: SimpleSigner) -> Self {
         let public_key_set = signer.public_key_set();
         let mut cache = Keys::default();
         cache.add_known_key(public_key_set.public_key());

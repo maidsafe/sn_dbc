@@ -19,6 +19,7 @@ mod error;
 mod key_manager;
 mod mint;
 mod spent_proof;
+mod validation;
 
 pub use crate::{
     amount_secrets::AmountSecrets,
@@ -33,6 +34,7 @@ pub use crate::{
     },
     mint::{GenesisDbcShare, MintNode, MintNodeSignatures, ReissueRequest, ReissueShare},
     spent_proof::{SpentProof, SpentProofShare},
+    validation::TransactionValidator,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -174,7 +176,8 @@ mod tests {
     use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
 
-    use blst_ringct::ringct::{OutputProof, RingCtTransaction};
+    use blst_ringct::ringct::{OutputProof, RingCtMaterial, RingCtTransaction};
+    use blstrs::group::Curve;
     use std::collections::BTreeMap;
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -275,13 +278,21 @@ mod tests {
         assert_eq!(sha3_256(data), *expected);
     }
 
-    /// This is a toy SpentBook used in our mint-repl, a proper implementation
-    /// will be distributed, and include signatures and be auditable.
+    /// This is a mock SpentBook used for our test cases. A proper implementation
+    /// will be distributed, persistent, and auditable.
+    ///
+    /// This impl has a serious inefficiency when looking up OutputProofs by
+    /// PublicKey.  A scan of all spent Tx is required.  This is not a problem
+    /// for small tests.
+    ///
+    /// A real (performant) impl would need to add an additional index/map from
+    /// PublicKey to Tx.  Or alternatively from PublicKey to KeyImage.  This requirement
+    /// may add complexity to a distributed implementation.
     #[derive(Debug, Clone)]
     pub struct SpentBookMock {
         pub key_manager: SimpleKeyManager,
         pub transactions: BTreeMap<KeyImage, RingCtTransaction>,
-        pub genesis_input_key_image: Option<KeyImage>,
+        pub genesis: Option<(KeyImage, G1Affine)>, // genesis input (keyimage, public_commitment)
     }
 
     impl From<SimpleKeyManager> for SpentBookMock {
@@ -289,19 +300,19 @@ mod tests {
             Self {
                 key_manager,
                 transactions: Default::default(),
-                genesis_input_key_image: None,
+                genesis: None,
             }
         }
     }
 
-    impl From<(SimpleKeyManager, KeyImage)> for SpentBookMock {
-        fn from(params: (SimpleKeyManager, KeyImage)) -> Self {
-            let (key_manager, key_image) = params;
+    impl From<(SimpleKeyManager, KeyImage, G1Affine)> for SpentBookMock {
+        fn from(params: (SimpleKeyManager, KeyImage, G1Affine)) -> Self {
+            let (key_manager, key_image, public_commitment) = params;
 
             Self {
                 key_manager,
                 transactions: Default::default(),
-                genesis_input_key_image: Some(key_image),
+                genesis: Some((key_image, public_commitment)),
             }
         }
     }
@@ -328,14 +339,14 @@ mod tests {
 
             // If this is the very first tx logged and genesis key_image was not
             // provided, then it becomes the genesis tx.
-            let genesis_input_key_image = match self.genesis_input_key_image {
-                Some(k) => k,
-                None => key_image,
+            let (genesis_key_image, genesis_public_commitment) = match self.genesis {
+                Some((k, pc)) => (k, pc),
+                None => panic!("Genesis key_image and public commitments unavailable"),
             };
 
-            // public_commitments should only be empty for the genesis transaction.
-            let public_commitments: Vec<G1Affine> = if key_image == genesis_input_key_image {
-                vec![]
+            // public_commitments are not available in spentbook for genesis transaction.
+            let public_commitments: Vec<G1Affine> = if key_image == genesis_key_image {
+                vec![genesis_public_commitment]
             } else {
                 // Todo: make this cleaner and more efficient.
                 //       spentbook needs to also be indexed by OutputProof PublicKey.
@@ -380,10 +391,6 @@ mod tests {
                 .entry(key_image)
                 .or_insert_with(|| tx.clone());
             if existing_tx.hash() == tx.hash() {
-                if self.genesis_input_key_image.is_none() {
-                    self.genesis_input_key_image = Some(genesis_input_key_image);
-                }
-
                 Ok(SpentProofShare {
                     key_image,
                     spentbook_pks,
@@ -393,6 +400,17 @@ mod tests {
             } else {
                 panic!("Attempt to Double Spend")
             }
+        }
+
+        pub fn set_genesis(&mut self, material: &RingCtMaterial) {
+            let key_image = material.inputs[0].true_input.key_image().to_compressed();
+            let public_commitment = material.inputs[0]
+                .true_input
+                .revealed_commitment
+                .commit(&Default::default())
+                .to_affine();
+
+            self.genesis = Some((key_image, public_commitment));
         }
     }
 }

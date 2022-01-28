@@ -137,7 +137,7 @@ impl TransactionBuilder {
     }
 }
 
-/// Builds a ReissueRequest from a ReissueTransaction and
+/// Builds a ReissueRequest from a RingCtTransaction and
 /// any number of (input) DBC spent proof shares.
 #[derive(Debug)]
 pub struct ReissueRequestBuilder {
@@ -231,7 +231,7 @@ pub struct DbcBuilder {
 }
 
 impl DbcBuilder {
-    /// Create a new DbcBuilder from a ReissueTransaction
+    /// Create a new DbcBuilder
     pub fn new(
         revealed_commitments: Vec<RevealedCommitment>,
         output_owners: OutputOwnerMap,
