@@ -16,6 +16,7 @@
 use crate::{
     Amount, AmountSecrets, DbcContent, DerivedOwner, Error, Hash, KeyImage, KeyManager,
     NodeSignature, OwnerBase, PublicKey, PublicKeySet, Result, SpentProof, SpentProofShare,
+    TransactionValidator,
 };
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
@@ -27,12 +28,7 @@ use blsttc::{poly::Poly, SecretKeySet};
 use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::iter::FromIterator;
 
-// note: Inputs are not guaranteed to use unique KeyImage, so we cannot
-//       use it as the map key.  Instead we key by input index which
-//       is the position of the MlsagSignature in RingCtTransaction.mlsags.
-//       We may want to revisit this.
 pub type MintNodeSignature = (PublicKeySet, NodeSignature);
 pub type MintNodeSignatures = BTreeMap<KeyImage, MintNodeSignature>;
 
@@ -43,10 +39,8 @@ pub struct GenesisDbcShare {
     pub amount_secrets: AmountSecrets,
     pub derived_owner: DerivedOwner,
     pub transaction: RingCtTransaction,
-    pub revealed_commitments: Vec<RevealedCommitment>,
-    pub public_key_set: PublicKeySet,
     pub transaction_sig: NodeSignature,
-    pub secret_key: Scalar,
+    pub secret_key: Scalar, // todo: redundant with derived_owner. get rid of this once blsttc uses blstrs.
     pub input_key_image: KeyImage,
 }
 
@@ -104,7 +98,6 @@ impl<K: KeyManager> MintNode<K> {
         let derived_owner =
             DerivedOwner::from_owner_base(OwnerBase::from(secret_key_set.secret_key()), &mut rng);
         let secret_key_set_derived = secret_key_set.derive_child(&derived_owner.derivation_index);
-        let public_key_set = secret_key_set_derived.public_keys();
 
         // create sk and derive pk.
         let secret_key =
@@ -153,10 +146,8 @@ impl<K: KeyManager> MintNode<K> {
                 ringct_material,
                 dbc_content,
                 amount_secrets,
-                public_key_set,
                 derived_owner,
                 transaction,
-                revealed_commitments, // output commitments
                 transaction_sig,
                 secret_key,
                 input_key_image,
@@ -203,79 +194,18 @@ impl<K: KeyManager> MintNode<K> {
             spent_proofs,
         } = reissue_req;
 
-        if transaction.mlsags.len() != spent_proofs.len() {
-            return Err(Error::SpentProofInputMismatch);
-        }
+        TransactionValidator::validate_without_sigs(
+            self.key_manager(),
+            &transaction,
+            &spent_proofs,
+        )?;
 
-        // Verify that each KeyImage is unique in this tx.
-        let keyimage_unique: BTreeSet<KeyImage> = transaction
-            .mlsags
-            .iter()
-            .map(|m| m.key_image.to_compressed())
-            .collect();
-        if keyimage_unique.len() != transaction.mlsags.len() {
-            return Err(Error::KeyImageNotUniqueAcrossInputs);
-        }
-
-        // Verify that each pubkey is unique in this transaction.
-        let pubkey_unique: BTreeSet<KeyImage> = transaction
-            .outputs
-            .iter()
-            .map(|o| o.public_key().to_compressed())
-            .collect();
-        if pubkey_unique.len() != transaction.outputs.len() {
-            return Err(Error::PublicKeyNotUniqueAcrossOutputs);
-        }
-
-        // We must get the spent_proofs into the same order as mlsags
-        // so that resulting public_commitments will be in the right order.
-        // Note: we could use itertools crate to sort in one loop.
-        let mut spent_proofs_found: Vec<(usize, SpentProof)> = spent_proofs
-            .into_iter()
-            .filter_map(|s| {
-                transaction
-                    .mlsags
-                    .iter()
-                    .position(|m| m.key_image.to_compressed() == s.key_image)
-                    .map(|idx| (idx, s))
-            })
-            .collect();
-
-        // note: since we already verified key_image is unique amongst
-        // mlsags, this check ensures it is also unique amongst SpentProofs
-        // as well as matching mlsag key images.
-        if spent_proofs_found.len() != transaction.mlsags.len() {
-            return Err(Error::SpentProofKeyImageMismatch);
-        }
-        spent_proofs_found.sort_by_key(|s| s.0);
-        let spent_proofs_sorted: Vec<SpentProof> =
-            spent_proofs_found.into_iter().map(|s| s.1).collect();
-
-        let public_commitments: Vec<Vec<G1Affine>> = spent_proofs_sorted
-            .iter()
-            .map(|s| s.public_commitments.clone())
-            .collect();
-
-        transaction.verify(&public_commitments)?;
-
-        let transaction_hash = Hash::from(transaction.hash());
-
-        // Validate that each input has not yet been spent.
-        // iterate over mlsags.  each has key_image()
-        //
-        // note: for the proofs to validate, our key_manager must have/know
-        // the pubkey of the spentbook section that signed the proof.
-        // This is a responsibility of our caller, not this crate.
-        for proof in spent_proofs_sorted.iter() {
-            proof.validate(transaction_hash, self.key_manager())?;
-        }
-
-        let transaction_sigs = self.sign_transaction(&transaction)?;
+        let mint_node_signatures = self.sign_transaction(&transaction)?;
 
         let reissue_share = ReissueShare {
             transaction,
-            spent_proofs: BTreeSet::from_iter(spent_proofs_sorted),
-            mint_node_signatures: transaction_sigs,
+            spent_proofs,
+            mint_node_signatures,
         };
 
         Ok(reissue_share)
@@ -309,6 +239,7 @@ mod tests {
     use rand_core::SeedableRng as SeedableRngCore;
     use std::collections::BTreeSet;
     use std::convert::TryFrom;
+    use std::iter::FromIterator;
 
     use crate::{
         tests::{SpentBookMock, TinyInt, TinyVec},
@@ -321,15 +252,17 @@ mod tests {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-        let mut spentbook = SpentBookMock::from(SimpleKeyManager::new(SimpleSigner::from(
+        let mut spentbook = SpentBookMock::from(SimpleKeyManager::from(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )));
 
-        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
+        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )))
         .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
         .issue_genesis_dbc(1000, &mut rng8)?;
+
+        spentbook.set_genesis(&genesis.ringct_material);
 
         let mint_sig = mint_node
             .key_manager()
@@ -391,15 +324,17 @@ mod tests {
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
 
-        let mut spentbook = SpentBookMock::from(SimpleKeyManager::new(SimpleSigner::from(
+        let mut spentbook = SpentBookMock::from(SimpleKeyManager::from(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )));
 
-        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
+        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )))
         .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
         .issue_genesis_dbc(output_amount, &mut rng8)?;
+
+        spentbook.set_genesis(&genesis.ringct_material);
 
         let _genesis_spent_proof_share =
             spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
@@ -417,7 +352,7 @@ mod tests {
             crate::TransactionBuilder::default()
                 .add_input_by_secrets(
                     genesis.secret_key,
-                    AmountSecrets::from(genesis.revealed_commitments[0]),
+                    genesis.amount_secrets,
                     vec![], // genesis is only input, so no decoys.
                     &mut rng8,
                 )
@@ -531,15 +466,17 @@ mod tests {
         // something like:  genesis --> 100 outputs --> x outputs --> y outputs.
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
-        let mut spentbook = SpentBookMock::from(SimpleKeyManager::new(SimpleSigner::from(
+        let mut spentbook = SpentBookMock::from(SimpleKeyManager::from(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )));
 
-        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::new(SimpleSigner::from(
+        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
             crate::bls_dkg_id(&mut rng),
         )))
         .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
         .issue_genesis_dbc(genesis_amount, &mut rng8)?;
+
+        spentbook.set_genesis(&genesis.ringct_material);
 
         let _genesis_spent_proof_share =
             spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
@@ -548,7 +485,7 @@ mod tests {
             crate::TransactionBuilder::default()
                 .add_input_by_secrets(
                     genesis.secret_key,
-                    AmountSecrets::from(genesis.revealed_commitments[0]),
+                    genesis.amount_secrets,
                     vec![], // genesis is input, no decoys possible.
                     &mut rng8,
                 )
