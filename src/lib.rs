@@ -332,6 +332,26 @@ mod tests {
             key_image: KeyImage,
             tx: RingCtTransaction,
         ) -> Result<SpentProofShare> {
+            self.log_spent_worker(key_image, tx, true)
+        }
+
+        // This is invalid behavior, however we provide this method for test cases
+        // that need to write an invalid Tx to spentbook in order to test reissue
+        // behavior.
+        pub fn log_spent_and_skip_tx_verification(
+            &mut self,
+            key_image: KeyImage,
+            tx: RingCtTransaction,
+        ) -> Result<SpentProofShare> {
+            self.log_spent_worker(key_image, tx, false)
+        }
+
+        fn log_spent_worker(
+            &mut self,
+            key_image: KeyImage,
+            tx: RingCtTransaction,
+            verify_tx: bool,
+        ) -> Result<SpentProofShare> {
             let tx_hash = Hash::from(tx.hash());
 
             let spentbook_pks = self.key_manager.public_key_set()?;
@@ -345,22 +365,20 @@ mod tests {
             };
 
             // public_commitments are not available in spentbook for genesis transaction.
-            let public_commitments: Vec<G1Affine> = if key_image == genesis_key_image {
-                vec![genesis_public_commitment]
-            } else {
-                // Todo: make this cleaner and more efficient.
-                //       spentbook needs to also be indexed by OutputProof PublicKey.
-                //       perhaps map PublicKey --> KeyImage.
-                tx.mlsags
-                    .iter()
-                    .flat_map(|mlsag| {
-                        if mlsag.key_image.to_compressed() != key_image {
-                            vec![]
-                        } else {
+            let public_commitments_info: Vec<(KeyImage, Vec<G1Affine>)> =
+                if key_image == genesis_key_image {
+                    vec![(key_image, vec![genesis_public_commitment])]
+                } else {
+                    // Todo: make this cleaner and more efficient.
+                    //       spentbook needs to also be indexed by OutputProof PublicKey.
+                    //       perhaps map PublicKey --> KeyImage.
+                    tx.mlsags
+                        .iter()
+                        .map(|mlsag| {
                             let commitments: Vec<G1Affine> = mlsag
                                 .public_keys()
                                 .iter()
-                                .filter_map(|pk| {
+                                .map(|pk| {
                                     let output_proofs: Vec<&OutputProof> = self
                                         .transactions
                                         .values()
@@ -372,19 +390,32 @@ mod tests {
                                         })
                                         .collect();
                                     assert_eq!(output_proofs.len(), 1);
-                                    match output_proofs.is_empty() {
-                                        true => None,
-                                        false => Some(output_proofs[0].commitment()),
-                                    }
+                                    output_proofs[0].commitment()
                                 })
                                 .collect();
                             assert_eq!(commitments.len(), mlsag.public_keys().len());
                             assert!(commitments.len() == mlsag.ring.len());
-                            commitments
-                        }
-                    })
-                    .collect()
-            };
+                            (mlsag.key_image.to_compressed(), commitments)
+                        })
+                        .collect()
+                };
+
+            // Grab the commitments specific to the spent KeyImage
+            let tx_public_commitments: Vec<Vec<G1Affine>> = public_commitments_info
+                .clone()
+                .into_iter()
+                .map(|(_, v)| v)
+                .collect();
+
+            let public_commitments: Vec<G1Affine> = public_commitments_info
+                .into_iter()
+                .flat_map(|(k, v)| if k == key_image { v } else { vec![] })
+                .collect();
+
+            if verify_tx {
+                // do not permit invalid tx to be logged.
+                tx.verify(&tx_public_commitments)?;
+            }
 
             let existing_tx = self
                 .transactions
@@ -412,5 +443,74 @@ mod tests {
 
             self.genesis = Some((key_image, public_commitment));
         }
+    }
+
+    pub(crate) fn init_genesis(
+        mut rng: impl rand::RngCore,
+        mut rng8: impl rand8::RngCore + rand_core::CryptoRng,
+        genesis_amount: Amount,
+    ) -> Result<(
+        MintNode<SimpleKeyManager>,
+        SpentBookMock,
+        GenesisDbcShare,
+        Dbc,
+    )> {
+        use std::collections::BTreeSet;
+        use std::iter::FromIterator;
+
+        let mut spentbook = SpentBookMock::from(SimpleKeyManager::from(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )));
+
+        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )))
+        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
+        .issue_genesis_dbc(genesis_amount, &mut rng8)?;
+
+        spentbook.set_genesis(&genesis.ringct_material);
+
+        let mint_sig = mint_node
+            .key_manager()
+            .public_key_set()?
+            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
+
+        let spent_proof_share =
+            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
+
+        let spentbook_sig =
+            spent_proof_share
+                .spentbook_pks
+                .combine_signatures(vec![spent_proof_share
+                    .spentbook_sig_share
+                    .threshold_crypto()])?;
+
+        let tx_hash = Hash::from(genesis.transaction.hash());
+        assert!(spent_proof_share
+            .spentbook_pks
+            .public_key()
+            .verify(&spentbook_sig, &tx_hash));
+
+        let spent_proofs = BTreeSet::from_iter(vec![SpentProof {
+            key_image: spent_proof_share.key_image,
+            spentbook_pub_key: spent_proof_share.spentbook_pks.public_key(),
+            spentbook_sig,
+            public_commitments: spent_proof_share.public_commitments,
+        }]);
+
+        let genesis_dbc = Dbc {
+            content: genesis.dbc_content.clone(),
+            transaction: genesis.transaction.clone(),
+            transaction_sigs: BTreeMap::from_iter([(
+                genesis.input_key_image,
+                (
+                    mint_node.key_manager().public_key_set()?.public_key(),
+                    mint_sig,
+                ),
+            )]),
+            spent_proofs,
+        };
+
+        Ok((mint_node, spentbook, genesis, genesis_dbc))
     }
 }

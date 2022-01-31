@@ -151,10 +151,10 @@ mod tests {
 
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::{NonZeroTinyInt, SpentBookMock, TinyInt};
+    use crate::tests::{init_genesis, NonZeroTinyInt, SpentBookMock, TinyInt};
     use crate::{
-        Amount, AmountSecrets, BlsHelper, DbcBuilder, DerivedOwner, Hash, KeyManager, MintNode,
-        OwnerBase, ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
+        Amount, AmountSecrets, BlsHelper, DbcBuilder, DerivedOwner, Hash, KeyManager, OwnerBase,
+        ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
     };
     use blst_ringct::ringct::RingCtMaterial;
     use blst_ringct::{Output, RevealedCommitment};
@@ -284,20 +284,8 @@ mod tests {
 
         let amount = 100;
 
-        let mut spentbook = SpentBookMock::from(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )));
-
-        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )))
-        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
-        .issue_genesis_dbc(amount, &mut rng8)?;
-
-        spentbook.set_genesis(&genesis.ringct_material);
-
-        let _genesis_spent_proof_share =
-            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
+        let (mint_node, mut spentbook, genesis, _genesis_dbc) =
+            init_genesis(&mut rng, &mut rng8, amount)?;
 
         let input_owners: Vec<DerivedOwner> = (0..=n_inputs.coerce())
             .map(|_| {
@@ -350,6 +338,7 @@ mod tests {
 
         let derived_owner =
             DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+
         let (reissue_tx, _revealed_commitments, material, _output_owners) =
             crate::TransactionBuilder::default()
                 .add_inputs_by_secrets(inputs, &mut rng8)
