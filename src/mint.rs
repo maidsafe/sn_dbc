@@ -15,7 +15,7 @@
 
 use crate::{
     Amount, AmountSecrets, DbcContent, DerivedOwner, Error, Hash, KeyImage, KeyManager,
-    NodeSignature, OwnerBase, PublicKey, PublicKeySet, Result, SpentProof, SpentProofShare,
+    NodeSignature, Owner, PublicKey, PublicKeySet, Result, SpentProof, SpentProofShare,
     TransactionValidator,
 };
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
@@ -96,7 +96,7 @@ impl<K: KeyManager> MintNode<K> {
         let poly = Poly::one();
         let secret_key_set = SecretKeySet::from(poly);
         let derived_owner =
-            DerivedOwner::from_owner_base(OwnerBase::from(secret_key_set.secret_key()), &mut rng);
+            DerivedOwner::from_owner_base(Owner::from(secret_key_set.secret_key()), &mut rng);
         let secret_key_set_derived = secret_key_set.derive_child(&derived_owner.derivation_index);
 
         // create sk and derive pk.
@@ -279,10 +279,7 @@ mod tests {
 
         let owners: Vec<DerivedOwner> = (0..output_amounts.len())
             .map(|_| {
-                DerivedOwner::from_owner_base(
-                    OwnerBase::from_random_secret_key(&mut rng),
-                    &mut rng8,
-                )
+                DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8)
             })
             .collect();
 
@@ -426,7 +423,7 @@ mod tests {
                 )
                 .add_outputs(input_amounts.iter().copied().map(|amount| {
                     let derived_owner = DerivedOwner::from_owner_base(
-                        OwnerBase::from_random_secret_key(&mut rng),
+                        Owner::from_random_secret_key(&mut rng),
                         &mut rng8,
                     );
                     (
@@ -502,10 +499,7 @@ mod tests {
 
         let owners: Vec<DerivedOwner> = (0..=output_amounts.len())
             .map(|_| {
-                DerivedOwner::from_owner_base(
-                    OwnerBase::from_random_secret_key(&mut rng),
-                    &mut rng8,
-                )
+                DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8)
             })
             .collect();
 
@@ -714,7 +708,7 @@ mod tests {
         )));
 
         let output1_owner =
-            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+            DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
         let (_transaction, revealed_commitments, ..) = crate::TransactionBuilder::default()
             .add_output(
@@ -733,7 +727,7 @@ mod tests {
         let decoy_inputs = vec![]; // no decoys.
 
         let output2_owner =
-            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+            DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
         let (fraud_tx, ..) = crate::TransactionBuilder::default()
             .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng8)
@@ -813,7 +807,7 @@ mod tests {
         // single new DBC of the same amount.
 
         let output_owner =
-            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+            DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
         let decoy_inputs = vec![];
 
@@ -867,7 +861,7 @@ mod tests {
 
         let mut fudged_output_dbc = true_output_dbc.clone();
         fudged_output_dbc.content = DbcContent::from((
-            c.owner.clone(),
+            c.owner_base.clone(),
             output_owner.derivation_index,
             fudged_amount_secrets,
         ));
@@ -921,7 +915,7 @@ mod tests {
         let decoy_inputs = vec![];
 
         let output_owner =
-            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+            DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
         let (tx_fudged, ..) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
