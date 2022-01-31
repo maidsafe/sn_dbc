@@ -242,8 +242,8 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::{
-        tests::{SpentBookMock, TinyInt, TinyVec},
-        AmountSecrets, BlsHelper, Dbc, DbcBuilder, ReissueRequestBuilder, SimpleKeyManager,
+        tests::{init_genesis, SpentBookMock, TinyInt, TinyVec},
+        AmountSecrets, BlsHelper, DbcBuilder, ReissueRequestBuilder, SimpleKeyManager,
         SimpleSigner,
     };
 
@@ -252,58 +252,8 @@ mod tests {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-        let mut spentbook = SpentBookMock::from(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )));
-
-        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )))
-        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
-        .issue_genesis_dbc(1000, &mut rng8)?;
-
-        spentbook.set_genesis(&genesis.ringct_material);
-
-        let mint_sig = mint_node
-            .key_manager()
-            .public_key_set()?
-            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
-
-        let spent_proof_share =
-            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
-
-        let spentbook_sig =
-            spent_proof_share
-                .spentbook_pks
-                .combine_signatures(vec![spent_proof_share
-                    .spentbook_sig_share
-                    .threshold_crypto()])?;
-
-        let tx_hash = Hash::from(genesis.transaction.hash());
-        assert!(spent_proof_share
-            .spentbook_pks
-            .public_key()
-            .verify(&spentbook_sig, &tx_hash));
-
-        let spent_proofs = BTreeSet::from_iter(vec![SpentProof {
-            key_image: spent_proof_share.key_image,
-            spentbook_pub_key: spent_proof_share.spentbook_pks.public_key(),
-            spentbook_sig,
-            public_commitments: spent_proof_share.public_commitments,
-        }]);
-
-        let genesis_dbc = Dbc {
-            content: genesis.dbc_content,
-            transaction: genesis.transaction.clone(),
-            transaction_sigs: BTreeMap::from_iter([(
-                genesis.input_key_image,
-                (
-                    mint_node.key_manager().public_key_set()?.public_key(),
-                    mint_sig,
-                ),
-            )]),
-            spent_proofs,
-        };
+        let (mint_node, _spentbook, genesis, genesis_dbc) =
+            init_genesis(&mut rng, &mut rng8, 1000)?;
 
         let validation = genesis_dbc.confirm_valid(
             &genesis.derived_owner.base_secret_key()?,
@@ -324,20 +274,8 @@ mod tests {
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
 
-        let mut spentbook = SpentBookMock::from(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )));
-
-        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )))
-        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
-        .issue_genesis_dbc(output_amount, &mut rng8)?;
-
-        spentbook.set_genesis(&genesis.ringct_material);
-
-        let _genesis_spent_proof_share =
-            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
+        let (mint_node, mut spentbook, genesis, _genesis_dbc) =
+            init_genesis(&mut rng, &mut rng8, output_amount)?;
 
         let owners: Vec<DerivedOwner> = (0..output_amounts.len())
             .map(|_| {
@@ -369,8 +307,31 @@ mod tests {
                 }))
                 .build(&mut rng8)?;
 
+        // We make this a closure because it is used for checking both spentbook
+        // result and reissue result.
+        let check_error = |error: Error| -> Result<()> {
+            match error {
+                Error::RingCt(
+                    blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
+                ) => {
+                    // Verify that no outputs were present and we got correct validation error.
+                    assert_eq!(n_outputs, 0);
+                    Ok(())
+                }
+                Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing) => {
+                    // Verify that no outputs were present and we got correct validation error.
+                    assert_eq!(n_outputs, 0);
+                    Ok(())
+                }
+                _ => Err(error),
+            }
+        };
+
         let genesis_key_image = reissue_tx.mlsags[0].key_image.to_compressed();
-        let spent_proof_share = spentbook.log_spent(genesis_key_image, reissue_tx.clone())?;
+        let spent_proof_share = match spentbook.log_spent(genesis_key_image, reissue_tx.clone()) {
+            Ok(s) => s,
+            Err(e) => return check_error(e),
+        };
 
         let rr = ReissueRequestBuilder::new(reissue_tx)
             .add_spent_proof_share(0, spent_proof_share)
@@ -382,21 +343,7 @@ mod tests {
                 assert_ne!(n_outputs, 0);
                 rs
             }
-            Err(Error::RingCt(
-                blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
-            )) => {
-                // Verify that no outputs were present and we got correct validation error.
-                assert_eq!(n_outputs, 0);
-                return Ok(());
-            }
-            Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {
-                // Verify that no outputs were present and we got correct validation error.
-                assert_eq!(n_outputs, 0);
-                return Ok(());
-            }
-            Err(e) => {
-                return Err(e);
-            }
+            Err(e) => return check_error(e),
         };
 
         // Aggregate ReissueShare to build output DBCs
@@ -466,20 +413,8 @@ mod tests {
         // something like:  genesis --> 100 outputs --> x outputs --> y outputs.
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
-        let mut spentbook = SpentBookMock::from(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )));
-
-        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )))
-        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
-        .issue_genesis_dbc(genesis_amount, &mut rng8)?;
-
-        spentbook.set_genesis(&genesis.ringct_material);
-
-        let _genesis_spent_proof_share =
-            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
+        let (mint_node, mut spentbook, genesis, _genesis_dbc) =
+            init_genesis(&mut rng, &mut rng8, genesis_amount)?;
 
         let (reissue_tx, revealed_commitments, _material, output_owners) =
             crate::TransactionBuilder::default()
@@ -507,7 +442,30 @@ mod tests {
                 .build(&mut rng8)?;
 
         let genesis_key_image = reissue_tx.mlsags[0].key_image.to_compressed();
-        let spent_proof_share = spentbook.log_spent(genesis_key_image, reissue_tx.clone())?;
+
+        // note: this closure is used for checking errors returned from both
+        // MintNode::reissue and SpentBookMock::log_spent().
+        let check_tx_error = |error: Error| -> Result<()> {
+            match error {
+                Error::RingCt(
+                    blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
+                ) => {
+                    // Verify that no inputs were present and we got correct validation error.
+                    assert!(input_amounts.is_empty());
+                    Ok(())
+                }
+                _ => Err(error),
+            }
+        };
+
+        // normally spentbook verifies the tx, but here we skip it in order check reissue results.
+        // todo: refactor so that we use same result checking code here as for the reissue.
+        let spent_proof_share = match spentbook
+            .log_spent_and_skip_tx_verification(genesis_key_image, reissue_tx.clone())
+        {
+            Ok(s) => s,
+            Err(e) => return check_tx_error(e),
+        };
 
         let rr1 = ReissueRequestBuilder::new(reissue_tx)
             .add_spent_proof_share(0, spent_proof_share)
@@ -519,16 +477,7 @@ mod tests {
                 assert!(!input_amounts.is_empty());
                 rs
             }
-            Err(Error::RingCt(
-                blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
-            )) => {
-                // Verify that no outputs were present and we got correct validation error.
-                assert!(input_amounts.is_empty());
-                return Ok(());
-            }
-            Err(e) => {
-                return Err(e);
-            }
+            Err(e) => return check_tx_error(e),
         };
 
         // Aggregate ReissueShare to build output DBCs
@@ -589,6 +538,49 @@ mod tests {
 
         assert_eq!(input_dbcs.len(), reissue_tx2.mlsags.len());
 
+        // note: this closure is used for checking errors returned from both
+        // MintNode::reissue and SpentBookMock::log_spent().
+        let check_error = |error: Error| -> Result<()> {
+            match error {
+                Error::SpentProofInputMismatch => {
+                    assert!(!invalid_spent_proofs.is_empty());
+                }
+                Error::RingCt(
+                    blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
+                ) => {
+                    if genesis_amount == output_total_amount {
+                        // This can correctly occur if there are 0 outputs and inputs sum to zero.
+                        //
+                        // The error occurs because there is no output with a commitment
+                        // to match against the input commitment, and also no way to
+                        // know that the input amount is zero.
+                        assert!(output_amounts.is_empty());
+                        assert_eq!(input_amounts.iter().sum::<Amount>(), 0);
+                        assert!(!input_amounts.is_empty());
+                    }
+                }
+                Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing) => {
+                    assert!(!invalid_spent_proofs.is_empty());
+                }
+                Error::TransactionMustHaveAnInput => {
+                    assert_eq!(input_amounts.len(), 0);
+                }
+                Error::FailedSignature => {
+                    assert!(!invalid_spent_proofs.is_empty());
+                }
+                Error::InvalidSpentProofSignature(key) => {
+                    let idx = reissue_tx2
+                        .mlsags
+                        .iter()
+                        .position(|i| i.key_image.to_compressed() == key)
+                        .unwrap();
+                    assert!(invalid_spent_proofs.contains(&idx));
+                }
+                _ => panic!("Unexpected reissue err {:#?}", error),
+            }
+            Ok(())
+        };
+
         for (i, (in_mlsag, _in_material)) in reissue_tx2
             .mlsags
             .iter()
@@ -603,8 +595,13 @@ mod tests {
                     continue;
                 }
                 1 if is_invalid_spent_proof => {
-                    let spent_proof_share = spentbook
-                        .log_spent(in_mlsag.key_image.to_compressed(), reissue_tx2.clone())?;
+                    // spentbook verifies the tx.  If an error, we need to check it same as with reissue result
+                    let spent_proof_share = match spentbook
+                        .log_spent(in_mlsag.key_image.to_compressed(), reissue_tx2.clone())
+                    {
+                        Ok(s) => s,
+                        Err(e) => return check_error(e),
+                    };
                     SpentProofShare {
                         key_image: spent_proof_share.key_image,
                         public_commitments: spent_proof_share.public_commitments,
@@ -618,7 +615,13 @@ mod tests {
                     }
                 }
                 _ => {
-                    spentbook.log_spent(in_mlsag.key_image.to_compressed(), reissue_tx2.clone())?
+                    // spentbook verifies the tx.  If an error, we need to check it same as with reissue result
+                    match spentbook
+                        .log_spent(in_mlsag.key_image.to_compressed(), reissue_tx2.clone())
+                    {
+                        Ok(s) => s,
+                        Err(e) => return check_error(e),
+                    }
                 }
             };
 
@@ -660,45 +663,10 @@ mod tests {
                         .sum::<Amount>(),
                     output_total_amount
                 );
+                Ok(())
             }
-            Err(Error::SpentProofInputMismatch) => {
-                assert!(!invalid_spent_proofs.is_empty());
-            }
-            Err(Error::RingCt(
-                blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
-            )) => {
-                if genesis_amount == output_total_amount {
-                    // This can correctly occur if there are 0 outputs and inputs sum to zero.
-                    //
-                    // The error occurs because there is no output with a commitment
-                    // to match against the input commitment, and also no way to
-                    // know that the input amount is zero.
-                    assert!(output_amounts.is_empty());
-                    assert_eq!(input_amounts.iter().sum::<Amount>(), 0);
-                    assert!(!input_amounts.is_empty());
-                }
-            }
-            Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {
-                assert!(!invalid_spent_proofs.is_empty());
-            }
-            Err(Error::TransactionMustHaveAnInput) => {
-                assert_eq!(input_amounts.len(), 0);
-            }
-            Err(Error::FailedSignature) => {
-                assert!(!invalid_spent_proofs.is_empty());
-            }
-            Err(Error::InvalidSpentProofSignature(key)) => {
-                let idx = reissue_tx2
-                    .mlsags
-                    .iter()
-                    .position(|i| i.key_image.to_compressed() == key)
-                    .unwrap();
-                assert!(invalid_spent_proofs.contains(&idx));
-            }
-            err => panic!("Unexpected reissue err {:#?}", err),
+            Err(err) => check_error(err),
         }
-
-        Ok(())
     }
 
     fn gen_decoy_inputs(
@@ -724,324 +692,379 @@ mod tests {
         decoys
     }
 
-    /*
-        #[quickcheck]
-        #[ignore]
-        fn prop_in_progress_transaction_can_be_continued_across_churn() {
-            todo!()
-        }
+    #[quickcheck]
+    #[ignore]
+    fn prop_in_progress_transaction_can_be_continued_across_churn() {
+        todo!()
+    }
 
-        #[quickcheck]
-        #[ignore]
-        fn prop_reject_invalid_prefix() {
-            todo!();
-        }
-    */
-    /*
-        #[test]
-        fn test_inputs_are_validated() -> Result<(), Error> {
-            let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
-            let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
+    #[quickcheck]
+    #[ignore]
+    fn prop_reject_invalid_prefix() {
+        todo!();
+    }
 
-            let genesis_owner = crate::bls_dkg_id(&mut rng);
-            let key_manager = SimpleKeyManager::new(
-                SimpleSigner::from(genesis_owner),
-            );
-            let mut genesis_node = MintNode::new(key_manager);
+    #[test]
+    fn test_inputs_are_validated() -> Result<(), Error> {
+        let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
+        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-            let input_owner = crate::bls_dkg_id(&mut rng);
-            let owner_pubkey =
-                BlsHelper::blsttc_to_blstrs_pubkey(&input_owner.public_key_set.public_key());
+        let mint_node = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
+            crate::bls_dkg_id(&mut rng),
+        )));
 
-            let output = Output {
-                public_key: owner_pubkey,
-                amount: 100,
-            };
-            let (_transaction, revealed_commitments, _material) = crate::TransactionBuilder::default()
-                .add_output(output)
-                .build(&mut rng8)?;
-            let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
-            let secret_key = Scalar::default(); // fixme
-            let decoy_inputs = vec![]; // genesis is only available input, so no decoys.
+        let output1_owner =
+            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
 
-            let (fraud_tx, ..) = crate::TransactionBuilder::default()
-                .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng8)
-                .add_output(Output {
-                    public_key: owner_pubkey,
+        let (_transaction, revealed_commitments, ..) = crate::TransactionBuilder::default()
+            .add_output(
+                Output {
+                    public_key: BlsHelper::blsttc_to_blstrs_pubkey(
+                        &output1_owner.derive_public_key(),
+                    ),
                     amount: 100,
-                })
+                },
+                output1_owner.clone(),
+            )
+            .build(&mut rng8)?;
+
+        let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
+        let secret_key = BlsHelper::blsttc_to_blstrs_sk(output1_owner.derive_secret_key()?);
+        let decoy_inputs = vec![]; // no decoys.
+
+        let output2_owner =
+            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+
+        let (fraud_tx, ..) = crate::TransactionBuilder::default()
+            .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng8)
+            .add_output(
+                Output {
+                    public_key: BlsHelper::blsttc_to_blstrs_pubkey(
+                        &output2_owner.derive_public_key(),
+                    ),
+                    amount: 100,
+                },
+                output2_owner,
+            )
+            .build(&mut rng8)?;
+
+        let fraud_rr = ReissueRequestBuilder::new(fraud_tx).build()?;
+
+        let fraudulant_reissue_result = mint_node.reissue(fraud_rr);
+
+        // fixme: more/better assertions.
+        assert!(fraudulant_reissue_result.is_err());
+        Ok(())
+    }
+
+    /// This tests (and demonstrates) how the system handles a mis-match between the
+    /// committed amount and amount encrypted in AmountSecrets.
+    ///
+    /// Normally these should be the same, however a malicious user or buggy
+    /// implementation could produce different values.  The mint never sees the
+    /// AmountSecrets and thus cannot detect or prevent this this situation.
+    ///
+    /// A correct spentbook implementation must validate the transaction before
+    /// writing, including checking that commitments match. So the spentbook
+    /// will reject a tx with an output using an invalid amount, thereby preventing
+    /// the input from becoming burned (unspendable).
+    ///
+    /// To be on the safe side, the recipient wallet should check that the amounts
+    /// match upon receipt.
+    ///
+    /// Herein we do the following to test:
+    ///
+    /// 1. produce a standard genesis DBC (a) with value 1000
+    /// 2. reissue genesis DBC (a) to Dbc (b)  with value 1000.
+    /// 3. modify b's amount secrets.amount to 2000, thereby creating b_fudged
+    ///    (which a bad actor could pass to innocent recipient).
+    /// 4. Check if the amounts match, using the provided API.
+    ///      assert that APIs report they do not match.
+    /// 5. create a tx with (b_fudged) as input, and Dbc (c) with amount 2000 as output.
+    /// 6. Attempt to write this tx to the spentbook.
+    ///    This will fail because the input and output commitments do not match.
+    /// 7. Force an invalid write to the spentbook, and attempt to reissue.
+    ///    This will fail for the same reason as (6)
+    /// 8. Attempt to reissue again using the correct amount (1000).
+    ///    This will fail because b was already marked as spent in the spentbook.
+    ///    This demonstrates how an input can become burned if spentbook does
+    ///    not validate tx.
+    /// 9. Re-write spentbook log correctly and attempt to reissue using the
+    ///    correct amount that was committed to.
+    ///      Verify that this reissue succeeds.
+    #[test]
+    fn test_mismatched_amount_and_commitment() -> Result<(), Error> {
+        // ----------
+        // 1. produce a standard genesis DBC (a) with value 1000
+        // ----------
+        let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
+        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
+
+        let output_amount = 1000;
+
+        let (mint_node, mut spentbook, genesis, _genesis_dbc) =
+            init_genesis(&mut rng, &mut rng8, output_amount)?;
+
+        // ----------
+        // 2. reissue genesis DBC (a) to Dbc (b)  with value 1000.
+        // ----------
+
+        // First we create a regular/valid tx reissuing the genesis DBC to a
+        // single new DBC of the same amount.
+
+        let output_owner =
+            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+
+        let decoy_inputs = vec![];
+
+        let (tx, revealed_commitments, _ringct_material, output_owner_map) =
+            crate::TransactionBuilder::default()
+                .add_input_by_secrets(
+                    genesis.secret_key,
+                    genesis.amount_secrets.clone(),
+                    decoy_inputs,
+                    &mut rng8,
+                )
+                .add_output(
+                    Output {
+                        public_key: BlsHelper::blsttc_to_blstrs_pubkey(
+                            &output_owner.derive_public_key(),
+                        ),
+                        amount: output_amount,
+                    },
+                    output_owner.clone(),
+                )
                 .build(&mut rng8)?;
 
-            let fraud_rr = ReissueRequestBuilder::new(fraud_tx).build()?;
+        let spent_proof_share =
+            spentbook.log_spent(tx.mlsags[0].key_image.to_compressed(), tx.clone())?;
 
-            let fraudulant_reissue_result = genesis_node.reissue(fraud_rr);
+        let rr = ReissueRequestBuilder::new(tx.clone())
+            .add_spent_proof_share(0, spent_proof_share)
+            .build()?;
 
-            // fixme: more/better assertions.
-            assert!(fraudulant_reissue_result.is_err());
+        let reissue_share = mint_node.reissue(rr)?;
 
-            Ok(())
+        // Aggregate ReissueShare to build output DBCs
+        let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owner_map);
+        dbc_builder = dbc_builder.add_reissue_share(reissue_share);
+        let output_dbcs = dbc_builder.build()?;
+
+        // ----------
+        // 3. modify b's amount secrets.amount to 2000, thereby creating b_fudged
+        //    (which a bad actor could pass to innocent recipient).
+        // ----------
+
+        // Replace the encrypted secret amount with an encrypted secret claiming
+        // twice the committed value.
+        let fudged_amount_secrets = AmountSecrets::from((
+            genesis.amount_secrets.amount() * 2, // Claim we are paying twice the committed value
+            genesis.amount_secrets.blinding_factor(), // Use the real blinding factor
+        ));
+
+        let (true_output_dbc, ..) = output_dbcs[0].clone();
+        let c = &true_output_dbc.content;
+
+        let mut fudged_output_dbc = true_output_dbc.clone();
+        fudged_output_dbc.content = DbcContent::from((
+            c.owner.clone(),
+            output_owner.derivation_index,
+            fudged_amount_secrets,
+        ));
+
+        // obtain amount secrets (true and fudged)
+        let true_secrets = AmountSecrets::try_from((
+            &output_owner.derive_secret_key()?,
+            &true_output_dbc.content.amount_secrets_cipher,
+        ))?;
+        let fudged_secrets = AmountSecrets::try_from((
+            &output_owner.derive_secret_key()?,
+            &fudged_output_dbc.content.amount_secrets_cipher,
+        ))?;
+
+        // confirm the secret amount is 2000.
+        assert_eq!(fudged_secrets.amount(), 1000 * 2);
+        // confirm the dbc is considered valid using the mint-accessible api.
+        assert!(fudged_output_dbc
+            .confirm_valid(&output_owner.base_secret_key()?, mint_node.key_manager())
+            .is_ok());
+
+        // ----------
+        // 4. Check if the amounts match, using the provided API.
+        //      assert that APIs report they do not match.
+        // ----------
+
+        // confirm the mis-match is detectable by the recipient who has the key to access the secrets.
+        assert!(fudged_output_dbc
+            .confirm_provided_amount_matches_commitment(
+                &output_owner.base_secret_key()?,
+                &fudged_secrets
+            )
+            .is_err());
+
+        // confirm that the sum of output secrets does not match the committed amount.
+        let output_secret_key = output_owner.derive_secret_key()?;
+        assert_ne!(
+            AmountSecrets::try_from((
+                &output_secret_key,
+                &fudged_output_dbc.content.amount_secrets_cipher
+            ))?
+            .amount(),
+            output_amount
+        );
+
+        // ----------
+        // 5. create a tx with (b_fudged) as input, and Dbc (c) with amount 2000 as output.
+        // ----------
+
+        let input_owner = output_owner;
+        let decoy_inputs = vec![];
+
+        let output_owner =
+            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+
+        let (tx_fudged, ..) = crate::TransactionBuilder::default()
+            .add_input_by_secrets(
+                BlsHelper::blsttc_to_blstrs_sk(input_owner.derive_secret_key()?),
+                fudged_secrets.clone(),
+                decoy_inputs.clone(),
+                &mut rng8,
+            )
+            .add_output(
+                Output {
+                    amount: fudged_secrets.amount(),
+                    public_key: BlsHelper::blsttc_to_blstrs_pubkey(
+                        &output_owner.derive_public_key(),
+                    ),
+                },
+                output_owner.clone(),
+            )
+            .build(&mut rng8)?;
+
+        // ----------
+        // 6. Attempt to write this tx to the spentbook.
+        //    This will fail because the input and output commitments do not match.
+        // ----------
+        match spentbook.log_spent(
+            tx_fudged.mlsags[0].key_image.to_compressed(),
+            tx_fudged.clone(),
+        ) {
+            Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
+            _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
         }
-    */
-    /*
 
-            /// This tests how the system handles a mis-match between the
-            /// committed amount and amount encrypted in AmountSecrets.
-            /// Normally these should be the same, however a malicious user or buggy
-            /// implementation could produce different values.  The mint cannot detect
-            /// this situation and prevent it as the secret amount is encrypted.  So it
-            /// is up to the recipient to check that the amounts match upon receipt.  If they
-            /// do not match and the recipient cannot learn (or guess) the committed value then
-            /// the DBC will be unspendable. If they do learn the committed amount then it
-            /// can still be spent.  So herein we do the following to test:
-            ///
-            /// 1. produce a standard genesis DBC with value 1000
-            /// 2. reissue genesis DBC to an output with mis-matched amounts where the
-            ///      committed amount is 1000 (required to match input) but the secret
-            ///      amount is 2000.
-            /// 3. Check if the amounts match, using the two provided APIs.
-            ///      assert that APIs report they do not match.
-            /// 4. Attempt to reissue the mis-matched output using the amount from
-            ///      AmountSecrets.  Verify that this fails with error DbcReissueRequestDoesNotBalance
-            /// 5. Attempt to reissue using the correct amount that was committed to.
-            ///      Verify that this reissue succeeds.
-            #[test]
-            fn test_mismatched_amount_and_commitment() -> Result<(), Error> {
-                // ----------
-                // Phase 1. Creation of Genesis DBC
-                // ----------
-                let genesis_owner = crate::bls_dkg_id(&mut rng);
-                let genesis_key = genesis_owner.public_key_set.public_key();
+        // ----------
+        // 7. Force an invalid write to the spentbook, and attempt to reissue.
+        //    This will fail for the same reason as (6)
+        // ----------
 
-                let key_manager = SimpleKeyManager::new(
-                    SimpleSigner::from(genesis_owner),
-                );
-                let mut genesis_node = MintNode::new(key_manager.clone());
+        // normally spentbook verifies the tx, but here we skip it in order to obtain
+        // a spentproof with an invalid tx.
+        let spent_proof_share_fudged = spentbook.log_spent_and_skip_tx_verification(
+            tx_fudged.mlsags[0].key_image.to_compressed(),
+            tx_fudged.clone(),
+        )?;
 
-                let genesis = genesis_node.issue_genesis_dbc(1000)?;
-                let genesis_sig = genesis
-                    .public_key_set
-                    .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
+        let rr_fudged = ReissueRequestBuilder::new(tx_fudged)
+            .add_spent_proof_share(0, spent_proof_share_fudged.clone())
+            .build()?;
 
-                let genesis_dbc = Dbc {
-                    content: genesis.dbc_content,
-                    transaction: genesis.transaction,
-                    transaction_sigs: BTreeMap::from_iter([(
-                        genesis_dbc_input(),
-                        (genesis_key, genesis_sig),
-                    )]),
-                };
+        // The mint should give an error on reissue because the sum(inputs) does not equal sum(outputs)
+        let result_fudged = mint_node.reissue(rr_fudged);
 
-                let genesis_secrets =
-                    DbcHelper::decrypt_amount_secrets(&genesis_owner, &genesis_dbc.content)?;
+        match result_fudged {
+            Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
+            _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
+        }
 
-                let outputs_owner = crate::bls_dkg_id(&mut rng);
-                let outputs_owner_pk = outputs_owner.public_key_set.public_key();
-                let output_amount = 1000;
+        // ----------
+        // 8. Attempt to reissue again using the correct amount (1000).
+        //    This will fail because b was already marked as spent in the spentbook.
+        //    This demonstrates how an input can become burned if spentbook does
+        //    not validate tx.
+        // ----------
 
-                let mut tx = crate::TransactionBuilder::default()
-                    .add_input(genesis_dbc.clone(), genesis_secrets)
-                    .add_output(crate::Output {
-                        amount: output_amount,
-                        owner: outputs_owner_pk,
-                    })
-                    .build()?;
+        // So at this point we have written an invalid Tx to the spentbook associated
+        // with the input Dbc.  This means the input Dbc is burned (unspendable).
+        //
+        // Next we build a new Tx with the correct amount and attempt to reissue.
+        // But since we have the old spentproof for the invalid tx, this reissue
+        // is doomed to fail also.  And we can't write to the spentbook again
+        // because entries are immutable.
 
-                // ----------
-                // Phase 2. Creation of mis-matched output
-                // ----------
+        let (tx_true, ..) = crate::TransactionBuilder::default()
+            .add_input_by_secrets(
+                BlsHelper::blsttc_to_blstrs_sk(input_owner.derive_secret_key()?),
+                true_secrets.clone(),
+                decoy_inputs,
+                &mut rng8,
+            )
+            .add_output(
+                Output {
+                    amount: true_secrets.amount(),
+                    public_key: BlsHelper::blsttc_to_blstrs_pubkey(
+                        &output_owner.derive_public_key(),
+                    ),
+                },
+                output_owner,
+            )
+            .build(&mut rng8)?;
 
-                // Here we modify the transaction output to have a different committed amount than the secret amount.
-                // The sn_dbc API does not allow this so we manually modify the reissue transaction.
-                let mut out_dbc_content = std::mem::take(&mut tx.outputs)
-                    .into_iter()
-                    .next()
-                    .expect("We should have a single output");
+        let rr_burned = ReissueRequestBuilder::new(tx_true.clone())
+            .add_spent_proof_share(0, spent_proof_share_fudged)
+            .build()?;
 
-                // obtain amount secrets
-                let secrets = DbcHelper::decrypt_amount_secrets(&outputs_owner, &out_dbc_content)?;
+        // The mint should return an error because the spentproof does not match the tx.
+        let result = mint_node.reissue(rr_burned);
+        match result {
+            Err(Error::InvalidSpentProofSignature(_)) => {}
+            _ => panic!("Expected Error::InvalidSpentProofSignature"),
+        }
 
-                // Replace the encrypted secret amount with an encrypted secret claiming
-                // twice the committed value.
-                let fudged_amount_secrets = crate::AmountSecrets {
-                    amount: secrets.amount * 2, // Claim we are paying twice the committed value
-                    blinding_factor: secrets.blinding_factor, // Use the real blinding factor
-                };
+        // ----------
+        // 9. Re-write spentbook log correctly and attempt to reissue using the
+        //    correct amount that was committed to.
+        //      Verify that this reissue succeeds.
+        // ----------
 
-                out_dbc_content.amount_secrets_cipher =
-                    outputs_owner_pk.encrypt(fudged_amount_secrets.to_bytes().as_slice());
+        // The input to the fudged tx has already been recorded as spent in the spentbook
+        // so it is effectively burned (forever unspendable).  In a production system we
+        // would be out-of-luck.
+        //
+        // The recipient's wallet should avoid this situation by calling
+        // Dbc::confirm_provided_amount_matches_commitment immediately upon receipt of Dbc
+        // and before attempting to spend.
+        //
+        // For the test case, we can remedy by:
+        //
+        // Make a new spentbook and replay the first two tx, plus the new tx_true
+        // Note that the new spentbook uses the same signing key as the original, which
+        // MintNode's key_manager trusts.
+        //
+        let mut new_spentbook = SpentBookMock::from(spentbook.key_manager);
+        new_spentbook.set_genesis(&genesis.ringct_material);
+        let _genesis_spent_proof_share =
+            new_spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
+        let _spent_proof_share =
+            new_spentbook.log_spent(tx.mlsags[0].key_image.to_compressed(), tx.clone())?;
+        let spent_proof_share_true = new_spentbook
+            .log_spent(tx_true.mlsags[0].key_image.to_compressed(), tx_true.clone())?;
 
-                // Add the fudged output back into the reissue transaction.
-                tx.outputs.insert(out_dbc_content);
+        // Now that the SpentBook is correct, we have a valid spent_proof_share
+        // and can make a valid ReissueRequest
+        //
+        // This simulates the situation where recipient wallet later obtains the correct
+        // secrets and spends them.
+        let rr_true = ReissueRequestBuilder::new(tx_true)
+            .add_spent_proof_share(0, spent_proof_share_true)
+            .build()?;
 
-                // The mint should reissue this without error because the output commitment sum matches the
-                // input commitment sum.  However the recipient will be unable to spend it using the received
-                // secret amount.  The only way to spend it would be receive the true amount from the sender,
-                // or guess it.  And that's assuming the secret blinding_factor is correct, which it is in this
-                // case, but might not be in the wild.  So the output DBC could be considered to be in a
-                // semi-unspendable state.
-                let spent_sig = genesis_owner.public_key_set.combine_signatures(vec![(
-                    genesis_owner.index,
-                    genesis_owner
-                        .secret_key_share
-                        .derive_child(&genesis_dbc.spend_key_index())
-                        .sign(tx.blinded().hash()),
-                )])?;
-                let spentbook_pks = genesis_node.key_manager.public_key_set()?;
-                let spentbook_sig_share = genesis_node
-                    .key_manager
-                    .sign(&SpentProof::proof_msg(&tx.blinded().hash(), &spent_sig))?;
-                let rr = ReissueRequestBuilder::new(tx.clone())
-                    .add_spent_proof_share(
-                        genesis_dbc.spend_key(),
-                        SpentProofShare {
-                            spent_sig,
-                            spentbook_pks,
-                            spentbook_sig_share,
-                        },
-                    )
-                    .build()?;
+        // The mint should reissue without error because the sum(inputs) equals sum(outputs)
+        // and we have a correct spent proof.
+        let result = mint_node.reissue(rr_true);
 
-                let reissue_share = genesis_node.reissue(rr)?;
+        assert!(result.is_ok());
 
-                // Aggregate ReissueShare to build output DBCs
-                let mut dbc_builder = DbcBuilder::new(tx);
-                dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-                let output_dbcs = dbc_builder.build()?;
-
-                let output_dbc = &output_dbcs[0];
-
-                // obtain decryption shares so we can call confirm_amount_matches_commitment()
-                let mut sk_shares: BTreeMap<usize, SecretKeyShare> = Default::default();
-                sk_shares.insert(0, outputs_owner.secret_key_share.clone());
-                let decrypt_shares =
-                    gen_decryption_shares(&output_dbc.content.amount_secrets_cipher, &sk_shares);
-
-                // obtain amount secrets
-                let secrets = DbcHelper::decrypt_amount_secrets(&outputs_owner, &output_dbc.content)?;
-
-                // confirm the secret amount is 2000.
-                assert_eq!(secrets.amount, 1000 * 2);
-                // confirm the dbc is considered valid using the mint-accessible api.
-                assert!(output_dbc.confirm_valid(&key_manager).is_ok());
-                // confirm the mis-match is detectable by the user who has the key to access the secrets.
-                assert!(!output_dbc
-                    .content
-                    .confirm_provided_amount_matches_commitment(&secrets));
-                assert!(!output_dbc
-                    .content
-                    .confirm_amount_matches_commitment(&outputs_owner.public_key_set, &decrypt_shares)?);
-
-                // confirm that the sum of output secrets does not match the committed amount.
-                assert_ne!(
-                    output_dbcs
-                        .iter()
-                        .map(|dbc| { DbcHelper::decrypt_amount(&outputs_owner, &dbc.content) })
-                        .sum::<Result<Amount, _>>()?,
-                    output_amount
-                );
-
-                // ----------
-                // Phase 3. Attempt reissue of mis-matched DBC using provided AmountSecrets
-                // ----------
-
-                // Next: attempt reissuing the output DBC:
-                //  a) with provided secret amount (in band for recipient).     (should fail)
-                //  b) with true committed amount (out of band for recipient).  (should succeed)
-
-                let input_dbc = output_dbc;
-                let input_secrets = DbcHelper::decrypt_amount_secrets(&outputs_owner, &input_dbc.content)?;
-
-                let tx = crate::TransactionBuilder::default()
-                    .add_input(input_dbc.clone(), input_secrets)
-                    .add_output(crate::Output {
-                        amount: input_secrets.amount,
-                        owner: outputs_owner_pk,
-                    })
-                    .build()?;
-
-                let spent_sig = genesis_owner.public_key_set.combine_signatures(vec![(
-                    genesis_owner.index,
-                    genesis_owner
-                        .secret_key_share
-                        .derive_child(&genesis_dbc.spend_key_index())
-                        .sign(tx.blinded().hash()),
-                )])?;
-                let spentbook_pks = genesis_node.key_manager.public_key_set()?;
-                let spentbook_sig_share = genesis_node
-                    .key_manager
-                    .sign(&SpentProof::proof_msg(&tx.blinded().hash(), &spent_sig))?;
-                let rr = ReissueRequestBuilder::new(tx)
-                    .add_spent_proof_share(
-                        genesis_dbc.spend_key(),
-                        SpentProofShare {
-                            spent_sig,
-                            spentbook_pks,
-                            spentbook_sig_share,
-                        },
-                    )
-                    .build()?;
-
-                // The mint should give an error on reissue because the sum(inputs) does not equal sum(outputs)
-                let result = genesis_node.reissue(rr);
-
-                match result {
-                    Err(Error::DbcReissueRequestDoesNotBalance) => {}
-                    _ => panic!("Expecting Error::DbcReissueRequestDoesNotBalance"),
-                }
-
-                // ----------
-                // Phase 4. Successful reissue of mis-matched DBC using true committed amount.
-                // ----------
-
-                let tx = crate::TransactionBuilder::default()
-                    .add_input(input_dbc.clone(), input_secrets)
-                    .add_output(crate::Output {
-                        amount: output_amount,
-                        owner: outputs_owner_pk,
-                    })
-                    .build()?;
-
-                let spent_sig = outputs_owner.public_key_set.combine_signatures(vec![(
-                    outputs_owner.index,
-                    outputs_owner
-                        .secret_key_share
-                        .derive_child(&input_dbc.spend_key_index())
-                        .sign(tx.blinded().hash()),
-                )])?;
-
-                let spentbook_pks = genesis_node.key_manager.public_key_set()?;
-                let spentbook_sig_share = genesis_node
-                    .key_manager
-                    .sign(&SpentProof::proof_msg(&tx.blinded().hash(), &spent_sig))?;
-                let rr = ReissueRequestBuilder::new(tx)
-                    .add_spent_proof_share(
-                        input_dbc.spend_key(),
-                        SpentProofShare {
-                            spent_sig,
-                            spentbook_pks,
-                            spentbook_sig_share,
-                        },
-                    )
-                    .build()?;
-
-                // The mint should reissue without error because the sum(inputs) does equal sum(outputs)
-                let result = genesis_node.reissue(rr);
-                assert!(result.is_ok());
-
-                Ok(())
-            }
-
-            /// helper fn to generate DecryptionShares from SecretKeyShare(s) and a Ciphertext
-            fn gen_decryption_shares(
-                cipher: &Ciphertext,
-                secret_key_shares: &BTreeMap<usize, SecretKeyShare>,
-            ) -> BTreeMap<usize, DecryptionShare> {
-                let mut decryption_shares: BTreeMap<usize, DecryptionShare> = Default::default();
-                for (idx, sec_share) in secret_key_shares.iter() {
-                    let share = sec_share.decrypt_share_no_verify(cipher);
-                    decryption_shares.insert(*idx, share);
-                }
-                decryption_shares
-            }
-    */
+        Ok(())
+    }
 }

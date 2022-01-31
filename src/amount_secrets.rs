@@ -107,10 +107,26 @@ impl From<RevealedCommitment> for AmountSecrets {
     }
 }
 
+impl From<(Amount, Scalar)> for AmountSecrets {
+    /// create AmountSecrets from an amount and a randomly generated blinding factor
+    fn from(params: (Amount, Scalar)) -> Self {
+        let (value, blinding) = params;
+
+        Self(RevealedCommitment { value, blinding })
+    }
+}
+
 #[allow(clippy::from_over_into)]
 impl Into<RevealedCommitment> for AmountSecrets {
     fn into(self) -> RevealedCommitment {
         self.0
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<Amount> for AmountSecrets {
+    fn into(self) -> Amount {
+        self.0.value()
     }
 }
 
