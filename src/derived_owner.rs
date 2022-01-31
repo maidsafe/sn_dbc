@@ -18,12 +18,12 @@ pub type DerivationIndex = [u8; 32];
 
 // #[derive(Clone, Deserialize, Serialize)]
 #[derive(Clone)]
-pub enum OwnerBase {
+pub enum Owner {
     SecretKey(SecretKey),
     PublicKey(PublicKey),
 }
 
-impl fmt::Debug for OwnerBase {
+impl fmt::Debug for Owner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut f = f.debug_tuple("");
 
@@ -36,19 +36,19 @@ impl fmt::Debug for OwnerBase {
     }
 }
 
-impl From<SecretKey> for OwnerBase {
+impl From<SecretKey> for Owner {
     fn from(s: SecretKey) -> Self {
         Self::SecretKey(s)
     }
 }
 
-impl From<PublicKey> for OwnerBase {
+impl From<PublicKey> for Owner {
     fn from(p: PublicKey) -> Self {
         Self::PublicKey(p)
     }
 }
 
-impl PartialEq for OwnerBase {
+impl PartialEq for Owner {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::SecretKey(a), Self::SecretKey(b)) => a == b,
@@ -58,34 +58,27 @@ impl PartialEq for OwnerBase {
     }
 }
 
-impl Eq for OwnerBase {}
+impl Eq for Owner {}
 
-impl OwnerBase {
-    pub fn base_public_key(&self) -> PublicKey {
+impl Owner {
+    pub fn public_key(&self) -> PublicKey {
         match self {
             Self::SecretKey(sk) => sk.public_key(),
             Self::PublicKey(pk) => *pk,
         }
     }
 
-    pub fn base_secret_key(&self) -> Result<SecretKey> {
+    pub fn secret_key(&self) -> Result<SecretKey> {
         match self {
             Self::SecretKey(sk) => Ok(sk.clone()),
             Self::PublicKey(_pk) => Err(Error::SecretKeyUnavailable),
         }
     }
 
-    pub fn derive_public_key(&self, i: &DerivationIndex) -> PublicKey {
+    pub fn derive(&self, i: &DerivationIndex) -> Self {
         match self {
-            Self::SecretKey(sk) => sk.derive_child(i).public_key(),
-            Self::PublicKey(pk) => pk.derive_child(i),
-        }
-    }
-
-    pub fn derive_secret_key(&self, i: &DerivationIndex) -> Result<SecretKey> {
-        match self {
-            Self::SecretKey(sk) => Ok(sk.derive_child(i)),
-            Self::PublicKey(_pk) => Err(Error::SecretKeyUnavailable),
+            Self::SecretKey(sk) => Self::SecretKey(sk.derive_child(i)),
+            Self::PublicKey(pk) => Self::PublicKey(pk.derive_child(i)),
         }
     }
 
@@ -112,28 +105,32 @@ impl OwnerBase {
 // #[derive(Clone, Debug, Deserialize, Serialize)]
 #[derive(Clone, Debug)]
 pub struct DerivedOwner {
-    pub owner_base: OwnerBase,
+    pub owner_base: Owner,
     pub derivation_index: DerivationIndex,
 }
 
 impl DerivedOwner {
+    pub fn derive(&self) -> Owner {
+        self.owner_base.derive(&self.derivation_index)
+    }
+
     pub fn base_public_key(&self) -> PublicKey {
-        self.owner_base.base_public_key()
+        self.owner_base.public_key()
     }
 
     pub fn base_secret_key(&self) -> Result<SecretKey> {
-        self.owner_base.base_secret_key()
+        self.owner_base.secret_key()
     }
 
     pub fn derive_public_key(&self) -> PublicKey {
-        self.owner_base.derive_public_key(&self.derivation_index)
+        self.owner_base.derive(&self.derivation_index).public_key()
     }
 
     pub fn derive_secret_key(&self) -> Result<SecretKey> {
-        self.owner_base.derive_secret_key(&self.derivation_index)
+        self.owner_base.derive(&self.derivation_index).secret_key()
     }
 
-    pub fn from_owner_base(owner_base: OwnerBase, mut rng: impl rand8::RngCore) -> Self {
+    pub fn from_owner_base(owner_base: Owner, mut rng: impl rand8::RngCore) -> Self {
         Self {
             owner_base,
             derivation_index: Self::random_derivation_index(&mut rng),

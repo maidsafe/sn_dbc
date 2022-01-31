@@ -38,7 +38,7 @@ impl Dbc {
     }
 
     pub fn has_secret_key(&self) -> bool {
-        self.content.owner.has_secret_key()
+        self.content.owner_base.has_secret_key()
     }
 
     /// Generate hash of this DBC
@@ -153,7 +153,7 @@ mod tests {
 
     use crate::tests::{init_genesis, NonZeroTinyInt, SpentBookMock, TinyInt};
     use crate::{
-        Amount, AmountSecrets, BlsHelper, DbcBuilder, DerivedOwner, Hash, KeyManager, OwnerBase,
+        Amount, AmountSecrets, BlsHelper, DbcBuilder, DerivedOwner, Hash, KeyManager, Owner,
         ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
     };
     use blst_ringct::ringct::RingCtMaterial;
@@ -229,7 +229,7 @@ mod tests {
         let amount = 100;
 
         let derived_owner =
-            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+            DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
         let ringct_material = RingCtMaterial {
             inputs: vec![],
@@ -289,10 +289,7 @@ mod tests {
 
         let input_owners: Vec<DerivedOwner> = (0..=n_inputs.coerce())
             .map(|_| {
-                DerivedOwner::from_owner_base(
-                    OwnerBase::from_random_secret_key(&mut rng),
-                    &mut rng8,
-                )
+                DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8)
             })
             .collect();
 
@@ -324,12 +321,7 @@ mod tests {
                 .map(|(_dbc, derived_owner, amount_secrets)| {
                     let decoy_inputs = vec![]; // todo
                     (
-                        BlsHelper::blsttc_to_blstrs_sk(
-                            derived_owner
-                                .owner_base
-                                .derive_secret_key(&derived_owner.derivation_index)
-                                .unwrap(),
-                        ),
+                        BlsHelper::blsttc_to_blstrs_sk(derived_owner.derive_secret_key().unwrap()),
                         amount_secrets,
                         decoy_inputs,
                     )
@@ -337,7 +329,7 @@ mod tests {
                 .collect();
 
         let derived_owner =
-            DerivedOwner::from_owner_base(OwnerBase::from_random_secret_key(&mut rng), &mut rng8);
+            DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
         let (reissue_tx, _revealed_commitments, material, _output_owners) =
             crate::TransactionBuilder::default()

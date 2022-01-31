@@ -26,7 +26,7 @@ pub use crate::{
     builder::{DbcBuilder, Output, OutputOwnerMap, ReissueRequestBuilder, TransactionBuilder},
     dbc::{Dbc, KeyImage},
     dbc_content::{Amount, DbcContent},
-    derived_owner::{DerivationIndex, DerivedOwner, OwnerBase},
+    derived_owner::{DerivationIndex, DerivedOwner, Owner},
     error::{Error, Result},
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
@@ -491,7 +491,7 @@ mod tests {
             .public_key()
             .verify(&spentbook_sig, &tx_hash));
 
-        let spent_proofs = BTreeSet::from_iter(vec![SpentProof {
+        let spent_proofs = BTreeSet::from_iter([SpentProof {
             key_image: spent_proof_share.key_image,
             spentbook_pub_key: spent_proof_share.spentbook_pks.public_key(),
             spentbook_sig,
