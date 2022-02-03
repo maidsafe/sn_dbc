@@ -9,10 +9,13 @@
 use crate::{Error, Hash, Result};
 use blsttc::{serde_impl::SerdeSecret, SecretKeyShare, SignatureShare};
 pub use blsttc::{PublicKey, PublicKeySet, Signature};
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NodeSignature {
     index: u64,
     sig: SignatureShare,
@@ -44,7 +47,8 @@ pub trait KeyManager {
     fn verify_known_key(&self, key: &PublicKey) -> Result<(), Self::Error>;
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct SimpleSigner {
     public_key_set: PublicKeySet,
     secret_key_share: (u64, SerdeSecret<SecretKeyShare>),
@@ -89,7 +93,8 @@ impl SimpleSigner {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct SimpleKeyManager {
     signer: SimpleSigner,
     cache: Keys,
@@ -140,7 +145,8 @@ impl KeyManager for SimpleKeyManager {
     }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Default, Clone)]
 struct Keys(HashSet<PublicKey>);
 
 impl From<Vec<PublicKey>> for Keys {

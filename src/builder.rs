@@ -1,20 +1,24 @@
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 pub use blst_ringct::{DecoyInput, MlsagMaterial, Output, RevealedCommitment, TrueInput};
 use blstrs::group::Curve;
-pub use blstrs::{G1Affine, Scalar};
 use blsttc::{PublicKeySet, SignatureShare};
 use bulletproofs::PedersenGens;
 use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Dbc, DbcContent, DerivedOwner, Error, KeyImage, NodeSignature,
-    ReissueRequest, ReissueShare, Result, SpentProof, SpentProofShare,
+    Amount, AmountSecrets, Commitment, Dbc, DbcContent, DerivedOwner, Error, KeyImage,
+    NodeSignature, PublicKeyBlst, ReissueRequest, ReissueShare, Result, SecretKeyBlst, SpentProof,
+    SpentProofShare,
 };
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 pub type OutputOwnerMap = BTreeMap<KeyImage, DerivedOwner>;
 
-#[derive(Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Default)]
 pub struct TransactionBuilder {
     material: RingCtMaterial,
     output_owners: OutputOwnerMap,
@@ -56,7 +60,7 @@ impl TransactionBuilder {
 
     pub fn add_input_by_secrets(
         mut self,
-        secret_key: Scalar,
+        secret_key: SecretKeyBlst,
         amount_secrets: AmountSecrets,
         decoy_inputs: Vec<DecoyInput>,
         mut rng: impl RngCore,
@@ -74,7 +78,7 @@ impl TransactionBuilder {
 
     pub fn add_inputs_by_secrets(
         mut self,
-        secrets: Vec<(Scalar, AmountSecrets, Vec<DecoyInput>)>,
+        secrets: Vec<(SecretKeyBlst, AmountSecrets, Vec<DecoyInput>)>,
         mut rng: impl RngCore,
     ) -> Self {
         for (secret_key, amount_secrets, decoy_inputs) in secrets.into_iter() {
@@ -84,8 +88,7 @@ impl TransactionBuilder {
     }
 
     pub fn add_output(mut self, output: Output, owner: DerivedOwner) -> Self {
-        self.output_owners
-            .insert(output.public_key().to_compressed(), owner);
+        self.output_owners.insert(output.public_key().into(), owner);
         self.material.outputs.push(output);
         self
     }
@@ -100,7 +103,7 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn input_owners(&self) -> Vec<blstrs::G1Affine> {
+    pub fn input_owners(&self) -> Vec<PublicKeyBlst> {
         self.material.public_keys()
     }
 
@@ -139,6 +142,7 @@ impl TransactionBuilder {
 
 /// Builds a ReissueRequest from a RingCtTransaction and
 /// any number of (input) DBC spent proof shares.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 pub struct ReissueRequestBuilder {
     pub transaction: RingCtTransaction,
@@ -196,10 +200,10 @@ impl ReissueRequestBuilder {
                         .map(NodeSignature::threshold_crypto),
                 )?;
 
-                let public_commitments: Vec<G1Affine> = any_share.public_commitments.clone();
+                let public_commitments: Vec<Commitment> = any_share.public_commitments.clone();
 
                 let spent_proof = SpentProof {
-                    key_image: any_share.key_image,
+                    key_image: any_share.key_image.clone(),
                     spentbook_pub_key,
                     spentbook_sig,
                     public_commitments,
@@ -222,6 +226,7 @@ impl ReissueRequestBuilder {
 /// A Builder for aggregating ReissueShare (Mint::reissue() results)
 /// from multiple mint nodes and combining signatures to
 /// generate the final Dbc outputs.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 pub struct DbcBuilder {
     pub revealed_commitments: Vec<RevealedCommitment>,
@@ -292,7 +297,7 @@ impl DbcBuilder {
                 if !rs
                     .mint_node_signatures
                     .keys()
-                    .any(|k| *k == mlsag.key_image.to_compressed())
+                    .any(|k| *k == mlsag.key_image.into())
                 {
                     return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
                 }
@@ -323,7 +328,7 @@ impl DbcBuilder {
         let mint_sig = mint_public_key_set.combine_signatures(mint_sig_shares_ref)?;
 
         let pc_gens = PedersenGens::default();
-        let output_commitments: Vec<(G1Affine, RevealedCommitment)> = self
+        let output_commitments: Vec<(Commitment, RevealedCommitment)> = self
             .revealed_commitments
             .iter()
             .map(|r| (r.commit(&pc_gens).to_affine(), *r))
@@ -334,7 +339,7 @@ impl DbcBuilder {
             .iter()
             .map(|output| {
                 self.output_owners
-                    .get(&output.public_key().to_compressed())
+                    .get(&(*output.public_key()).into())
                     .ok_or(Error::PublicKeyNotFound)
             })
             .collect::<Result<_>>()?;
@@ -364,7 +369,7 @@ impl DbcBuilder {
                         .iter()
                         .map(|mlsag| {
                             (
-                                mlsag.key_image.to_compressed(),
+                                mlsag.key_image.into(),
                                 (mint_public_key_set.public_key(), mint_sig.clone()),
                             )
                         })

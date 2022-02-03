@@ -7,10 +7,10 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 #![allow(clippy::from_iter_instead_of_collect)]
 
-use serde::{Deserialize, Serialize};
 use std::fmt;
 
 mod amount_secrets;
+mod blst;
 mod builder;
 mod dbc;
 mod dbc_content;
@@ -23,8 +23,9 @@ mod validation;
 
 pub use crate::{
     amount_secrets::AmountSecrets,
+    blst::{BlindingFactor, BlsHelper, Commitment, KeyImage, PublicKeyBlst, SecretKeyBlst},
     builder::{DbcBuilder, Output, OutputOwnerMap, ReissueRequestBuilder, TransactionBuilder},
-    dbc::{Dbc, KeyImage},
+    dbc::Dbc,
     dbc_content::{Amount, DbcContent},
     derived_owner::{DerivationIndex, DerivedOwner, Owner},
     error::{Error, Result},
@@ -37,7 +38,11 @@ pub use crate::{
     validation::TransactionValidator,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Hash([u8; 32]);
 
 impl Hash {
@@ -99,65 +104,6 @@ pub fn bls_dkg_id(mut rng: impl RngCore) -> bls_dkg::outcome::Outcome {
 
     let (_, outcome) = key_gen.generate_keys().unwrap();
     outcome
-}
-
-#[cfg(feature = "dkg")]
-use blsttc::{Ciphertext, SecretKey};
-
-#[cfg(feature = "dkg")]
-use blstrs::{G1Affine, Scalar};
-
-#[cfg(feature = "dkg")]
-use std::convert::TryFrom;
-
-#[cfg(feature = "dkg")]
-pub struct DbcHelper {}
-
-#[cfg(feature = "dkg")]
-impl DbcHelper {
-    #[allow(dead_code)]
-    pub fn decrypt_amount_secrets(
-        owner: &bls_dkg::outcome::Outcome,
-        ciphertext: &Ciphertext,
-    ) -> Result<AmountSecrets, Error> {
-        let mut shares: std::collections::BTreeMap<usize, bls_dkg::SecretKeyShare> =
-            Default::default();
-        shares.insert(owner.index, owner.secret_key_share.clone());
-        AmountSecrets::try_from((&owner.public_key_set, &shares, ciphertext))
-    }
-
-    pub fn decrypt_amount(
-        owner: &bls_dkg::outcome::Outcome,
-        ciphertext: &Ciphertext,
-    ) -> Result<Amount, Error> {
-        Ok(Self::decrypt_amount_secrets(owner, ciphertext)?.amount())
-    }
-}
-
-// temporary: should go away once blsttc is integrated with with blstrs
-pub struct BlsHelper {}
-
-impl BlsHelper {
-    #[allow(dead_code)]
-    pub fn blsttc_to_blstrs_sk(sk: SecretKey) -> Scalar {
-        let bytes = sk.to_bytes();
-        Scalar::from_bytes_be(&bytes).unwrap()
-    }
-
-    pub fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> G1Affine {
-        let bytes = pk.to_bytes();
-        G1Affine::from_compressed(&bytes).unwrap()
-    }
-
-    pub fn blstrs_to_blsttc_pubkey(pk: &G1Affine) -> PublicKey {
-        let bytes = pk.to_compressed();
-        PublicKey::from_bytes(bytes).unwrap()
-    }
-
-    pub fn blstrs_to_blsttc_sk(sk: Scalar) -> SecretKey {
-        let bytes = sk.to_bytes_be();
-        SecretKey::from_bytes(bytes).unwrap()
-    }
 }
 
 pub(crate) fn sha3_256(input: &[u8]) -> [u8; 32] {
@@ -292,7 +238,7 @@ mod tests {
     pub struct SpentBookMock {
         pub key_manager: SimpleKeyManager,
         pub transactions: BTreeMap<KeyImage, RingCtTransaction>,
-        pub genesis: Option<(KeyImage, G1Affine)>, // genesis input (keyimage, public_commitment)
+        pub genesis: Option<(KeyImage, Commitment)>, // genesis input (keyimage, public_commitment)
     }
 
     impl From<SimpleKeyManager> for SpentBookMock {
@@ -305,8 +251,8 @@ mod tests {
         }
     }
 
-    impl From<(SimpleKeyManager, KeyImage, G1Affine)> for SpentBookMock {
-        fn from(params: (SimpleKeyManager, KeyImage, G1Affine)) -> Self {
+    impl From<(SimpleKeyManager, KeyImage, Commitment)> for SpentBookMock {
+        fn from(params: (SimpleKeyManager, KeyImage, Commitment)) -> Self {
             let (key_manager, key_image, public_commitment) = params;
 
             Self {
@@ -359,15 +305,15 @@ mod tests {
 
             // If this is the very first tx logged and genesis key_image was not
             // provided, then it becomes the genesis tx.
-            let (genesis_key_image, genesis_public_commitment) = match self.genesis {
+            let (genesis_key_image, genesis_public_commitment) = match &self.genesis {
                 Some((k, pc)) => (k, pc),
                 None => panic!("Genesis key_image and public commitments unavailable"),
             };
 
             // public_commitments are not available in spentbook for genesis transaction.
-            let public_commitments_info: Vec<(KeyImage, Vec<G1Affine>)> =
-                if key_image == genesis_key_image {
-                    vec![(key_image, vec![genesis_public_commitment])]
+            let public_commitments_info: Vec<(KeyImage, Vec<Commitment>)> =
+                if key_image == *genesis_key_image {
+                    vec![(key_image.clone(), vec![*genesis_public_commitment])]
                 } else {
                     // Todo: make this cleaner and more efficient.
                     //       spentbook needs to also be indexed by OutputProof PublicKey.
@@ -375,7 +321,7 @@ mod tests {
                     tx.mlsags
                         .iter()
                         .map(|mlsag| {
-                            let commitments: Vec<G1Affine> = mlsag
+                            let commitments: Vec<Commitment> = mlsag
                                 .public_keys()
                                 .iter()
                                 .map(|pk| {
@@ -395,19 +341,19 @@ mod tests {
                                 .collect();
                             assert_eq!(commitments.len(), mlsag.public_keys().len());
                             assert!(commitments.len() == mlsag.ring.len());
-                            (mlsag.key_image.to_compressed(), commitments)
+                            (mlsag.key_image.into(), commitments)
                         })
                         .collect()
                 };
 
             // Grab the commitments specific to the spent KeyImage
-            let tx_public_commitments: Vec<Vec<G1Affine>> = public_commitments_info
+            let tx_public_commitments: Vec<Vec<Commitment>> = public_commitments_info
                 .clone()
                 .into_iter()
                 .map(|(_, v)| v)
                 .collect();
 
-            let public_commitments: Vec<G1Affine> = public_commitments_info
+            let public_commitments: Vec<Commitment> = public_commitments_info
                 .into_iter()
                 .flat_map(|(k, v)| if k == key_image { v } else { vec![] })
                 .collect();
@@ -419,7 +365,7 @@ mod tests {
 
             let existing_tx = self
                 .transactions
-                .entry(key_image)
+                .entry(key_image.clone())
                 .or_insert_with(|| tx.clone());
             if existing_tx.hash() == tx.hash() {
                 Ok(SpentProofShare {
@@ -434,7 +380,7 @@ mod tests {
         }
 
         pub fn set_genesis(&mut self, material: &RingCtMaterial) {
-            let key_image = material.inputs[0].true_input.key_image().to_compressed();
+            let key_image = KeyImage::from(material.inputs[0].true_input.key_image().to_affine());
             let public_commitment = material.inputs[0]
                 .true_input
                 .revealed_commitment
@@ -476,7 +422,7 @@ mod tests {
             .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
 
         let spent_proof_share =
-            spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
+            spentbook.log_spent(genesis.input_key_image.clone(), genesis.transaction.clone())?;
 
         let spentbook_sig =
             spent_proof_share
@@ -502,7 +448,7 @@ mod tests {
             content: genesis.dbc_content.clone(),
             transaction: genesis.transaction.clone(),
             transaction_sigs: BTreeMap::from_iter([(
-                genesis.input_key_image,
+                genesis.input_key_image.clone(),
                 (
                     mint_node.key_manager().public_key_set()?.public_key(),
                     mint_sig,

@@ -7,10 +7,11 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{AmountSecrets, DerivationIndex, Owner};
-use blstrs::G1Affine;
 use blsttc::{Ciphertext, PublicKey, SecretKey};
-// use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use crate::{Error, Hash, Result};
 
@@ -18,9 +19,8 @@ use crate::{Error, Hash, Result};
 // (or else blst_ringct::RevealedCommitment should be made generic over Amount type)
 
 pub type Amount = u64;
-pub type OwnerPublicKey = G1Affine;
 
-// #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DbcContent {
     /// This is the owner's well-known key.  owner_base.public_key() may be published

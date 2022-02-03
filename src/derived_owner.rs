@@ -7,19 +7,21 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{Error, PublicKey, Result};
-use blsttc::SecretKey;
-// use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use blsttc::{serde_impl::SerdeSecret, SecretKey};
 use std::fmt;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use rand::distributions::Standard;
 use rand::Rng;
 
 pub type DerivationIndex = [u8; 32];
 
-// #[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone)]
 pub enum Owner {
-    SecretKey(SecretKey),
+    SecretKey(SerdeSecret<SecretKey>),
     PublicKey(PublicKey),
 }
 
@@ -38,7 +40,7 @@ impl fmt::Debug for Owner {
 
 impl From<SecretKey> for Owner {
     fn from(s: SecretKey) -> Self {
-        Self::SecretKey(s)
+        Self::SecretKey(SerdeSecret(s))
     }
 }
 
@@ -70,15 +72,15 @@ impl Owner {
 
     pub fn secret_key(&self) -> Result<SecretKey> {
         match self {
-            Self::SecretKey(sk) => Ok(sk.clone()),
+            Self::SecretKey(sk) => Ok(sk.inner().clone()),
             Self::PublicKey(_pk) => Err(Error::SecretKeyUnavailable),
         }
     }
 
     pub fn derive(&self, i: &DerivationIndex) -> Self {
         match self {
-            Self::SecretKey(sk) => Self::SecretKey(sk.derive_child(i)),
-            Self::PublicKey(pk) => Self::PublicKey(pk.derive_child(i)),
+            Self::SecretKey(sk) => Self::from(sk.inner().derive_child(i)),
+            Self::PublicKey(pk) => Self::from(pk.derive_child(i)),
         }
     }
 
@@ -98,11 +100,11 @@ impl Owner {
 
     pub fn from_random_secret_key(mut rng: impl rand::RngCore) -> Self {
         let sk: SecretKey = rng.sample(Standard);
-        Self::SecretKey(sk)
+        Self::from(sk)
     }
 }
 
-// #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub struct DerivedOwner {
     pub owner_base: Owner,

@@ -6,9 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{dbc_content::OwnerPublicKey, DbcContent, Error, KeyManager, Result};
-
-use crate::{AmountSecrets, BlsHelper, SpentProof, TransactionValidator};
+use crate::{AmountSecrets, BlsHelper, KeyImage, PublicKeyBlst, SpentProof, TransactionValidator};
+use crate::{DbcContent, Error, KeyManager, Result};
 use blst_ringct::ringct::{OutputProof, RingCtTransaction};
 use blst_ringct::RevealedCommitment;
 use blstrs::group::Curve;
@@ -16,12 +15,10 @@ use blsttc::{PublicKey, SecretKey, Signature};
 use std::collections::{BTreeMap, BTreeSet};
 use tiny_keccak::{Hasher, Sha3};
 
-// todo: move this someplace better, maybe lib.rs.
-// Alternatively, we could perhaps wrap G1Affine to add Ord so it can
-// be used in a BTreeMap directly
-pub type KeyImage = [u8; 48]; // G1 compressed
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
-// #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Dbc {
     pub content: DbcContent,
@@ -32,9 +29,13 @@ pub struct Dbc {
 
 impl Dbc {
     /// Read the DBC owner
-    pub fn owner(&self, base_sk: &SecretKey) -> Result<OwnerPublicKey> {
-        let pubkey = self.content.derive_owner(base_sk)?;
-        Ok(BlsHelper::blsttc_to_blstrs_pubkey(&pubkey))
+    pub fn owner(&self, base_sk: &SecretKey) -> Result<PublicKey> {
+        self.content.derive_owner(base_sk)
+    }
+
+    // convenience fn, can go away once blsttc integrated with blst_ringct.
+    pub(crate) fn owner_blst(&self, base_sk: &SecretKey) -> Result<PublicKeyBlst> {
+        Ok(BlsHelper::blsttc_to_blstrs_pubkey(&self.owner(base_sk)?))
     }
 
     pub fn has_secret_key(&self) -> bool {
@@ -49,7 +50,7 @@ impl Dbc {
         sha3.update(&self.transaction.hash());
 
         for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
-            sha3.update(in_key);
+            sha3.update(&in_key.as_ref().to_compressed());
             sha3.update(&mint_key.to_bytes());
             sha3.update(&mint_sig.to_bytes());
         }
@@ -79,7 +80,7 @@ impl Dbc {
             &self.spent_proofs,
         )?;
 
-        let owner = self.owner(base_sk)?;
+        let owner = self.owner_blst(base_sk)?;
 
         if !self
             .transaction
@@ -134,7 +135,7 @@ impl Dbc {
     }
 
     fn my_output_proof(&self, base_sk: &SecretKey) -> Result<&OutputProof> {
-        let owner = self.owner(base_sk)?;
+        let owner = self.owner_blst(base_sk)?;
         self.transaction
             .outputs
             .iter()
@@ -154,7 +155,7 @@ mod tests {
     use crate::tests::{init_genesis, NonZeroTinyInt, SpentBookMock, TinyInt};
     use crate::{
         Amount, AmountSecrets, BlsHelper, DbcBuilder, DerivedOwner, Hash, KeyManager, Owner,
-        ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
+        ReissueRequest, ReissueRequestBuilder, SecretKeyBlst, SimpleKeyManager, SimpleSigner,
     };
     use blst_ringct::ringct::RingCtMaterial;
     use blst_ringct::{Output, RevealedCommitment};
@@ -212,7 +213,7 @@ mod tests {
                 ))
                 .build(&mut rng8)?;
 
-        let key_image = reissue_tx.mlsags[0].key_image.to_compressed();
+        let key_image = reissue_tx.mlsags[0].key_image.into();
         let spent_proof_share = spentbook.log_spent(key_image, reissue_tx.clone())?;
 
         let rr = ReissueRequestBuilder::new(reissue_tx)
@@ -315,18 +316,17 @@ mod tests {
         let output_dbcs = dbc_builder.build()?;
 
         // The outputs become inputs for next reissue.
-        let inputs: Vec<(blstrs::Scalar, AmountSecrets, Vec<blst_ringct::DecoyInput>)> =
-            output_dbcs
-                .into_iter()
-                .map(|(_dbc, derived_owner, amount_secrets)| {
-                    let decoy_inputs = vec![]; // todo
-                    (
-                        BlsHelper::blsttc_to_blstrs_sk(derived_owner.derive_secret_key().unwrap()),
-                        amount_secrets,
-                        decoy_inputs,
-                    )
-                })
-                .collect();
+        let inputs: Vec<(SecretKeyBlst, AmountSecrets, Vec<blst_ringct::DecoyInput>)> = output_dbcs
+            .into_iter()
+            .map(|(_dbc, derived_owner, amount_secrets)| {
+                let decoy_inputs = vec![]; // todo
+                (
+                    BlsHelper::blsttc_to_blstrs_sk(derived_owner.derive_secret_key().unwrap()),
+                    amount_secrets,
+                    decoy_inputs,
+                )
+            })
+            .collect();
 
         let derived_owner =
             DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
@@ -353,7 +353,7 @@ mod tests {
             .enumerate()
         {
             let spent_proof_share =
-                spentbook.log_spent(mlsag.key_image.to_compressed(), reissue_tx.clone())?;
+                spentbook.log_spent(mlsag.key_image.into(), reissue_tx.clone())?;
             rr_builder = rr_builder.add_spent_proof_share(i, spent_proof_share);
         }
 
@@ -385,9 +385,9 @@ mod tests {
         fuzzed_transaction_sigs.extend(
             reissue_share
                 .mint_node_signatures
-                .iter()
+                .into_iter()
                 .take(n_valid_sigs.coerce())
-                .map(|(in_owner, _)| (*in_owner, (mint_pk, mint_sig.clone()))),
+                .map(|(in_owner, _)| (in_owner, (mint_pk, mint_sig.clone()))),
         );
 
         let mut repeating_inputs = reissue_tx
@@ -410,7 +410,7 @@ mod tests {
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
                     .unwrap();
                 fuzzed_transaction_sigs.insert(
-                    input.key_image.to_compressed(),
+                    input.key_image.into(),
                     (key_manager.public_key_set()?.public_key(), trans_sig),
                 );
             }
@@ -427,7 +427,7 @@ mod tests {
                     .unwrap();
 
                 fuzzed_transaction_sigs.insert(
-                    input.key_image.to_compressed(),
+                    input.key_image.into(),
                     (
                         mint_node.key_manager.public_key_set()?.public_key(),
                         wrong_msg_mint_sig,
@@ -439,7 +439,7 @@ mod tests {
         // Valid mint signatures for inputs not present in the transaction
         for _ in 0..n_extra_input_sigs.coerce() {
             fuzzed_transaction_sigs.insert(
-                [0u8; 48],
+                Default::default(),
                 (
                     mint_node.key_manager().public_key_set()?.public_key(),
                     mint_sig.clone(),
@@ -457,7 +457,7 @@ mod tests {
         let key_manager = mint_node.key_manager();
         let validation_res = dbc.confirm_valid(&derived_owner.base_secret_key()?, key_manager);
 
-        let dbc_owner = dbc.owner(&derived_owner.base_secret_key()?)?;
+        let dbc_owner = dbc.owner_blst(&derived_owner.base_secret_key()?)?;
 
         // Check if commitment in AmountSecrets matches the commitment in tx OutputProof
         let commitments_match = dbc
@@ -495,11 +495,11 @@ mod tests {
             Err(Error::UnknownInput) => {
                 assert!(n_extra_input_sigs.coerce::<u8>() > 0);
                 assert_ne!(
-                    Vec::from_iter(dbc.transaction_sigs.keys().copied()),
+                    Vec::from_iter(dbc.transaction_sigs.keys().cloned()),
                     dbc.transaction
                         .mlsags
                         .iter()
-                        .map(|m| m.key_image.to_compressed())
+                        .map(|m| m.key_image.into())
                         .collect::<Vec<KeyImage>>()
                 );
             }
