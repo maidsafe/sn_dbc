@@ -15,23 +15,25 @@
 
 use crate::{
     Amount, AmountSecrets, DbcContent, DerivedOwner, Error, Hash, KeyImage, KeyManager,
-    NodeSignature, Owner, PublicKey, PublicKeySet, Result, SpentProof, SpentProofShare,
-    TransactionValidator,
+    NodeSignature, Owner, PublicKey, PublicKeyBlst, PublicKeySet, Result, SecretKeyBlst,
+    SpentProof, SpentProofShare, TransactionValidator,
 };
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 use blst_ringct::{Output, RevealedCommitment};
 use blstrs::group::prime::PrimeCurveAffine;
 use blstrs::group::Curve;
-use blstrs::{G1Affine, Scalar};
 use blsttc::{poly::Poly, SecretKeySet};
 use rand_core::RngCore;
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 pub type MintNodeSignature = (PublicKeySet, NodeSignature);
 pub type MintNodeSignatures = BTreeMap<KeyImage, MintNodeSignature>;
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone)]
 pub struct GenesisDbcShare {
     pub ringct_material: RingCtMaterial,
@@ -40,18 +42,18 @@ pub struct GenesisDbcShare {
     pub derived_owner: DerivedOwner,
     pub transaction: RingCtTransaction,
     pub transaction_sig: NodeSignature,
-    pub secret_key: Scalar, // todo: redundant with derived_owner. get rid of this once blsttc uses blstrs.
+    pub secret_key: SecretKeyBlst, // todo: redundant with derived_owner. get rid of this once blsttc uses blstrs.
     pub input_key_image: KeyImage,
 }
 
-// #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct ReissueRequest {
     pub transaction: RingCtTransaction,
     pub spent_proofs: BTreeSet<SpentProof>,
 }
 
-// #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct ReissueShare {
     pub transaction: RingCtTransaction,
@@ -59,7 +61,8 @@ pub struct ReissueShare {
     pub mint_node_signatures: MintNodeSignatures,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct MintNode<K>
 where
     K: KeyManager,
@@ -88,7 +91,7 @@ impl<K: KeyManager> MintNode<K> {
         let input_poly = Poly::zero();
         let input_secret_key_set = SecretKeySet::from(input_poly);
         let input_secret_key =
-            Scalar::from_bytes_be(&input_secret_key_set.secret_key().to_bytes()).unwrap();
+            SecretKeyBlst::from_bytes_be(&input_secret_key_set.secret_key().to_bytes()).unwrap();
 
         // Make a secret key for the output of Genesis Tx. (The Genesis Dbc)
         // temporary: we bypass KeyManager and create a deterministic
@@ -101,8 +104,8 @@ impl<K: KeyManager> MintNode<K> {
 
         // create sk and derive pk.
         let secret_key =
-            Scalar::from_bytes_be(&secret_key_set_derived.secret_key().to_bytes()).unwrap();
-        let public_key = (G1Affine::generator() * secret_key).to_affine();
+            SecretKeyBlst::from_bytes_be(&secret_key_set_derived.secret_key().to_bytes()).unwrap();
+        let public_key = (PublicKeyBlst::generator() * secret_key).to_affine();
 
         let true_input = TrueInput {
             secret_key: input_secret_key,
@@ -112,7 +115,7 @@ impl<K: KeyManager> MintNode<K> {
             },
         };
 
-        let input_key_image = true_input.key_image().to_compressed();
+        let input_key_image = true_input.key_image().to_affine().into();
 
         // note: no decoy inputs because no other DBCs exist prior to genesis DBC.
         let decoy_inputs = vec![];
@@ -225,7 +228,7 @@ impl<K: KeyManager> MintNode<K> {
         Ok(transaction
             .mlsags
             .iter()
-            .map(|m| (m.key_image.to_compressed(), (pks.clone(), sig.clone())))
+            .map(|m| (m.key_image.into(), (pks.clone(), sig.clone())))
             .collect())
     }
 }
@@ -324,7 +327,7 @@ mod tests {
             }
         };
 
-        let genesis_key_image = reissue_tx.mlsags[0].key_image.to_compressed();
+        let genesis_key_image: KeyImage = reissue_tx.mlsags[0].key_image.into();
         let spent_proof_share = match spentbook.log_spent(genesis_key_image, reissue_tx.clone()) {
             Ok(s) => s,
             Err(e) => return check_error(e),
@@ -438,7 +441,7 @@ mod tests {
                 }))
                 .build(&mut rng8)?;
 
-        let genesis_key_image = reissue_tx.mlsags[0].key_image.to_compressed();
+        let genesis_key_image = reissue_tx.mlsags[0].key_image.into();
 
         // note: this closure is used for checking errors returned from both
         // MintNode::reissue and SpentBookMock::log_spent().
@@ -495,7 +498,7 @@ mod tests {
                     gen_decoy_inputs(&spentbook, &public_key_blstrs, num_decoy_inputs);
                 Ok((secret_key_blstrs, amount_secrets.clone(), decoy_inputs))
             })
-            .collect::<Result<Vec<(Scalar, crate::AmountSecrets, Vec<DecoyInput>)>>>()?;
+            .collect::<Result<Vec<(SecretKeyBlst, crate::AmountSecrets, Vec<DecoyInput>)>>>()?;
 
         let owners: Vec<DerivedOwner> = (0..=output_amounts.len())
             .map(|_| {
@@ -566,7 +569,7 @@ mod tests {
                     let idx = reissue_tx2
                         .mlsags
                         .iter()
-                        .position(|i| i.key_image.to_compressed() == key)
+                        .position(|i| i.key_image == *key.as_ref())
                         .unwrap();
                     assert!(invalid_spent_proofs.contains(&idx));
                 }
@@ -590,12 +593,11 @@ mod tests {
                 }
                 1 if is_invalid_spent_proof => {
                     // spentbook verifies the tx.  If an error, we need to check it same as with reissue result
-                    let spent_proof_share = match spentbook
-                        .log_spent(in_mlsag.key_image.to_compressed(), reissue_tx2.clone())
-                    {
-                        Ok(s) => s,
-                        Err(e) => return check_error(e),
-                    };
+                    let spent_proof_share =
+                        match spentbook.log_spent(in_mlsag.key_image.into(), reissue_tx2.clone()) {
+                            Ok(s) => s,
+                            Err(e) => return check_error(e),
+                        };
                     SpentProofShare {
                         key_image: spent_proof_share.key_image,
                         public_commitments: spent_proof_share.public_commitments,
@@ -610,9 +612,7 @@ mod tests {
                 }
                 _ => {
                     // spentbook verifies the tx.  If an error, we need to check it same as with reissue result
-                    match spentbook
-                        .log_spent(in_mlsag.key_image.to_compressed(), reissue_tx2.clone())
-                    {
+                    match spentbook.log_spent(in_mlsag.key_image.into(), reissue_tx2.clone()) {
                         Ok(s) => s,
                         Err(e) => return check_error(e),
                     }
@@ -665,7 +665,7 @@ mod tests {
 
     fn gen_decoy_inputs(
         spentbook: &SpentBookMock,
-        pubkey: &G1Affine,
+        pubkey: &PublicKeyBlst,
         num: usize,
     ) -> Vec<DecoyInput> {
         let mut decoys: Vec<DecoyInput> = Default::default();
@@ -830,8 +830,7 @@ mod tests {
                 )
                 .build(&mut rng8)?;
 
-        let spent_proof_share =
-            spentbook.log_spent(tx.mlsags[0].key_image.to_compressed(), tx.clone())?;
+        let spent_proof_share = spentbook.log_spent(tx.mlsags[0].key_image.into(), tx.clone())?;
 
         let rr = ReissueRequestBuilder::new(tx.clone())
             .add_spent_proof_share(0, spent_proof_share)
@@ -939,10 +938,7 @@ mod tests {
         // 6. Attempt to write this tx to the spentbook.
         //    This will fail because the input and output commitments do not match.
         // ----------
-        match spentbook.log_spent(
-            tx_fudged.mlsags[0].key_image.to_compressed(),
-            tx_fudged.clone(),
-        ) {
+        match spentbook.log_spent(tx_fudged.mlsags[0].key_image.into(), tx_fudged.clone()) {
             Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
             _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
         }
@@ -955,7 +951,7 @@ mod tests {
         // normally spentbook verifies the tx, but here we skip it in order to obtain
         // a spentproof with an invalid tx.
         let spent_proof_share_fudged = spentbook.log_spent_and_skip_tx_verification(
-            tx_fudged.mlsags[0].key_image.to_compressed(),
+            tx_fudged.mlsags[0].key_image.into(),
             tx_fudged.clone(),
         )?;
 
@@ -1040,9 +1036,9 @@ mod tests {
         let _genesis_spent_proof_share =
             new_spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
         let _spent_proof_share =
-            new_spentbook.log_spent(tx.mlsags[0].key_image.to_compressed(), tx.clone())?;
-        let spent_proof_share_true = new_spentbook
-            .log_spent(tx_true.mlsags[0].key_image.to_compressed(), tx_true.clone())?;
+            new_spentbook.log_spent(tx.mlsags[0].key_image.into(), tx.clone())?;
+        let spent_proof_share_true =
+            new_spentbook.log_spent(tx_true.mlsags[0].key_image.into(), tx_true.clone())?;
 
         // Now that the SpentBook is correct, we have a valid spent_proof_share
         // and can make a valid ReissueRequest

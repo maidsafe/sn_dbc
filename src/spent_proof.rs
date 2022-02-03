@@ -1,15 +1,17 @@
 use crate::{
-    Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, Signature,
+    Commitment, Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result,
+    Signature,
 };
 
-use blstrs::G1Affine;
-// use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::hash;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 /// A share of a SpentProof, combine enough of these to form a
 /// SpentProof.
-// #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct SpentProofShare {
     pub key_image: KeyImage,
@@ -19,7 +21,7 @@ pub struct SpentProofShare {
 
     pub spentbook_sig_share: NodeSignature,
 
-    pub public_commitments: Vec<G1Affine>,
+    pub public_commitments: Vec<Commitment>,
 }
 
 impl PartialEq for SpentProofShare {
@@ -61,6 +63,8 @@ impl SpentProofShare {
 /// SpentProof's are constructed when a DBC is logged to the spentbook.
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 // #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpentProof {
     pub key_image: KeyImage,
@@ -72,14 +76,14 @@ pub struct SpentProof {
     /// signing over RingCtTransaction, spent_sig, and public_commitments.
     pub spentbook_sig: Signature,
 
-    pub public_commitments: Vec<G1Affine>,
+    pub public_commitments: Vec<Commitment>,
 }
 
 impl SpentProof {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
-        bytes.extend(&self.key_image);
+        bytes.extend(&self.key_image.as_ref().to_compressed());
         bytes.extend(&self.spentbook_sig.to_bytes());
 
         for pc in self.public_commitments.iter() {
@@ -91,7 +95,7 @@ impl SpentProof {
     pub fn validate<K: KeyManager>(&self, tx: Hash, verifier: &K) -> Result<()> {
         verifier
             .verify(&tx, &self.spentbook_pub_key, &self.spentbook_sig)
-            .map_err(|_| Error::InvalidSpentProofSignature(self.key_image))?;
+            .map_err(|_| Error::InvalidSpentProofSignature(self.key_image.clone()))?;
         Ok(())
     }
 }

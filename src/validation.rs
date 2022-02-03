@@ -1,6 +1,5 @@
-use crate::{Error, Hash, KeyImage, KeyManager, PublicKey, Result, SpentProof};
+use crate::{Commitment, Error, Hash, KeyImage, KeyManager, PublicKey, Result, SpentProof};
 use blst_ringct::ringct::RingCtTransaction;
-use blstrs::G1Affine;
 use blsttc::Signature;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,7 +39,7 @@ impl TransactionValidator {
             if !transaction
                 .mlsags
                 .iter()
-                .any(|m| m.key_image.to_compressed() == *key_image)
+                .any(|m| m.key_image == *key_image.as_ref())
             {
                 return Err(Error::UnknownInput);
             }
@@ -78,7 +77,7 @@ impl TransactionValidator {
         let keyimage_unique: BTreeSet<KeyImage> = transaction
             .mlsags
             .iter()
-            .map(|m| m.key_image.to_compressed())
+            .map(|m| m.key_image.into())
             .collect();
         if keyimage_unique.len() != transaction.mlsags.len() {
             return Err(Error::KeyImageNotUniqueAcrossInputs);
@@ -88,7 +87,7 @@ impl TransactionValidator {
         let pubkey_unique: BTreeSet<KeyImage> = transaction
             .outputs
             .iter()
-            .map(|o| o.public_key().to_compressed())
+            .map(|o| (*o.public_key()).into())
             .collect();
         if pubkey_unique.len() != transaction.outputs.len() {
             return Err(Error::PublicKeyNotUniqueAcrossOutputs);
@@ -103,7 +102,7 @@ impl TransactionValidator {
             if !transaction
                 .mlsags
                 .iter()
-                .any(|m| m.key_image.to_compressed() == spent_proof.key_image)
+                .any(|m| m.key_image == *spent_proof.key_image.as_ref())
             {
                 return Err(Error::SpentProofInputMismatch);
             }
@@ -119,7 +118,7 @@ impl TransactionValidator {
                 transaction
                     .mlsags
                     .iter()
-                    .position(|m| m.key_image.to_compressed() == s.key_image)
+                    .position(|m| m.key_image == *s.key_image.as_ref())
                     .map(|idx| (idx, s))
             })
             .collect();
@@ -128,7 +127,7 @@ impl TransactionValidator {
         let spent_proofs_sorted: Vec<&SpentProof> =
             spent_proofs_found.into_iter().map(|s| s.1).collect();
 
-        let public_commitments: Vec<Vec<G1Affine>> = spent_proofs_sorted
+        let public_commitments: Vec<Vec<Commitment>> = spent_proofs_sorted
             .iter()
             .map(|s| s.public_commitments.clone())
             .collect();

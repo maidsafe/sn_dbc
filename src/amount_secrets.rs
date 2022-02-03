@@ -7,7 +7,6 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use blst_ringct::RevealedCommitment;
-use blstrs::Scalar;
 use blsttc::{
     Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
     SecretKeyShare,
@@ -17,20 +16,28 @@ use std::collections::BTreeMap;
 use std::convert::Into;
 use std::convert::TryFrom;
 
-use crate::{Amount, Error};
+use crate::{Amount, BlindingFactor, Error, SecretKeyBlst};
 
-// note: Amount should move into blst_ringct crate.
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+// todo: Amount should probably move into blst_ringct crate.
 // (or else blst_ringct::RevealedCommitment should be made generic over Amount type)
 
 // note: AmountSecrets wraps RevealedCommitment to provide some methods
 // for decrypting from Ciphertext using various blsttc components,
 // eg SecretKey, SecretKeyShare, SecretKeySet, DecryptionShare
 //
-// Once blst_ringct uses blsttc, perhaps AmountSecrets can go away.
+// todo: perhaps AmountSecrets should be renamed to be more consistent with
+//  RevealedCommitment, since it is just a NewType wrapper.
+//
+// Once blst_ringct uses blsttc, perhaps AmountSecrets functionality could
+//  move into RevealedCommitment, and AmountSecrets goes away entirely.
 
-const AMT_SIZE: usize = 8; // Amount size: 8 bytes (u64)
-const BF_SIZE: usize = 32; // Blinding factor size: 32 bytes (Scalar)
+const AMT_SIZE: usize = std::mem::size_of::<Amount>(); // Amount size: 8 bytes (u64)
+const BF_SIZE: usize = std::mem::size_of::<BlindingFactor>(); // Blinding factor size: 32 bytes (BlindingFactor)
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct AmountSecrets(RevealedCommitment);
 
@@ -39,7 +46,7 @@ impl AmountSecrets {
         self.0.value
     }
 
-    pub fn blinding_factor(&self) -> Scalar {
+    pub fn blinding_factor(&self) -> SecretKeyBlst {
         self.0.blinding
     }
 
@@ -56,7 +63,7 @@ impl AmountSecrets {
             b
         });
         let mut b = [0u8; BF_SIZE];
-        let blinding_factor = Scalar::from_bytes_le({
+        let blinding_factor = BlindingFactor::from_bytes_le({
             b.copy_from_slice(&bytes[AMT_SIZE..]);
             &b
         })
@@ -79,7 +86,7 @@ impl AmountSecrets {
             b
         });
         let mut b = [0u8; BF_SIZE];
-        let blinding_factor = Scalar::from_bytes_le({
+        let blinding_factor = BlindingFactor::from_bytes_le({
             b.copy_from_slice(&bytes[AMT_SIZE..]);
             &b
         })
@@ -107,9 +114,9 @@ impl From<RevealedCommitment> for AmountSecrets {
     }
 }
 
-impl From<(Amount, Scalar)> for AmountSecrets {
+impl From<(Amount, BlindingFactor)> for AmountSecrets {
     /// create AmountSecrets from an amount and a randomly generated blinding factor
-    fn from(params: (Amount, Scalar)) -> Self {
+    fn from(params: (Amount, BlindingFactor)) -> Self {
         let (value, blinding) = params;
 
         Self(RevealedCommitment { value, blinding })
