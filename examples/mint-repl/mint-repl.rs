@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use sn_dbc::{
     Amount, Dbc, DbcBuilder, DerivedOwner, GenesisDbcShare, KeyManager, MintNode, Output,
     OutputOwnerMap, Owner, ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
-    SpentProof, SpentProofShare, TransactionBuilder,
+    SpentBookNodeMock, SpentProof, SpentProofShare, TransactionBuilder,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
@@ -37,16 +37,13 @@ use std::os::unix::{io::AsRawFd, prelude::RawFd};
 #[cfg(unix)]
 use termios::{tcsetattr, Termios, ICANON, TCSADRAIN};
 
-mod spentbook;
-use spentbook::SpentBookNode;
-
 const STD_DECOYS: usize = 3; // how many decoys to use (when available in spentbook)
 
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
 struct MintInfo {
     mintnodes: Vec<MintNode<SimpleKeyManager>>,
-    spentbook_nodes: Vec<SpentBookNode>,
+    spentbook_nodes: Vec<SpentBookNodeMock>,
     genesis: Dbc,
     secret_key_set: SecretKeySet,
     poly: Poly,
@@ -62,7 +59,7 @@ impl MintInfo {
     }
 
     // returns the first spentbook node.
-    fn spentbook(&self) -> Result<&SpentBookNode> {
+    fn spentbook(&self) -> Result<&SpentBookNodeMock> {
         self.spentbook_nodes
             .get(0)
             .ok_or_else(|| anyhow!("Spentbook not yet created"))
@@ -216,7 +213,7 @@ fn mk_new_random_mint(threshold: usize, amount: Amount) -> Result<MintInfo> {
 /// creates a new mint from an existing SecretKeySet that was seeded by poly.
 fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Result<MintInfo> {
     let mut mintnodes: Vec<MintNode<SimpleKeyManager>> = Default::default();
-    let mut spentbook_nodes: Vec<SpentBookNode> = Default::default();
+    let mut spentbook_nodes: Vec<SpentBookNodeMock> = Default::default();
     let mut spent_proof_shares: Vec<SpentProofShare> = Default::default();
 
     // make as many spentbook nodes as mintnodes. (for now)
@@ -225,10 +222,11 @@ fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Resu
     // Generate each Mint node, and corresponding NodeSignature. (Index + SignatureShare)
     let mut genesis_set: Vec<GenesisDbcShare> = Default::default();
     for i in 0..secret_key_set.threshold() as u64 + 1 {
-        let mut spentbook_node = SpentBookNode::from(SimpleKeyManager::from(SimpleSigner::new(
-            spentbook_sks.public_keys().clone(),
-            (i, spentbook_sks.secret_key_share(i).clone()),
-        )));
+        let mut spentbook_node =
+            SpentBookNodeMock::from(SimpleKeyManager::from(SimpleSigner::new(
+                spentbook_sks.public_keys().clone(),
+                (i, spentbook_sks.secret_key_share(i).clone()),
+            )));
 
         // Each MintNode must start from same random seed when issuing Genesis.
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);

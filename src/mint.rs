@@ -244,8 +244,9 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::{
-        tests::{init_genesis, SpentBookMock, TinyInt, TinyVec},
+        tests::{init_genesis, TinyInt, TinyVec},
         AmountSecrets, DbcBuilder, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
+        SpentBookNodeMock,
     };
 
     #[test]
@@ -438,7 +439,7 @@ mod tests {
         let genesis_key_image = reissue_tx.mlsags[0].key_image.into();
 
         // note: this closure is used for checking errors returned from both
-        // MintNode::reissue and SpentBookMock::log_spent().
+        // MintNode::reissue and SpentBookNodeMock::log_spent().
         let check_tx_error = |error: Error| -> Result<()> {
             match error {
                 Error::RingCt(
@@ -526,7 +527,7 @@ mod tests {
         assert_eq!(input_dbcs.len(), reissue_tx2.mlsags.len());
 
         // note: this closure is used for checking errors returned from both
-        // MintNode::reissue and SpentBookMock::log_spent().
+        // MintNode::reissue and SpentBookNodeMock::log_spent().
         let check_error = |error: Error| -> Result<()> {
             match error {
                 Error::SpentProofInputMismatch => {
@@ -654,7 +655,7 @@ mod tests {
     }
 
     fn gen_decoy_inputs(
-        spentbook: &SpentBookMock,
+        spentbook: &SpentBookNodeMock,
         public_key: &PublicKeyBlst,
         num: usize,
     ) -> Vec<DecoyInput> {
@@ -1002,7 +1003,7 @@ mod tests {
         // Note that the new spentbook uses the same signing key as the original, which
         // MintNode's key_manager trusts.
         //
-        let mut new_spentbook = SpentBookMock::from(spentbook.key_manager);
+        let mut new_spentbook = SpentBookNodeMock::from(spentbook.key_manager);
         new_spentbook.set_genesis(&genesis.ringct_material);
         let _genesis_spent_proof_share =
             new_spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
