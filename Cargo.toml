@@ -85,6 +85,6 @@ termios = "0.3.3"
 # harness = false
 # required-features = [ "dkg" ]
 
-# [[example]]
-# name = "mint-repl"
-# path = "examples/mint-repl/mint-repl.rs"
+[[example]]
+name = "mint-repl"
+path = "examples/mint-repl/mint-repl.rs"
