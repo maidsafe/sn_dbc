@@ -223,10 +223,10 @@ mod tests {
 
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::{init_genesis, NonZeroTinyInt, SpentBookMock, TinyInt};
+    use crate::tests::{init_genesis, NonZeroTinyInt, TinyInt};
     use crate::{
         Amount, AmountSecrets, DbcBuilder, DerivedOwner, Hash, KeyManager, Owner, ReissueRequest,
-        ReissueRequestBuilder, SecretKeyBlst, SimpleKeyManager, SimpleSigner,
+        ReissueRequestBuilder, SecretKeyBlst, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
     };
     use blst_ringct::ringct::RingCtMaterial;
     use blst_ringct::{Output, RevealedCommitment};
@@ -249,7 +249,7 @@ mod tests {
         amount_secrets: AmountSecrets,
         n_ways: u8,
         output_owners: Vec<DerivedOwner>,
-        spentbook: &mut SpentBookMock,
+        spentbook: &mut SpentBookNodeMock,
         mut rng8: impl RngCore + rand_core::CryptoRng,
     ) -> Result<(
         ReissueRequest,

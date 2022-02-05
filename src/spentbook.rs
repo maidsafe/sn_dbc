@@ -1,15 +1,13 @@
-use std::collections::BTreeMap;
-
-use anyhow::Result;
-use sn_dbc::{Commitment, Hash, KeyImage, KeyManager, SimpleKeyManager, SpentProofShare};
-
 use blst_ringct::ringct::{OutputProof, RingCtMaterial, RingCtTransaction};
 use blst_ringct::DecoyInput;
 use blstrs::group::Curve;
+use std::collections::BTreeMap;
 
 use rand8::prelude::IteratorRandom;
 
-/// This is a mock SpentBook used for the mint-repl. A proper implementation
+use crate::{Commitment, Hash, KeyImage, KeyManager, Result, SimpleKeyManager, SpentProofShare};
+
+/// This is a mock SpentBook used for our test cases. A proper implementation
 /// will be distributed, persistent, and auditable.
 ///
 /// This impl has a serious inefficiency when looking up OutputProofs by
@@ -19,18 +17,14 @@ use rand8::prelude::IteratorRandom;
 /// A real (performant) impl would need to add an additional index/map from
 /// PublicKey to Tx.  Or alternatively from PublicKey to KeyImage.  This requirement
 /// may add complexity to a distributed implementation.
-///
-/// Also this impl is wasteful of memory because every input to a Tx
-/// stores a duplicate of the same Tx.  A more efficient impl would
-/// use references to a single Tx in mem (or disk/network).
 #[derive(Debug, Clone)]
-pub struct SpentBookNode {
+pub struct SpentBookNodeMock {
     pub key_manager: SimpleKeyManager,
     pub transactions: BTreeMap<KeyImage, RingCtTransaction>,
     pub genesis: Option<(KeyImage, Commitment)>, // genesis input (keyimage, public_commitment)
 }
 
-impl From<SimpleKeyManager> for SpentBookNode {
+impl From<SimpleKeyManager> for SpentBookNodeMock {
     fn from(key_manager: SimpleKeyManager) -> Self {
         Self {
             key_manager,
@@ -40,7 +34,7 @@ impl From<SimpleKeyManager> for SpentBookNode {
     }
 }
 
-impl From<(SimpleKeyManager, KeyImage, Commitment)> for SpentBookNode {
+impl From<(SimpleKeyManager, KeyImage, Commitment)> for SpentBookNodeMock {
     fn from(params: (SimpleKeyManager, KeyImage, Commitment)) -> Self {
         let (key_manager, key_image, public_commitment) = params;
 
@@ -52,7 +46,7 @@ impl From<(SimpleKeyManager, KeyImage, Commitment)> for SpentBookNode {
     }
 }
 
-impl SpentBookNode {
+impl SpentBookNodeMock {
     pub fn iter(&self) -> impl Iterator<Item = (&KeyImage, &RingCtTransaction)> {
         self.transactions.iter()
     }
@@ -67,6 +61,18 @@ impl SpentBookNode {
         tx: RingCtTransaction,
     ) -> Result<SpentProofShare> {
         self.log_spent_worker(key_image, tx, true)
+    }
+
+    // This is invalid behavior, however we provide this method for test cases
+    // that need to write an invalid Tx to spentbook in order to test reissue
+    // behavior.
+    #[cfg(test)]
+    pub fn log_spent_and_skip_tx_verification(
+        &mut self,
+        key_image: KeyImage,
+        tx: RingCtTransaction,
+    ) -> Result<SpentProofShare> {
+        self.log_spent_worker(key_image, tx, false)
     }
 
     fn log_spent_worker(
@@ -116,8 +122,9 @@ impl SpentBookNode {
                                 // note: all inputs to a tx will store the same Tx.  As such,
                                 // we will can get multiple matches.  But they should/must
                                 // be from the same Tx.  So we use only the first one.
+                                // A better impl would store only a single Tx with multiple
+                                // KeyImage pointers to it.
 
-                                // assert_eq!(output_proofs.len(), 1);
                                 assert!(!output_proofs.is_empty());
                                 output_proofs[0].commitment()
                             })
@@ -129,13 +136,13 @@ impl SpentBookNode {
                     .collect()
             };
 
+        // Grab the commitments specific to the spent KeyImage
         let tx_public_commitments: Vec<Vec<Commitment>> = public_commitments_info
             .clone()
             .into_iter()
             .map(|(_, v)| v)
             .collect();
 
-        // Grab the commitments specific to the spent KeyImage
         let public_commitments: Vec<Commitment> = public_commitments_info
             .into_iter()
             .flat_map(|(k, v)| if k == key_image { v } else { vec![] })
@@ -143,7 +150,6 @@ impl SpentBookNode {
 
         if verify_tx {
             // do not permit invalid tx to be logged.
-            // note: this is an expensive call, according to flamegraph.
             tx.verify(&tx_public_commitments)?;
         }
 
@@ -163,8 +169,6 @@ impl SpentBookNode {
         }
     }
 
-    // Stores the input to the Genesis Tx.  This resolves a chicken/egg
-    // situation in log_spent().
     pub fn set_genesis(&mut self, material: &RingCtMaterial) {
         let key_image = KeyImage::from(material.inputs[0].true_input.key_image().to_affine());
         let public_commitment = material.inputs[0]
@@ -176,12 +180,18 @@ impl SpentBookNode {
         self.genesis = Some((key_image, public_commitment));
     }
 
+    // return a list of DecoyInput built from randomly
+    // selected OutputProof, from set of all OutputProof in Spentbook.
     pub fn random_decoys(
         &self,
         target_num: usize,
         mut rng: impl rand8::RngCore,
     ) -> Vec<DecoyInput> {
         // Get a unique list of all OutputProof
+        // note: Tx are duplicated in Spentbook. We use a BTreeMap
+        //       with KeyImage to dedup.
+        // note: Once we refactor to avoid Tx duplication, this
+        //       map can go away.
         let outputs_unique: BTreeMap<KeyImage, OutputProof> = self
             .transactions
             .values()
