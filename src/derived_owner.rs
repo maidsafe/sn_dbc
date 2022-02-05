@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Error, PublicKey, Result};
+use crate::{BlsHelper, Error, PublicKey, PublicKeyBlst, Result, SecretKeyBlst};
 use blsttc::{serde_impl::SerdeSecret, SecretKey};
 use std::fmt;
 
@@ -130,6 +130,20 @@ impl DerivedOwner {
 
     pub fn derive_secret_key(&self) -> Result<SecretKey> {
         self.owner_base.derive(&self.derivation_index).secret_key()
+    }
+
+    /// returns owner BLST PublicKey derived from owner base PublicKey
+    // note: can go away once blsttc integrated with blst_ringct.
+    pub fn derive_public_key_blst(&self) -> PublicKeyBlst {
+        BlsHelper::blsttc_to_blstrs_public_key(&self.derive_public_key())
+    }
+
+    /// returns owner BLST SecretKey derived from owner base SecretKey, if available.
+    // note: can go away once blsttc integrated with blst_ringct.
+    pub fn derive_secret_key_blst(&self) -> Result<SecretKeyBlst> {
+        Ok(BlsHelper::blsttc_to_blstrs_secret_key(
+            self.derive_secret_key()?,
+        ))
     }
 
     pub fn from_owner_base(owner_base: Owner, mut rng: impl rand8::RngCore) -> Self {

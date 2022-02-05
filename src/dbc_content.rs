@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{AmountSecrets, DerivationIndex, Owner};
-use blsttc::{Ciphertext, PublicKey, SecretKey};
+use blsttc::{Ciphertext, SecretKey};
 use tiny_keccak::{Hasher, Sha3};
 
 #[cfg(feature = "serde")]
@@ -89,7 +89,7 @@ impl From<(Owner, DerivationIndex, AmountSecrets)> for DbcContent {
 }
 
 impl DbcContent {
-    pub fn derive_owner(&self, base_sk: &SecretKey) -> Result<PublicKey> {
+    pub(crate) fn derivation_index(&self, base_sk: &SecretKey) -> Result<DerivationIndex> {
         let bytes = base_sk
             .decrypt(&self.owner_derivation_cipher)
             .ok_or(Error::DecryptionBySecretKeyFailed)?;
@@ -98,7 +98,7 @@ impl DbcContent {
 
         let mut idx = [0u8; 32];
         idx.copy_from_slice(&bytes[0..32]);
-        Ok(self.owner_base.derive(&idx).public_key())
+        Ok(idx)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {

@@ -42,6 +42,12 @@ pub type BlindingFactor = Scalar;
 #[derive(Debug, Clone, Default)]
 pub struct KeyImage(G1Affine);
 
+impl KeyImage {
+    pub fn to_bytes(&self) -> [u8; 48] {
+        self.0.to_compressed()
+    }
+}
+
 impl PartialEq for KeyImage {
     fn eq(&self, other: &Self) -> bool {
         self.0.to_compressed() == other.0.to_compressed()
@@ -86,24 +92,24 @@ pub struct BlsHelper {}
 
 impl BlsHelper {
     #[allow(dead_code)]
-    pub fn blsttc_to_blstrs_sk(sk: SecretKey) -> SecretKeyBlst {
+    pub fn blsttc_to_blstrs_secret_key(sk: SecretKey) -> SecretKeyBlst {
         let bytes = sk.to_bytes();
         SecretKeyBlst::from_bytes_be(&bytes).unwrap()
     }
 
-    pub fn blsttc_to_blstrs_pubkey(pk: &PublicKey) -> PublicKeyBlst {
+    pub fn blsttc_to_blstrs_public_key(pk: &PublicKey) -> PublicKeyBlst {
         let bytes = pk.to_bytes();
         // fixme: unwrap
         PublicKeyBlst::from_compressed(&bytes).unwrap()
     }
 
-    pub fn blstrs_to_blsttc_pubkey(pk: &PublicKeyBlst) -> PublicKey {
+    pub fn blstrs_to_blsttc_public_key(pk: &PublicKeyBlst) -> PublicKey {
         let bytes = pk.to_compressed();
         // fixme: unwrap
         PublicKey::from_bytes(bytes).unwrap()
     }
 
-    pub fn blstrs_to_blsttc_sk(sk: SecretKeyBlst) -> SecretKey {
+    pub fn blstrs_to_blsttc_secret_key(sk: SecretKeyBlst) -> SecretKey {
         let bytes = sk.to_bytes_be();
         // fixme: unwrap
         SecretKey::from_bytes(bytes).unwrap()

@@ -83,7 +83,7 @@ impl SpentProof {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
-        bytes.extend(&self.key_image.as_ref().to_compressed());
+        bytes.extend(&self.key_image.to_bytes());
         bytes.extend(&self.spentbook_sig.to_bytes());
 
         for pc in self.public_commitments.iter() {

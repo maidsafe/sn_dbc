@@ -241,13 +241,11 @@ mod tests {
     use rand::SeedableRng;
     use rand_core::SeedableRng as SeedableRngCore;
     use std::collections::BTreeSet;
-    use std::convert::TryFrom;
     use std::iter::FromIterator;
 
     use crate::{
         tests::{init_genesis, SpentBookMock, TinyInt, TinyVec},
-        AmountSecrets, BlsHelper, DbcBuilder, ReissueRequestBuilder, SimpleKeyManager,
-        SimpleSigner,
+        AmountSecrets, DbcBuilder, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
     };
 
     #[test]
@@ -298,9 +296,7 @@ mod tests {
                     (
                         crate::Output {
                             amount: *a,
-                            public_key: BlsHelper::blsttc_to_blstrs_pubkey(
-                                &owners[idx].derive_public_key(),
-                            ),
+                            public_key: owners[idx].derive_public_key_blst(),
                         },
                         owners[idx].clone(),
                     )
@@ -363,17 +359,17 @@ mod tests {
         }
 
         assert_eq!(
-            output_dbcs
-                .iter()
-                .map(
-                    |(dbc, derived_owner, _amount_secrets)| AmountSecrets::try_from((
-                        &derived_owner.derive_secret_key().unwrap(),
-                        &dbc.content.amount_secrets_cipher
-                    ))
-                    .unwrap()
-                    .amount()
-                )
-                .sum::<Amount>(),
+            {
+                let mut sum: Amount = 0;
+                for (dbc, derived_owner, _amount_secrets) in output_dbcs.iter() {
+                    // note: we could just use amount_secrets provided by DbcBuilder::build()
+                    // but we go further to verify the correct value is encrypted in the Dbc.
+                    sum += dbc
+                        .amount_secrets(&derived_owner.base_secret_key()?)?
+                        .amount()
+                }
+                sum
+            },
             output_amount
         );
 
@@ -432,9 +428,7 @@ mod tests {
                     (
                         crate::Output {
                             amount,
-                            public_key: BlsHelper::blsttc_to_blstrs_pubkey(
-                                &derived_owner.derive_public_key(),
-                            ),
+                            public_key: derived_owner.derive_public_key_blst(),
                         },
                         derived_owner,
                     )
@@ -488,10 +482,8 @@ mod tests {
         let input_dbc_secrets = input_dbcs
             .iter()
             .map(|(_dbc, derived_owner, amount_secrets)| {
-                let secret_key_blstrs =
-                    BlsHelper::blsttc_to_blstrs_sk(derived_owner.derive_secret_key().unwrap());
-                let public_key_blstrs =
-                    BlsHelper::blsttc_to_blstrs_pubkey(&derived_owner.derive_public_key());
+                let secret_key_blstrs = derived_owner.derive_secret_key_blst().unwrap();
+                let public_key_blstrs = derived_owner.derive_public_key_blst();
 
                 // note: decoy inputs can be created from OutputProof + dbc owner's pubkey.
                 let decoy_inputs =
@@ -513,9 +505,7 @@ mod tests {
                 (
                     crate::Output {
                         amount: *amount,
-                        public_key: BlsHelper::blsttc_to_blstrs_pubkey(
-                            &derived_owner.derive_public_key(),
-                        ),
+                        public_key: derived_owner.derive_public_key_blst(),
                     },
                     derived_owner,
                 )
@@ -665,14 +655,14 @@ mod tests {
 
     fn gen_decoy_inputs(
         spentbook: &SpentBookMock,
-        pubkey: &PublicKeyBlst,
+        public_key: &PublicKeyBlst,
         num: usize,
     ) -> Vec<DecoyInput> {
         let mut decoys: Vec<DecoyInput> = Default::default();
 
         for (_key_image, tx) in spentbook.iter() {
             for op in tx.outputs.iter() {
-                if op.public_key() != pubkey && decoys.len() < num {
+                if op.public_key() != public_key && decoys.len() < num {
                     decoys.push(DecoyInput {
                         public_key: *op.public_key(),
                         commitment: op.commitment(),
@@ -713,9 +703,7 @@ mod tests {
         let (_transaction, revealed_commitments, ..) = crate::TransactionBuilder::default()
             .add_output(
                 Output {
-                    public_key: BlsHelper::blsttc_to_blstrs_pubkey(
-                        &output1_owner.derive_public_key(),
-                    ),
+                    public_key: output1_owner.derive_public_key_blst(),
                     amount: 100,
                 },
                 output1_owner.clone(),
@@ -723,7 +711,7 @@ mod tests {
             .build(&mut rng8)?;
 
         let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
-        let secret_key = BlsHelper::blsttc_to_blstrs_sk(output1_owner.derive_secret_key()?);
+        let secret_key = output1_owner.derive_secret_key_blst()?;
         let decoy_inputs = vec![]; // no decoys.
 
         let output2_owner =
@@ -733,9 +721,7 @@ mod tests {
             .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng8)
             .add_output(
                 Output {
-                    public_key: BlsHelper::blsttc_to_blstrs_pubkey(
-                        &output2_owner.derive_public_key(),
-                    ),
+                    public_key: output2_owner.derive_public_key_blst(),
                     amount: 100,
                 },
                 output2_owner,
@@ -821,9 +807,7 @@ mod tests {
                 )
                 .add_output(
                     Output {
-                        public_key: BlsHelper::blsttc_to_blstrs_pubkey(
-                            &output_owner.derive_public_key(),
-                        ),
+                        public_key: output_owner.derive_public_key_blst(),
                         amount: output_amount,
                     },
                     output_owner.clone(),
@@ -866,14 +850,8 @@ mod tests {
         ));
 
         // obtain amount secrets (true and fudged)
-        let true_secrets = AmountSecrets::try_from((
-            &output_owner.derive_secret_key()?,
-            &true_output_dbc.content.amount_secrets_cipher,
-        ))?;
-        let fudged_secrets = AmountSecrets::try_from((
-            &output_owner.derive_secret_key()?,
-            &fudged_output_dbc.content.amount_secrets_cipher,
-        ))?;
+        let true_secrets = true_output_dbc.amount_secrets(&output_owner.base_secret_key()?)?;
+        let fudged_secrets = fudged_output_dbc.amount_secrets(&output_owner.base_secret_key()?)?;
 
         // confirm the secret amount is 2000.
         assert_eq!(fudged_secrets.amount(), 1000 * 2);
@@ -896,13 +874,10 @@ mod tests {
             .is_err());
 
         // confirm that the sum of output secrets does not match the committed amount.
-        let output_secret_key = output_owner.derive_secret_key()?;
         assert_ne!(
-            AmountSecrets::try_from((
-                &output_secret_key,
-                &fudged_output_dbc.content.amount_secrets_cipher
-            ))?
-            .amount(),
+            fudged_output_dbc
+                .amount_secrets(&output_owner.base_secret_key()?)?
+                .amount(),
             output_amount
         );
 
@@ -918,7 +893,7 @@ mod tests {
 
         let (tx_fudged, ..) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
-                BlsHelper::blsttc_to_blstrs_sk(input_owner.derive_secret_key()?),
+                input_owner.derive_secret_key_blst()?,
                 fudged_secrets.clone(),
                 decoy_inputs.clone(),
                 &mut rng8,
@@ -926,9 +901,7 @@ mod tests {
             .add_output(
                 Output {
                     amount: fudged_secrets.amount(),
-                    public_key: BlsHelper::blsttc_to_blstrs_pubkey(
-                        &output_owner.derive_public_key(),
-                    ),
+                    public_key: output_owner.derive_public_key_blst(),
                 },
                 output_owner.clone(),
             )
@@ -984,7 +957,7 @@ mod tests {
 
         let (tx_true, ..) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
-                BlsHelper::blsttc_to_blstrs_sk(input_owner.derive_secret_key()?),
+                input_owner.derive_secret_key_blst()?,
                 true_secrets.clone(),
                 decoy_inputs,
                 &mut rng8,
@@ -992,9 +965,7 @@ mod tests {
             .add_output(
                 Output {
                     amount: true_secrets.amount(),
-                    public_key: BlsHelper::blsttc_to_blstrs_pubkey(
-                        &output_owner.derive_public_key(),
-                    ),
+                    public_key: output_owner.derive_public_key_blst(),
                 },
                 output_owner,
             )

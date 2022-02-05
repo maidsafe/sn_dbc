@@ -335,7 +335,14 @@ mod tests {
                                                 .find(|proof| proof.public_key() == pk)
                                         })
                                         .collect();
-                                    assert_eq!(output_proofs.len(), 1);
+
+                                    // note: all inputs to a tx will store the same Tx.  As such,
+                                    // we will can get multiple matches.  But they should/must
+                                    // be from the same Tx.  So we use only the first one.
+                                    // A better impl would store only a single Tx with multiple
+                                    // KeyImage pointers to it.
+
+                                    assert!(!output_proofs.is_empty());
                                     output_proofs[0].commitment()
                                 })
                                 .collect();
