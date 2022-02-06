@@ -63,6 +63,7 @@ impl PartialEq for Owner {
 impl Eq for Owner {}
 
 impl Owner {
+    /// returns PublicKey
     pub fn public_key(&self) -> PublicKey {
         match self {
             Self::SecretKey(sk) => sk.public_key(),
@@ -70,6 +71,7 @@ impl Owner {
         }
     }
 
+    /// returns SecretKey
     pub fn secret_key(&self) -> Result<SecretKey> {
         match self {
             Self::SecretKey(sk) => Ok(sk.inner().clone()),
@@ -77,6 +79,19 @@ impl Owner {
         }
     }
 
+    /// returns owner BLST PublicKey derived from owner base PublicKey
+    // note: can go away once blsttc integrated with blst_ringct.
+    pub fn public_key_blst(&self) -> PublicKeyBlst {
+        BlsHelper::blsttc_to_blstrs_public_key(&self.public_key())
+    }
+
+    /// returns owner BLST SecretKey derived from owner base SecretKey, if available.
+    // note: can go away once blsttc integrated with blst_ringct.
+    pub fn secret_key_blst(&self) -> Result<SecretKeyBlst> {
+        Ok(BlsHelper::blsttc_to_blstrs_secret_key(self.secret_key()?))
+    }
+
+    /// derives new Owner from provided DerivationIndex
     pub fn derive(&self, i: &DerivationIndex) -> Self {
         match self {
             Self::SecretKey(sk) => Self::from(sk.inner().derive_child(i)),
@@ -84,6 +99,7 @@ impl Owner {
         }
     }
 
+    /// convert Owner to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         match self {
             Self::SecretKey(sk) => sk.to_bytes().to_vec(),
@@ -91,6 +107,7 @@ impl Owner {
         }
     }
 
+    /// returns true if secret key is available
     pub fn has_secret_key(&self) -> bool {
         match self {
             Self::SecretKey(_) => true,
@@ -98,54 +115,42 @@ impl Owner {
         }
     }
 
+    /// create Owner from a randomly generated SecretKey
     pub fn from_random_secret_key(mut rng: impl rand::RngCore) -> Self {
         let sk: SecretKey = rng.sample(Standard);
         Self::from(sk)
     }
 }
 
+impl From<OwnerOnce> for Owner {
+    fn from(o: OwnerOnce) -> Self {
+        o.as_owner()
+    }
+}
+
+/// Represents a one-time-use Owner key(pair).
+///
+/// The one-time-use Owner key(pair) is derived from a reusable
+/// base Owner key(pair) using the DerivationIndex.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
-pub struct DerivedOwner {
+pub struct OwnerOnce {
     pub owner_base: Owner,
     pub derivation_index: DerivationIndex,
 }
 
-impl DerivedOwner {
-    pub fn derive(&self) -> Owner {
+impl OwnerOnce {
+    /// returns the base Owner
+    pub fn owner_base(&self) -> &Owner {
+        &self.owner_base
+    }
+
+    /// derives a one-time-user Owner from base Owner
+    pub fn as_owner(&self) -> Owner {
         self.owner_base.derive(&self.derivation_index)
     }
 
-    pub fn base_public_key(&self) -> PublicKey {
-        self.owner_base.public_key()
-    }
-
-    pub fn base_secret_key(&self) -> Result<SecretKey> {
-        self.owner_base.secret_key()
-    }
-
-    pub fn derive_public_key(&self) -> PublicKey {
-        self.owner_base.derive(&self.derivation_index).public_key()
-    }
-
-    pub fn derive_secret_key(&self) -> Result<SecretKey> {
-        self.owner_base.derive(&self.derivation_index).secret_key()
-    }
-
-    /// returns owner BLST PublicKey derived from owner base PublicKey
-    // note: can go away once blsttc integrated with blst_ringct.
-    pub fn derive_public_key_blst(&self) -> PublicKeyBlst {
-        BlsHelper::blsttc_to_blstrs_public_key(&self.derive_public_key())
-    }
-
-    /// returns owner BLST SecretKey derived from owner base SecretKey, if available.
-    // note: can go away once blsttc integrated with blst_ringct.
-    pub fn derive_secret_key_blst(&self) -> Result<SecretKeyBlst> {
-        Ok(BlsHelper::blsttc_to_blstrs_secret_key(
-            self.derive_secret_key()?,
-        ))
-    }
-
+    /// create OwnerOnce from a base Owner
     pub fn from_owner_base(owner_base: Owner, mut rng: impl rand8::RngCore) -> Self {
         Self {
             owner_base,
