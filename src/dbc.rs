@@ -6,10 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{
-    AmountSecrets, KeyImage, PublicKeyBlst, SecretKeyBlst, SpentProof, TransactionValidator,
-};
-use crate::{DbcContent, DerivationIndex, DerivedOwner, Error, KeyManager, Owner, Result};
+use crate::{AmountSecrets, KeyImage, Owner, SpentProof, TransactionValidator};
+use crate::{DbcContent, DerivationIndex, Error, KeyManager, Result};
 use blst_ringct::ringct::{OutputProof, RingCtTransaction};
 use blst_ringct::RevealedCommitment;
 use blstrs::group::Curve;
@@ -22,6 +20,50 @@ use tiny_keccak::{Hasher, Sha3};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+/// Represents a Digital Bearer Certificate (Dbc).
+///
+/// A Dbc may be owned or bearer.
+///
+/// An owned Dbc is like a check.  Only the recipient can spend it.
+/// A bearer Dbc is like cash.  Anyone in possession of it can spend it.
+///
+/// An owned Dbc includes a PublicKey representing the Owner.
+/// A bearer Dbc includes a SecretKey representing the Owner.
+///
+/// An Owner consists of either a SecretKey (with implicit PublicKey) or a PublicKey.
+///
+/// The included Owner is called an Owner Base.  The public key can be
+/// given out to multiple parties and thus multiple Dbc can share
+/// the same Owner Base.
+///
+/// The Mint and Spentbook never see the Owner Base.  Instead, when a
+/// transaction Output is created for a given Owner Base, a random derivation
+/// index is generated and used to derive a one-time-use Owner Once.
+///
+/// The Owner Once is used for a single transaction only and must be unique
+/// within a transaction.
+///
+/// Separate methods are available for Owned and Bearer DBCs.
+///
+/// To spend or work with an Owned Dbc, wallet software must obtain the corresponding
+/// SecretKey from the user, and then call an API function that accepts a SecretKey for
+/// the Owner Base.
+///
+/// To spend or work with a Bearer Dbc, wallet software can either:
+///  1. use the bearer API methods that do not require a SecretKey, eg:
+///        `dbc.amount_secrets_bearer()`
+///
+///  -- or --
+///
+///  2. obtain the Owner Base SecretKey from the Dbc and then call
+///     the Owner API methods that require a SecretKey.   eg:
+///       `dbc.amount_secrets(&dbc.dbc.owner_base().secret_key()?)`
+///
+/// Sometimes the latter method can be better when working with mixed
+/// types of Dbcs.  A useful pattern is to check up-front if the Dbc is bearer
+/// or not and obtain the SecretKey from the Dbc itself (bearer) or
+/// from the user (owned).  Subsequent code is then the same for both
+/// types.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Dbc {
@@ -32,17 +74,28 @@ pub struct Dbc {
 }
 
 impl Dbc {
-    /// returns owner base from which one-time-use keypair is derived.
+    // returns owner base from which one-time-use keypair is derived.
     pub fn owner_base(&self) -> &Owner {
         &self.content.owner_base
     }
 
-    /// returns derived_owner
-    pub fn derived_owner(&self, base_sk: &SecretKey) -> Result<DerivedOwner> {
-        Ok(DerivedOwner {
-            owner_base: self.owner_base().clone(),
-            derivation_index: self.derivation_index(base_sk)?,
-        })
+    /// returns derived one-time-use owner using SecretKey supplied by caller.
+    /// will return an error if the supplied SecretKey does not match the
+    /// Dbc owner's public key.
+    pub fn owner_once(&self, base_sk: &SecretKey) -> Result<Owner> {
+        if base_sk.public_key() != self.owner_base().public_key() {
+            return Err(Error::SecretKeyDoesNotMatchPublicKey);
+        }
+
+        Ok(Owner::from(
+            base_sk.derive_child(&self.derivation_index(base_sk)?),
+        ))
+    }
+
+    /// returns derived one-time-use owner using SecretKey stored in bearer Dbc.
+    /// will return an error if the SecretKey is not available.  (not bearer)
+    pub fn owner_once_bearer(&self) -> Result<Owner> {
+        self.owner_once(&self.owner_base().secret_key()?)
     }
 
     /// returns derivation index used to derive one-time-use keypair from owner base
@@ -50,40 +103,10 @@ impl Dbc {
         self.content.derivation_index(base_sk)
     }
 
-    /// returns owner base SecretKey if available.
-    pub fn owner_base_secret_key(&self) -> Result<SecretKey> {
-        self.content.owner_base.secret_key()
-    }
-
-    /// returbs owner base PublicKey.
-    pub fn owner_base_public_key(&self) -> PublicKey {
-        self.content.owner_base.public_key()
-    }
-
-    /// returns owner SecretKey derived from supplied owner base SecretKey
-    pub fn owner_secret_key(&self, base_sk: &SecretKey) -> Result<SecretKey> {
-        Ok(base_sk.derive_child(&self.derivation_index(base_sk)?))
-    }
-
-    /// returns owner PublicKey derived from owner base PublicKey
-    pub fn owner_public_key(&self, base_sk: &SecretKey) -> Result<PublicKey> {
-        Ok(self
-            .content
-            .owner_base
-            .derive(&self.derivation_index(base_sk)?)
-            .public_key())
-    }
-
-    /// returns owner BLST SecretKey derived from owner base SecrtKey, if available.
-    // note: can go away once blsttc integrated with blst_ringct.
-    pub fn owner_secret_key_blst(&self, base_sk: &SecretKey) -> Result<SecretKeyBlst> {
-        self.derived_owner(base_sk)?.derive_secret_key_blst()
-    }
-
-    /// returns owner BLST PublicKey derived from owner base PublicKey
-    // note: can go away once blsttc integrated with blst_ringct.
-    pub fn owner_public_key_blst(&self, base_sk: &SecretKey) -> Result<PublicKeyBlst> {
-        Ok(self.derived_owner(base_sk)?.derive_public_key_blst())
+    /// returns derivation index used to derive one-time-use keypair from owner base
+    /// will return an error if the SecretKey is not available.  (not bearer)
+    pub fn derivation_index_bearer(&self) -> Result<DerivationIndex> {
+        self.derivation_index(&self.owner_base().secret_key()?)
     }
 
     /// returns true if owner base includes a SecretKey.
@@ -93,24 +116,38 @@ impl Dbc {
     ///
     /// If the SecretKey is not present, then only the person(s) holding
     /// the SecretKey matching the PublicKey can spend it.
-    pub fn has_secret_key(&self) -> bool {
-        self.content.owner_base.has_secret_key()
+    pub fn is_bearer(&self) -> bool {
+        self.owner_base().has_secret_key()
     }
 
     /// decypts and returns the AmountSecrets
     pub fn amount_secrets(&self, base_sk: &SecretKey) -> Result<AmountSecrets> {
-        let sk = self.owner_secret_key(base_sk)?;
+        let sk = self.owner_once(base_sk)?.secret_key()?;
         AmountSecrets::try_from((&sk, &self.content.amount_secrets_cipher))
+    }
+
+    /// decypts and returns the AmountSecrets
+    /// will return an error if the SecretKey is not available.  (not bearer)
+    pub fn amount_secrets_bearer(&self) -> Result<AmountSecrets> {
+        self.amount_secrets(&self.owner_base().secret_key()?)
     }
 
     /// returns KeyImage for the owner's derived public key
     /// This is useful for checking if a Dbc has been spent.
     pub fn key_image(&self, base_sk: &SecretKey) -> Result<KeyImage> {
-        let public_key: G1Projective = self.owner_public_key_blst(base_sk)?.into();
-        let secret_key = self.owner_secret_key_blst(base_sk)?;
+        let owner_once = self.owner_once(base_sk)?;
+        let public_key: G1Projective = owner_once.public_key_blst().into();
+        let secret_key = owner_once.secret_key_blst()?;
         Ok((blst_ringct::hash_to_curve(public_key) * secret_key)
             .to_affine()
             .into())
+    }
+
+    /// returns KeyImage for the owner's derived public key
+    /// This is useful for checking if a Dbc has been spent.
+    /// will return an error if the SecretKey is not available.  (not bearer)
+    pub fn key_image_bearer(&self) -> Result<KeyImage> {
+        self.key_image(&self.owner_base().secret_key()?)
     }
 
     /// Generate hash of this DBC
@@ -151,7 +188,7 @@ impl Dbc {
             &self.spent_proofs,
         )?;
 
-        let owner = self.owner_public_key_blst(base_sk)?;
+        let owner = self.owner_once(base_sk)?.public_key_blst();
 
         if !self
             .transaction
@@ -163,6 +200,12 @@ impl Dbc {
         } else {
             Ok(())
         }
+    }
+
+    /// bearer version of confirm_valid()
+    /// will return an error if the SecretKey is not available.  (not bearer)
+    pub fn confirm_valid_bearer<K: KeyManager>(&self, mint_verifier: &K) -> Result<(), Error> {
+        self.confirm_valid(&self.owner_base().secret_key()?, mint_verifier)
     }
 
     /// Checks if the provided AmountSecrets matches the amount commitment.
@@ -205,8 +248,17 @@ impl Dbc {
         }
     }
 
+    /// bearer version of confirm_provided_amount_matches_commitment()
+    /// will return an error if the SecretKey is not available.  (not bearer)
+    pub fn confirm_provided_amount_matches_commitment_bearer(
+        &self,
+        amount: &AmountSecrets,
+    ) -> Result<()> {
+        self.confirm_provided_amount_matches_commitment(&self.owner_base().secret_key()?, amount)
+    }
+
     fn my_output_proof(&self, base_sk: &SecretKey) -> Result<&OutputProof> {
-        let owner = self.owner_public_key_blst(base_sk)?;
+        let owner = self.owner_once(base_sk)?.public_key_blst();
         self.transaction
             .outputs
             .iter()
@@ -225,7 +277,7 @@ mod tests {
 
     use crate::tests::{init_genesis, NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, AmountSecrets, DbcBuilder, DerivedOwner, Hash, KeyManager, Owner, ReissueRequest,
+        Amount, AmountSecrets, DbcBuilder, Hash, KeyManager, Owner, OwnerOnce, ReissueRequest,
         ReissueRequestBuilder, SecretKeyBlst, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
     };
     use blst_ringct::ringct::RingCtMaterial;
@@ -248,13 +300,13 @@ mod tests {
         dbc_owner_blst: SecretKeyBlst,
         amount_secrets: AmountSecrets,
         n_ways: u8,
-        output_owners: Vec<DerivedOwner>,
+        output_owners: Vec<OwnerOnce>,
         spentbook: &mut SpentBookNodeMock,
         mut rng8: impl RngCore + rand_core::CryptoRng,
     ) -> Result<(
         ReissueRequest,
         Vec<RevealedCommitment>,
-        BTreeMap<KeyImage, DerivedOwner>,
+        BTreeMap<KeyImage, OwnerOnce>,
     )> {
         let amount = amount_secrets.amount();
 
@@ -264,13 +316,13 @@ mod tests {
             crate::TransactionBuilder::default()
                 .add_input_by_secrets(dbc_owner_blst, amount_secrets, decoy_inputs, &mut rng8)
                 .add_outputs(divide(amount, n_ways).zip(output_owners.into_iter()).map(
-                    |(amount, derived_owner)| {
+                    |(amount, owner_once)| {
                         (
                             Output {
                                 amount,
-                                public_key: derived_owner.derive_public_key_blst(),
+                                public_key: owner_once.as_owner().public_key_blst(),
                             },
-                            derived_owner,
+                            owner_once,
                         )
                     },
                 ))
@@ -292,13 +344,13 @@ mod tests {
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
         let amount = 100;
 
-        let derived_owner =
-            DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
+        let owner_once =
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
         let ringct_material = RingCtMaterial {
             inputs: vec![],
             outputs: vec![Output {
-                public_key: derived_owner.derive_public_key_blst(),
+                public_key: owner_once.as_owner().public_key_blst(),
                 amount,
             }],
         };
@@ -310,8 +362,8 @@ mod tests {
         assert_eq!(revealed_commitments.len(), 1);
 
         let input_content = DbcContent::from((
-            derived_owner.owner_base.clone(),
-            derived_owner.derivation_index,
+            owner_once.owner_base.clone(),
+            owner_once.derivation_index,
             AmountSecrets::from(revealed_commitments[0]),
         ));
 
@@ -326,7 +378,7 @@ mod tests {
         let mint_key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
 
         assert!(matches!(
-            dbc.confirm_valid(&derived_owner.base_secret_key()?, &mint_key_manager,),
+            dbc.confirm_valid(&owner_once.owner_base().secret_key()?, &mint_key_manager),
             Err(Error::TransactionMustHaveAnInput)
         ));
 
@@ -351,14 +403,12 @@ mod tests {
         let (mint_node, mut spentbook, genesis, _genesis_dbc) =
             init_genesis(&mut rng, &mut rng8, amount)?;
 
-        let input_owners: Vec<DerivedOwner> = (0..=n_inputs.coerce())
-            .map(|_| {
-                DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8)
-            })
+        let input_owners: Vec<OwnerOnce> = (0..=n_inputs.coerce())
+            .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8))
             .collect();
 
         let (reissue_request, revealed_commitments, output_owners) = prepare_even_split(
-            genesis.secret_key,
+            genesis.owner_once.as_owner().secret_key_blst()?,
             genesis.amount_secrets,
             n_inputs.coerce(),
             input_owners,
@@ -381,18 +431,18 @@ mod tests {
         // The outputs become inputs for next reissue.
         let inputs: Vec<(SecretKeyBlst, AmountSecrets, Vec<blst_ringct::DecoyInput>)> = output_dbcs
             .into_iter()
-            .map(|(_dbc, derived_owner, amount_secrets)| {
+            .map(|(_dbc, owner_once, amount_secrets)| {
                 let decoy_inputs = vec![]; // todo
                 (
-                    derived_owner.derive_secret_key_blst().unwrap(),
+                    owner_once.as_owner().secret_key_blst().unwrap(),
                     amount_secrets,
                     decoy_inputs,
                 )
             })
             .collect();
 
-        let derived_owner =
-            DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
+        let owner_once =
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
         let (reissue_tx, _revealed_commitments, material, _output_owners) =
             crate::TransactionBuilder::default()
@@ -400,9 +450,9 @@ mod tests {
                 .add_output(
                     Output {
                         amount,
-                        public_key: derived_owner.derive_public_key_blst(),
+                        public_key: owner_once.as_owner().public_key_blst(),
                     },
-                    derived_owner.clone(),
+                    owner_once.clone(),
                 )
                 .build(&mut rng8)?;
 
@@ -434,8 +484,8 @@ mod tests {
         let dbc_amount = fuzzed_amt_secrets.amount();
 
         let fuzzed_content = DbcContent::from((
-            derived_owner.owner_base.clone(),
-            derived_owner.derivation_index,
+            owner_once.owner_base.clone(),
+            owner_once.derivation_index,
             fuzzed_amt_secrets.clone(),
         ));
 
@@ -516,14 +566,16 @@ mod tests {
         };
 
         let key_manager = mint_node.key_manager();
-        let validation_res = dbc.confirm_valid(&derived_owner.base_secret_key()?, key_manager);
+        let validation_res = dbc.confirm_valid(&owner_once.owner_base().secret_key()?, key_manager);
 
-        let dbc_owner = dbc.owner_public_key_blst(&derived_owner.base_secret_key()?)?;
+        let dbc_owner = dbc
+            .owner_once(&owner_once.owner_base().secret_key()?)?
+            .public_key_blst();
 
         // Check if commitment in AmountSecrets matches the commitment in tx OutputProof
         let commitments_match = dbc
             .confirm_provided_amount_matches_commitment(
-                &derived_owner.base_secret_key()?,
+                &owner_once.owner_base().secret_key()?,
                 &fuzzed_amt_secrets,
             )
             .is_ok();

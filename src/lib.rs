@@ -14,10 +14,10 @@ mod blst;
 mod builder;
 mod dbc;
 mod dbc_content;
-mod derived_owner;
 mod error;
 mod key_manager;
 mod mint;
+mod owner;
 mod spent_proof;
 mod spentbook;
 mod validation;
@@ -28,13 +28,13 @@ pub use crate::{
     builder::{DbcBuilder, Output, OutputOwnerMap, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,
     dbc_content::{Amount, DbcContent},
-    derived_owner::{DerivationIndex, DerivedOwner, Owner},
     error::{Error, Result},
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
         SimpleSigner,
     },
     mint::{GenesisDbcShare, MintNode, MintNodeSignatures, ReissueRequest, ReissueShare},
+    owner::{DerivationIndex, Owner, OwnerOnce},
     spent_proof::{SpentProof, SpentProofShare},
     spentbook::SpentBookNodeMock,
     validation::TransactionValidator,

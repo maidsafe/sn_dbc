@@ -24,8 +24,8 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, DerivedOwner, GenesisDbcShare, KeyManager, MintNode, Output,
-    OutputOwnerMap, Owner, ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
+    Amount, Dbc, DbcBuilder, GenesisDbcShare, KeyManager, MintNode, Output, OutputOwnerMap, Owner,
+    OwnerOnce, ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
     SpentBookNodeMock, SpentProof, SpentProofShare, TransactionBuilder,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -479,24 +479,17 @@ fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>)
 
     let result = match secret_key_base {
         // use base SecretKey from input param if available.
-        Some(key_base) => {
-            let derived_owner = dbc.derived_owner(&key_base)?;
-            let amount_secrets = dbc.amount_secrets(&key_base)?;
-            Some((derived_owner, amount_secrets))
-        }
+        Some(key_base) => Some((dbc.owner_once(&key_base)?, dbc.amount_secrets(&key_base)?)),
+
         // use base SecretKey from dbc if available (bearer)
-        None => match dbc.owner_base() {
-            Owner::SecretKey(sk) => {
-                let derived_owner = dbc.derived_owner(sk)?;
-                let amount_secrets = dbc.amount_secrets(sk)?;
-                Some((derived_owner, amount_secrets))
-            }
-            Owner::PublicKey(_) => None,
-        },
+        None if dbc.is_bearer() => Some((dbc.owner_once_bearer()?, dbc.amount_secrets_bearer()?)),
+
+        // Otherwise, have only the pubkey
+        _ => None,
     };
 
     match result {
-        Some((ref _derived_owner, ref amount_secrets)) => {
+        Some((ref _owner_once, ref amount_secrets)) => {
             println!("*** Secrets (decrypted) ***");
             println!("     amount: {}\n", amount_secrets.amount());
             println!(
@@ -514,13 +507,13 @@ fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>)
         to_be_hex(&dbc.owner_base().public_key())?
     );
     println!(
-        "owner_derived_public_key: {}\n",
+        "owner_one_time_public_key: {}\n",
         match result {
-            Some((derived_owner, _)) => to_be_hex::<PublicKey>(&derived_owner.derive_public_key())?,
+            Some((owner_once, _)) => to_be_hex::<PublicKey>(&owner_once.public_key())?,
             None => "SecretKey not available".to_string(),
         }
     );
-    println!("has_secret_key: {:?}\n", dbc.has_secret_key());
+    println!("is_bearer: {:?}\n", dbc.is_bearer());
 
     println!("inputs:");
     for i in &dbc.transaction.mlsags {
@@ -707,7 +700,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionUnblinded> {
         let amount_secrets = dbc.amount_secrets(&base_secret_key)?;
 
         let true_input = TrueInput {
-            secret_key: dbc.owner_secret_key_blst(&base_secret_key)?,
+            secret_key: dbc.owner_once(&base_secret_key)?.secret_key_blst()?,
             revealed_commitment: amount_secrets.into(),
         };
 
@@ -779,14 +772,14 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionUnblinded> {
             }
         };
 
-        let derived_owner = DerivedOwner::from_owner_base(owner_base, &mut rng8);
+        let owner_once = OwnerOnce::from_owner_base(owner_base, &mut rng8);
 
         tx_builder = tx_builder.add_output(
             Output {
                 amount,
-                public_key: derived_owner.derive_public_key_blst(),
+                public_key: owner_once.as_owner().public_key_blst(),
             },
-            derived_owner,
+            owner_once,
         );
 
         i += 1;
@@ -919,7 +912,7 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             let decoy_inputs = mintinfo.spentbook()?.random_decoys(STD_DECOYS, &mut rng8);
 
             tx_builder = tx_builder.add_input_by_secrets(
-                dbc.owner_secret_key_blst(&base_sk)?,
+                dbc.owner_once(&base_sk)?.secret_key_blst()?,
                 dbc.amount_secrets(&base_sk)?,
                 decoy_inputs,
                 &mut rng8,
@@ -934,15 +927,15 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             let diff = inputs_sum - tx_builder.outputs_amount_sum();
             let amount = if diff == 1 { 1 } else { rng.gen_range(1, diff) };
 
-            let derived_owner =
-                DerivedOwner::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
+            let owner_once =
+                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
             tx_builder = tx_builder.add_output(
                 Output {
                     amount,
-                    public_key: derived_owner.derive_public_key_blst(),
+                    public_key: owner_once.as_owner().public_key_blst(),
                 },
-                derived_owner,
+                owner_once,
             );
         }
 
@@ -1016,7 +1009,7 @@ fn reissue(mintinfo: &mut MintInfo, reissue_request: ReissueRequestUnblinded) ->
     let output_dbcs = dbc_builder.build()?;
 
     // for each output, construct Dbc and display
-    for (dbc, _derived_owner, _amount_secrets) in output_dbcs.iter() {
+    for (dbc, _owner_once, _amount_secrets) in output_dbcs.iter() {
         println!("\n-- Begin DBC --");
         print_dbc_human(dbc, false, None)?;
         println!("-- End DBC --\n");

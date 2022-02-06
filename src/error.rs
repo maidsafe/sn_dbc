@@ -89,6 +89,9 @@ pub enum Error {
     #[error("Public key not found")]
     PublicKeyNotFound,
 
+    #[error("Secret key does not match public key")]
+    SecretKeyDoesNotMatchPublicKey,
+
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 

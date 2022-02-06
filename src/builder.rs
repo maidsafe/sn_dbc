@@ -7,15 +7,15 @@ use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Commitment, Dbc, DbcContent, DerivedOwner, Error, KeyImage,
-    NodeSignature, PublicKeyBlst, ReissueRequest, ReissueShare, Result, SecretKeyBlst, SpentProof,
+    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, KeyImage, NodeSignature, OwnerOnce,
+    PublicKeyBlst, ReissueRequest, ReissueShare, Result, SecretKeyBlst, SpentProof,
     SpentProofShare,
 };
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub type OutputOwnerMap = BTreeMap<KeyImage, DerivedOwner>;
+pub type OutputOwnerMap = BTreeMap<KeyImage, OwnerOnce>;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
@@ -87,16 +87,13 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn add_output(mut self, output: Output, owner: DerivedOwner) -> Self {
+    pub fn add_output(mut self, output: Output, owner: OwnerOnce) -> Self {
         self.output_owners.insert(output.public_key().into(), owner);
         self.material.outputs.push(output);
         self
     }
 
-    pub fn add_outputs(
-        mut self,
-        outputs: impl IntoIterator<Item = (Output, DerivedOwner)>,
-    ) -> Self {
+    pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = (Output, OwnerOnce)>) -> Self {
         for (output, owner) in outputs.into_iter() {
             self = self.add_output(output, owner);
         }
@@ -261,7 +258,7 @@ impl DbcBuilder {
     }
 
     /// Build the output DBCs
-    pub fn build(self) -> Result<Vec<(Dbc, DerivedOwner, AmountSecrets)>> {
+    pub fn build(self) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
         if self.reissue_shares.is_empty() {
             return Err(Error::NoReissueShares);
         }
@@ -334,7 +331,7 @@ impl DbcBuilder {
             .map(|r| (r.commit(&pc_gens).to_affine(), *r))
             .collect();
 
-        let derived_owners: Vec<&DerivedOwner> = transaction
+        let owner_once_list: Vec<&OwnerOnce> = transaction
             .outputs
             .iter()
             .map(|output| {
@@ -345,11 +342,11 @@ impl DbcBuilder {
             .collect::<Result<_>>()?;
 
         // Form the final output DBCs, with Mint's Signature for each.
-        let output_dbcs: Vec<(Dbc, DerivedOwner, AmountSecrets)> = transaction
+        let output_dbcs: Vec<(Dbc, OwnerOnce, AmountSecrets)> = transaction
             .outputs
             .iter()
-            .zip(derived_owners)
-            .map(|(output, derived_owner)| {
+            .zip(owner_once_list)
+            .map(|(output, owner_once)| {
                 let amount_secrets_list: Vec<AmountSecrets> = output_commitments
                     .iter()
                     .filter(|(c, _)| *c == output.commitment())
@@ -359,8 +356,8 @@ impl DbcBuilder {
 
                 let dbc = Dbc {
                     content: DbcContent::from((
-                        derived_owner.owner_base.clone(),
-                        derived_owner.derivation_index,
+                        owner_once.owner_base.clone(),
+                        owner_once.derivation_index,
                         amount_secrets_list[0].clone(),
                     )),
                     transaction: transaction.clone(),
@@ -376,7 +373,7 @@ impl DbcBuilder {
                         .collect(),
                     spent_proofs: spent_proofs.clone(),
                 };
-                (dbc, derived_owner.clone(), amount_secrets_list[0].clone())
+                (dbc, owner_once.clone(), amount_secrets_list[0].clone())
             })
             .collect();
 
