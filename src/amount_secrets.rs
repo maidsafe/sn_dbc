@@ -97,8 +97,8 @@ impl AmountSecrets {
         }))
     }
 
-    pub fn from_amount(amount: Amount, mut rng: impl RngCore) -> Self {
-        Self(RevealedCommitment::from_value(amount, &mut rng))
+    pub fn from_amount(amount: Amount, rng: &mut impl RngCore) -> Self {
+        Self(RevealedCommitment::from_value(amount, rng))
     }
 
     /// encrypt secrets to public_key producing Ciphertext

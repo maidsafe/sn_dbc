@@ -22,7 +22,7 @@ use crate::{Commitment, Hash, KeyImage, KeyManager, Result, SimpleKeyManager, Sp
 ///
 /// This impl does duplicate the OutputProofs in the public_key index, which
 /// is not ideal and should not be done for a "real" system.
-/// 
+///
 /// Another approach would be to map public_key --> tx_hash. This eliminates
 /// the need to store duplicate OutputProof. One could lookup the Tx with
 /// the desired OutputProof, and then iterate through outputs to actually find it.

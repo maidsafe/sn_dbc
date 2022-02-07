@@ -25,6 +25,7 @@ mod validation;
 pub use crate::{
     amount_secrets::AmountSecrets,
     blst::{BlindingFactor, BlsHelper, Commitment, KeyImage, PublicKeyBlst, SecretKeyBlst},
+    builder::mock::GenesisBuilderMock,
     builder::{DbcBuilder, Output, OutputOwnerMap, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,
     dbc_content::{Amount, DbcContent},
@@ -79,7 +80,7 @@ impl AsRef<[u8]> for Hash {
 use rand::RngCore;
 
 #[cfg(feature = "dkg")]
-pub fn bls_dkg_id(mut rng: impl RngCore) -> bls_dkg::outcome::Outcome {
+pub fn bls_dkg_id(rng: &mut impl RngCore) -> bls_dkg::outcome::Outcome {
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
 
@@ -98,7 +99,7 @@ pub fn bls_dkg_id(mut rng: impl RngCore) -> bls_dkg::outcome::Outcome {
     let mut msgs = vec![proposal];
     while let Some(msg) = msgs.pop() {
         let response_msgs = key_gen
-            .handle_message(&mut rng, msg)
+            .handle_message(rng, msg)
             .expect("Error while generating BLS key");
 
         msgs.extend(response_msgs);
@@ -123,7 +124,6 @@ mod tests {
     use super::*;
     use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
-    use std::collections::BTreeMap;
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyInt(pub u8);
@@ -224,8 +224,8 @@ mod tests {
     }
 
     pub(crate) fn init_genesis(
-        mut rng: impl rand::RngCore,
-        mut rng8: impl rand8::RngCore + rand_core::CryptoRng,
+        rng: &mut impl rand::RngCore,
+        rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng + Clone),
         genesis_amount: Amount,
     ) -> Result<(
         MintNode<SimpleKeyManager>,
@@ -233,62 +233,6 @@ mod tests {
         GenesisDbcShare,
         Dbc,
     )> {
-        use std::collections::BTreeSet;
-        use std::iter::FromIterator;
-
-        let mut spentbook = SpentBookNodeMock::from(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )));
-
-        let (mint_node, genesis) = MintNode::new(SimpleKeyManager::from(SimpleSigner::from(
-            crate::bls_dkg_id(&mut rng),
-        )))
-        .trust_spentbook_public_key(spentbook.key_manager.public_key_set()?.public_key())?
-        .issue_genesis_dbc(genesis_amount, &mut rng8)?;
-
-        spentbook.set_genesis(&genesis.ringct_material);
-
-        let mint_sig = mint_node
-            .key_manager()
-            .public_key_set()?
-            .combine_signatures(vec![genesis.transaction_sig.threshold_crypto()])?;
-
-        let spent_proof_share =
-            spentbook.log_spent(genesis.input_key_image.clone(), genesis.transaction.clone())?;
-
-        let spentbook_sig =
-            spent_proof_share
-                .spentbook_pks
-                .combine_signatures(vec![spent_proof_share
-                    .spentbook_sig_share
-                    .threshold_crypto()])?;
-
-        let tx_hash = Hash::from(genesis.transaction.hash());
-        assert!(spent_proof_share
-            .spentbook_pks
-            .public_key()
-            .verify(&spentbook_sig, &tx_hash));
-
-        let spent_proofs = BTreeSet::from_iter([SpentProof {
-            key_image: spent_proof_share.key_image,
-            spentbook_pub_key: spent_proof_share.spentbook_pks.public_key(),
-            spentbook_sig,
-            public_commitments: spent_proof_share.public_commitments,
-        }]);
-
-        let genesis_dbc = Dbc {
-            content: genesis.dbc_content.clone(),
-            transaction: genesis.transaction.clone(),
-            transaction_sigs: BTreeMap::from_iter([(
-                genesis.input_key_image.clone(),
-                (
-                    mint_node.key_manager().public_key_set()?.public_key(),
-                    mint_sig,
-                ),
-            )]),
-            spent_proofs,
-        };
-
-        Ok((mint_node, spentbook, genesis, genesis_dbc))
+        GenesisBuilderMock::init_genesis_single(genesis_amount, rng, rng8)
     }
 }
