@@ -74,6 +74,11 @@ impl<K: KeyManager> MintNode<K> {
         Self { key_manager }
     }
 
+    //   TBD: Is this API sufficient, or do we need to accept some kind of proof key chain
+    //        and validate entire chain from a known genesis key?
+    //
+    //        As written, this API is assuming/trusting that our caller is doing something
+    //        like that.
     pub fn trust_spentbook_public_key(mut self, public_key: PublicKey) -> Result<Self> {
         self.key_manager
             .add_known_key(public_key)
@@ -159,6 +164,18 @@ impl<K: KeyManager> MintNode<K> {
     pub fn key_manager(&self) -> &K {
         &self.key_manager
     }
+
+
+    // update 2022-04-07 (danda): Now that MintNodes trust SpentBook pubkeys, I
+    // this this proposed API is unnecessary.  Because:
+    //   1. MintNode trusts pubkey of each SpentBook section.  (adds to KeyManager)
+    //   2. Wallet logs input to SpentBook section, obtaining SpentProofShares
+    //   3. Wallet aggregates Shares into SpentProof with SpentBook section's signature.
+    //   4. Wallet calls reissue() for each MintNode, including SpentProof.
+    //   5. reissue() checks that (a) signing key is trusted, and (b) signature is valid.
+    //
+    //   TBD: step (1) may need additional verification, eg validate a chain of keys
+    //        since genesis key.  Or maybe we just trust our caller does that...?
 
     // This API will be called multiple times, once per input dbc, per section.
     // The key_image param comes from the true input, but cannot be linked by mint to true input.
