@@ -165,7 +165,6 @@ impl<K: KeyManager> MintNode<K> {
         &self.key_manager
     }
 
-
     // update 2022-04-07 (danda): Now that MintNodes trust SpentBook pubkeys, I
     // this this proposed API is unnecessary.  Because:
     //   1. MintNode trusts pubkey of each SpentBook section.  (adds to KeyManager)

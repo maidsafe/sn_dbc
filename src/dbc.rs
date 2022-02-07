@@ -302,7 +302,7 @@ mod tests {
         n_ways: u8,
         output_owners: Vec<OwnerOnce>,
         spentbook: &mut SpentBookNodeMock,
-        mut rng8: impl RngCore + rand_core::CryptoRng,
+        rng8: &mut (impl RngCore + rand_core::CryptoRng),
     ) -> Result<(
         ReissueRequest,
         Vec<RevealedCommitment>,
@@ -314,7 +314,7 @@ mod tests {
 
         let (reissue_tx, revealed_commitments, _material, output_owners) =
             crate::TransactionBuilder::default()
-                .add_input_by_secrets(dbc_owner_blst, amount_secrets, decoy_inputs, &mut rng8)
+                .add_input_by_secrets(dbc_owner_blst, amount_secrets, decoy_inputs, rng8)
                 .add_outputs(divide(amount, n_ways).zip(output_owners.into_iter()).map(
                     |(amount, owner_once)| {
                         (
@@ -326,7 +326,7 @@ mod tests {
                         )
                     },
                 ))
-                .build(&mut rng8)?;
+                .build(rng8)?;
 
         let key_image = reissue_tx.mlsags[0].key_image.into();
         let spent_proof_share = spentbook.log_spent(key_image, reissue_tx.clone())?;

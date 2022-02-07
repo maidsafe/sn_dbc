@@ -15,7 +15,7 @@ use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 use blst_ringct::{MlsagMaterial, RevealedCommitment, TrueInput};
 use blsttc::poly::Poly;
 use blsttc::serde_impl::SerdeSecret;
-use blsttc::{PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare, SignatureShare};
+use blsttc::{PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare};
 use rand::seq::IteratorRandom;
 use rand::Rng;
 use rand8::SeedableRng;
@@ -24,11 +24,11 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, GenesisDbcShare, KeyManager, MintNode, Output, OutputOwnerMap, Owner,
-    OwnerOnce, ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
-    SpentBookNodeMock, SpentProof, SpentProofShare, TransactionBuilder,
+    Amount, Dbc, DbcBuilder, GenesisBuilderMock, MintNode, Output, OutputOwnerMap, Owner,
+    OwnerOnce, ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SpentBookNodeMock,
+    TransactionBuilder,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::iter::FromIterator;
 
 #[cfg(unix)]
@@ -211,100 +211,27 @@ fn mk_new_random_mint(threshold: usize, amount: Amount) -> Result<MintInfo> {
 }
 
 /// creates a new mint from an existing SecretKeySet that was seeded by poly.
-fn mk_new_mint(secret_key_set: SecretKeySet, poly: Poly, amount: Amount) -> Result<MintInfo> {
-    let mut mintnodes: Vec<MintNode<SimpleKeyManager>> = Default::default();
-    let mut spentbook_nodes: Vec<SpentBookNodeMock> = Default::default();
-    let mut spent_proof_shares: Vec<SpentProofShare> = Default::default();
+fn mk_new_mint(sks: SecretKeySet, poly: Poly, genesis_amount: Amount) -> Result<MintInfo> {
+    let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
 
     // make as many spentbook nodes as mintnodes. (for now)
-    let (_poly, spentbook_sks) = mk_secret_key_set(secret_key_set.threshold())?;
+    let num_mint_nodes = sks.threshold() + 1;
+    let num_spentbook_nodes = num_mint_nodes;
 
-    // Generate each Mint node, and corresponding NodeSignature. (Index + SignatureShare)
-    let mut genesis_set: Vec<GenesisDbcShare> = Default::default();
-    for i in 0..secret_key_set.threshold() as u64 + 1 {
-        let mut spentbook_node =
-            SpentBookNodeMock::from(SimpleKeyManager::from(SimpleSigner::new(
-                spentbook_sks.public_keys().clone(),
-                (i, spentbook_sks.secret_key_share(i).clone()),
-            )));
-
-        // Each MintNode must start from same random seed when issuing Genesis.
-        let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
-
-        let (mint_node, genesis_dbc_share) =
-            MintNode::new(SimpleKeyManager::from(SimpleSigner::new(
-                secret_key_set.public_keys().clone(),
-                (i, secret_key_set.secret_key_share(i).clone()),
-            )))
-            .trust_spentbook_public_key(spentbook_node.key_manager.public_key_set()?.public_key())?
-            .issue_genesis_dbc(amount, &mut rng8)?;
-
-        spentbook_node.set_genesis(&genesis_dbc_share.ringct_material);
-
-        let spent_proof_share = spentbook_node.log_spent(
-            genesis_dbc_share.input_key_image.clone(),
-            genesis_dbc_share.transaction.clone(),
-        )?;
-
-        genesis_set.push(genesis_dbc_share);
-        mintnodes.push(mint_node);
-        spentbook_nodes.push(spentbook_node);
-        spent_proof_shares.push(spent_proof_share);
-    }
-
-    // Make a list of (Index, SignatureShare) for combining sigs.
-    let node_sigs: Vec<(u64, &SignatureShare)> = genesis_set
-        .iter()
-        .map(|g| g.transaction_sig.threshold_crypto())
-        .collect();
-
-    // Todo: in a true multi-node mint, each node would call issue_genesis_dbc(), then the aggregated
-    // signatures would be combined here, so this mk_new_mint fn would be broken apart.
-    let mint_sig = secret_key_set
-        .public_keys()
-        .combine_signatures(node_sigs)
-        .map_err(|e| anyhow!(e))?;
-
-    let spent_sigs: Vec<(u64, &SignatureShare)> = spent_proof_shares
-        .iter()
-        .map(|s| s.spentbook_sig_share.threshold_crypto())
-        .collect();
-
-    let spent_proof_share = &spent_proof_shares[0];
-
-    let spentbook_sig = spent_proof_share
-        .spentbook_pks
-        .combine_signatures(spent_sigs)
-        .map_err(|e| anyhow!(e))?;
-
-    let spent_proofs = BTreeSet::from_iter([SpentProof {
-        key_image: spent_proof_share.key_image.clone(),
-        spentbook_pub_key: spent_proof_share.spentbook_pks.public_key(),
-        spentbook_sig,
-        public_commitments: spent_proof_share.public_commitments.clone(),
-    }]);
-
-    let genesis = &genesis_set[0];
-
-    // Create the Genesis Dbc
-    let genesis_dbc = Dbc {
-        content: genesis.dbc_content.clone(),
-        transaction: genesis.transaction.clone(),
-        transaction_sigs: BTreeMap::from_iter([(
-            genesis.input_key_image.clone(),
-            (secret_key_set.public_keys().public_key(), mint_sig),
-        )]),
-        spent_proofs,
-    };
+    let (mint_nodes, spentbook_nodes, _genesis_dbc_shares, genesis_dbc) =
+        GenesisBuilderMock::from(genesis_amount)
+            .gen_mint_nodes_with_sks(num_mint_nodes, &sks)
+            .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
+            .build(&mut rng8)?;
 
     let reissue_auto = ReissueAuto::from(vec![genesis_dbc.clone()]);
 
     // Bob's your uncle.
     Ok(MintInfo {
-        mintnodes,
+        mintnodes: mint_nodes,
         spentbook_nodes,
         genesis: genesis_dbc,
-        secret_key_set,
+        secret_key_set: sks,
         poly,
         reissue_auto,
     })
