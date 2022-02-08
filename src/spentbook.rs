@@ -216,7 +216,7 @@ impl SpentBookNodeMock {
     pub fn random_decoys(
         &self,
         target_num: usize,
-        mut rng: impl rand8::RngCore,
+        rng: &mut impl rand8::RngCore,
     ) -> Vec<DecoyInput> {
         // Get a unique list of all OutputProof
         // note: Tx are duplicated in Spentbook. We use a BTreeMap
@@ -240,7 +240,7 @@ impl SpentBookNodeMock {
         };
         outputs_unique
             .into_iter()
-            .choose_multiple(&mut rng, num_choose)
+            .choose_multiple(rng, num_choose)
             .into_iter()
             .map(|(_, o)| DecoyInput {
                 public_key: *o.public_key(),
