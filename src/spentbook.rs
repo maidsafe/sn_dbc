@@ -13,7 +13,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use rand8::prelude::IteratorRandom;
 
-use crate::{Commitment, Hash, KeyImage, KeyManager, Result, SimpleKeyManager, SpentProofShare};
+use crate::{
+    Commitment, Hash, KeyImage, KeyManager, PublicKeyBlstMappable, Result, SimpleKeyManager,
+    SpentProofShare,
+};
 
 /// This is a mock SpentBook used for our test cases. A proper implementation
 /// will be distributed, persistent, and auditable.
@@ -43,9 +46,7 @@ pub struct SpentBookNodeMock {
 
     pub transactions: HashMap<Hash, RingCtTransaction>,
     pub key_images: BTreeMap<KeyImage, Hash>,
-
-    // fixme: key is really a PublicKeyBlst (G1Affine). We should make a KeyImage
-    pub outputs: BTreeMap<KeyImage, OutputProof>,
+    pub outputs: BTreeMap<PublicKeyBlstMappable, OutputProof>,
 
     pub genesis: Option<(KeyImage, Commitment)>, // genesis input (keyimage, public_commitment)
 }
@@ -231,7 +232,7 @@ impl SpentBookNodeMock {
         //       with KeyImage to dedup.
         // note: Once we refactor to avoid Tx duplication, this
         //       map can go away.
-        let outputs_unique: BTreeMap<KeyImage, OutputProof> = self
+        let outputs_unique: BTreeMap<PublicKeyBlstMappable, OutputProof> = self
             .transactions
             .values()
             .flat_map(|tx| {
