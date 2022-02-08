@@ -21,31 +21,29 @@ use crate::{Amount, BlindingFactor, Error, SecretKeyBlst};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-// todo: Amount should probably move into blst_ringct crate.
-// (or else blst_ringct::RevealedCommitment should be made generic over Amount type)
+const AMT_SIZE: usize = std::mem::size_of::<Amount>(); // Amount size: 8 bytes (u64)
+const BF_SIZE: usize = std::mem::size_of::<BlindingFactor>(); // Blinding factor size: 32 bytes (BlindingFactor)
 
-// note: AmountSecrets wraps RevealedCommitment to provide some methods
-// for decrypting from Ciphertext using various blsttc components,
-// eg SecretKey, SecretKeyShare, SecretKeySet, DecryptionShare
+/// AmountSecrets wraps blst_ringct::RevealedCommitment to provide some methods
+/// for ergonomic usage, eg: decrypting from Ciphertext using various blsttc
+/// components, eg SecretKey, SecretKeyShare, SecretKeySet, DecryptionShare
 //
 // todo: perhaps AmountSecrets should be renamed to be more consistent with
 //  RevealedCommitment, since it is just a NewType wrapper.
 //
 // Once blst_ringct uses blsttc, perhaps AmountSecrets functionality could
 //  move into RevealedCommitment, and AmountSecrets goes away entirely.
-
-const AMT_SIZE: usize = std::mem::size_of::<Amount>(); // Amount size: 8 bytes (u64)
-const BF_SIZE: usize = std::mem::size_of::<BlindingFactor>(); // Blinding factor size: 32 bytes (BlindingFactor)
-
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct AmountSecrets(RevealedCommitment);
 
 impl AmountSecrets {
+    /// amount getter
     pub fn amount(&self) -> Amount {
         self.0.value
     }
 
+    /// blinding factor getter
     pub fn blinding_factor(&self) -> SecretKeyBlst {
         self.0.blinding
     }
@@ -97,6 +95,8 @@ impl AmountSecrets {
         }))
     }
 
+    /// build AmountSecrets from an Amount.
+    /// A blinding factor will be randomly generated.
     pub fn from_amount(amount: Amount, rng: &mut impl RngCore) -> Self {
         Self(RevealedCommitment::from_value(amount, rng))
     }
@@ -125,6 +125,7 @@ impl From<(Amount, BlindingFactor)> for AmountSecrets {
 
 #[allow(clippy::from_over_into)]
 impl Into<RevealedCommitment> for AmountSecrets {
+    /// convert AmountSecrets into the inner RevealedCommitment
     fn into(self) -> RevealedCommitment {
         self.0
     }
@@ -132,6 +133,7 @@ impl Into<RevealedCommitment> for AmountSecrets {
 
 #[allow(clippy::from_over_into)]
 impl Into<Amount> for AmountSecrets {
+    /// convert AmountSecrets into an Amount
     fn into(self) -> Amount {
         self.0.value()
     }

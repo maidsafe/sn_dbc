@@ -98,12 +98,16 @@ impl From<G1Affine> for PublicKeyBlstMappable {
 }
 
 // temporary: should go away once blsttc is integrated with with blstrs
+// For this reason, we allow unwrap() in these methods so that
+// it doesn't force higher APIs to return a Result when they should
+// not need to do so once the integration is complete.
 pub struct BlsHelper {}
 
 impl BlsHelper {
     #[allow(dead_code)]
     pub fn blsttc_to_blstrs_secret_key(sk: SecretKey) -> SecretKeyBlst {
         let bytes = sk.to_bytes();
+        // fixme: unwrap
         SecretKeyBlst::from_bytes_be(&bytes).unwrap()
     }
 
