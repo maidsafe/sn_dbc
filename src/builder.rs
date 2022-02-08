@@ -15,15 +15,15 @@ use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, KeyImage, NodeSignature, OwnerOnce,
-    PublicKeyBlst, ReissueRequest, ReissueShare, Result, SecretKeyBlst, SpentProof,
-    SpentProofShare,
+    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, NodeSignature, OwnerOnce,
+    PublicKeyBlst, PublicKeyBlstMappable, ReissueRequest, ReissueShare, Result, SecretKeyBlst,
+    SpentProof, SpentProofShare,
 };
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub type OutputOwnerMap = BTreeMap<KeyImage, OwnerOnce>;
+pub type OutputOwnerMap = BTreeMap<PublicKeyBlstMappable, OwnerOnce>;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]

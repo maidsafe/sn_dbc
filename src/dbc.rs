@@ -277,9 +277,9 @@ mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, AmountSecrets, DbcBuilder, GenesisBuilderMock, Hash, KeyManager, Owner, OwnerOnce,
-        ReissueRequest, ReissueRequestBuilder, SecretKeyBlst, SimpleKeyManager, SimpleSigner,
-        SpentBookNodeMock,
+        Amount, AmountSecrets, DbcBuilder, GenesisBuilderMock, Hash, KeyManager, OutputOwnerMap,
+        Owner, OwnerOnce, ReissueRequest, ReissueRequestBuilder, SecretKeyBlst, SimpleKeyManager,
+        SimpleSigner, SpentBookNodeMock,
     };
     use blst_ringct::ringct::RingCtMaterial;
     use blst_ringct::{Output, RevealedCommitment};
@@ -304,11 +304,7 @@ mod tests {
         output_owners: Vec<OwnerOnce>,
         spentbook: &mut SpentBookNodeMock,
         rng8: &mut (impl RngCore + rand_core::CryptoRng),
-    ) -> Result<(
-        ReissueRequest,
-        Vec<RevealedCommitment>,
-        BTreeMap<KeyImage, OwnerOnce>,
-    )> {
+    ) -> Result<(ReissueRequest, Vec<RevealedCommitment>, OutputOwnerMap)> {
         let amount = amount_secrets.amount();
 
         let decoy_inputs = vec![]; // for now.

@@ -23,7 +23,10 @@ mod validation;
 
 pub use crate::{
     amount_secrets::AmountSecrets,
-    blst::{BlindingFactor, BlsHelper, Commitment, KeyImage, PublicKeyBlst, SecretKeyBlst},
+    blst::{
+        BlindingFactor, BlsHelper, Commitment, KeyImage, PublicKeyBlst, PublicKeyBlstMappable,
+        SecretKeyBlst,
+    },
     builder::mock::GenesisBuilderMock,
     builder::{DbcBuilder, Output, OutputOwnerMap, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,
