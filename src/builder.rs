@@ -9,7 +9,7 @@
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 pub use blst_ringct::{DecoyInput, MlsagMaterial, Output, RevealedCommitment, TrueInput};
 use blstrs::group::Curve;
-use blsttc::{PublicKeySet, SignatureShare};
+use blsttc::{PublicKeySet, SecretKey, SignatureShare};
 use bulletproofs::PedersenGens;
 use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -25,6 +25,8 @@ use serde::{Deserialize, Serialize};
 
 pub type OutputOwnerMap = BTreeMap<PublicKeyBlstMappable, OwnerOnce>;
 
+/// A builder to create a RingCt transaction from
+/// inputs and outputs.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
@@ -33,16 +35,19 @@ pub struct TransactionBuilder {
 }
 
 impl TransactionBuilder {
+    /// add an input given an MlsagMaterial
     pub fn add_input(mut self, mlsag: MlsagMaterial) -> Self {
         self.material.inputs.push(mlsag);
         self
     }
 
+    /// add an input given an iterator over MlsagMaterial
     pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = MlsagMaterial>) -> Self {
         self.material.inputs.extend(inputs);
         self
     }
 
+    /// add an input given a TrueInput and decoy list
     pub fn add_input_by_true_input(
         mut self,
         true_input: TrueInput,
@@ -55,15 +60,66 @@ impl TransactionBuilder {
         self
     }
 
+    /// add an input given a list of TrueInputs and associated decoys
     pub fn add_inputs_by_true_inputs(
         mut self,
-        inputs: Vec<(TrueInput, Vec<DecoyInput>)>,
+        inputs: impl IntoIterator<Item = (TrueInput, Vec<DecoyInput>)>,
         rng: &mut impl RngCore,
     ) -> Self {
         for (true_input, decoy_inputs) in inputs.into_iter() {
             self = self.add_input_by_true_input(true_input, decoy_inputs, rng);
         }
         self
+    }
+
+    /// add an input given a Dbc, SecretKey and decoy list
+    pub fn add_input_dbc<D: AsRef<Dbc>, S: AsRef<SecretKey>>(
+        mut self,
+        dbc: D,
+        base_sk: S,
+        decoy_inputs: Vec<DecoyInput>,
+        rng: &mut impl RngCore,
+    ) -> Result<Self> {
+        self = self.add_input_by_true_input(
+            dbc.as_ref().as_true_input(base_sk.as_ref())?,
+            decoy_inputs,
+            rng,
+        );
+        Ok(self)
+    }
+
+    /// add an input given a list of Dbcs and associated SecretKey and decoys
+    pub fn add_inputs_dbc<D: AsRef<Dbc>, S: AsRef<SecretKey>>(
+        mut self,
+        dbcs: impl IntoIterator<Item = (D, S, Vec<DecoyInput>)>,
+        rng: &mut impl RngCore,
+    ) -> Result<Self> {
+        for (dbc, base_sk, decoy_inputs) in dbcs.into_iter() {
+            self = self.add_input_dbc(dbc, base_sk, decoy_inputs, rng)?;
+        }
+        Ok(self)
+    }
+
+    pub fn add_input_dbc_bearer<D: AsRef<Dbc>>(
+        mut self,
+        dbc: D,
+        decoy_inputs: Vec<DecoyInput>,
+        rng: &mut impl RngCore,
+    ) -> Result<Self> {
+        self =
+            self.add_input_by_true_input(dbc.as_ref().as_true_input_bearer()?, decoy_inputs, rng);
+        Ok(self)
+    }
+
+    pub fn add_inputs_dbc_bearer<D: AsRef<Dbc>>(
+        mut self,
+        dbcs: impl IntoIterator<Item = (D, Vec<DecoyInput>)>,
+        rng: &mut impl RngCore,
+    ) -> Result<Self> {
+        for (dbc, decoy_inputs) in dbcs.into_iter() {
+            self = self.add_input_dbc_bearer(dbc, decoy_inputs, rng)?;
+        }
+        Ok(self)
     }
 
     pub fn add_input_by_secrets(
