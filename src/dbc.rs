@@ -275,10 +275,11 @@ mod tests {
 
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::{init_genesis, NonZeroTinyInt, TinyInt};
+    use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, AmountSecrets, DbcBuilder, Hash, KeyManager, Owner, OwnerOnce, ReissueRequest,
-        ReissueRequestBuilder, SecretKeyBlst, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
+        Amount, AmountSecrets, DbcBuilder, GenesisBuilderMock, Hash, KeyManager, Owner, OwnerOnce,
+        ReissueRequest, ReissueRequestBuilder, SecretKeyBlst, SimpleKeyManager, SimpleSigner,
+        SpentBookNodeMock,
     };
     use blst_ringct::ringct::RingCtMaterial;
     use blst_ringct::{Output, RevealedCommitment};
@@ -401,7 +402,7 @@ mod tests {
         let amount = 100;
 
         let (mint_node, mut spentbook, genesis, _genesis_dbc) =
-            init_genesis(&mut rng, &mut rng8, amount)?;
+            GenesisBuilderMock::init_genesis_single(amount, &mut rng, &mut rng8)?;
 
         let input_owners: Vec<OwnerOnce> = (0..=n_inputs.coerce())
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8))

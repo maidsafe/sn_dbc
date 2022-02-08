@@ -258,9 +258,9 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::{
-        tests::{init_genesis, TinyInt, TinyVec},
-        AmountSecrets, DbcBuilder, OwnerOnce, ReissueRequestBuilder, SimpleKeyManager,
-        SimpleSigner, SpentBookNodeMock,
+        tests::{TinyInt, TinyVec},
+        AmountSecrets, DbcBuilder, GenesisBuilderMock, OwnerOnce, ReissueRequestBuilder,
+        SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
     };
 
     #[test]
@@ -269,7 +269,7 @@ mod tests {
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
         let (mint_node, _spentbook, genesis, genesis_dbc) =
-            init_genesis(&mut rng, &mut rng8, 1000)?;
+            GenesisBuilderMock::init_genesis_single(1000, &mut rng, &mut rng8)?;
 
         let validation = genesis_dbc.confirm_valid(
             &genesis.owner_once.owner_base().secret_key()?,
@@ -291,7 +291,7 @@ mod tests {
         let output_amount = output_amounts.iter().sum();
 
         let (mint_node, mut spentbook, genesis, _genesis_dbc) =
-            init_genesis(&mut rng, &mut rng8, output_amount)?;
+            GenesisBuilderMock::init_genesis_single(output_amount, &mut rng, &mut rng8)?;
 
         let owners: Vec<OwnerOnce> = (0..output_amounts.len())
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8))
@@ -423,7 +423,7 @@ mod tests {
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
         let (mint_node, mut spentbook, genesis, _genesis_dbc) =
-            init_genesis(&mut rng, &mut rng8, genesis_amount)?;
+            GenesisBuilderMock::init_genesis_single(genesis_amount, &mut rng, &mut rng8)?;
 
         let (reissue_tx, revealed_commitments, _material, output_owners) =
             crate::TransactionBuilder::default()
@@ -796,7 +796,7 @@ mod tests {
         let output_amount = 1000;
 
         let (mint_node, mut spentbook, genesis, _genesis_dbc) =
-            init_genesis(&mut rng, &mut rng8, output_amount)?;
+            GenesisBuilderMock::init_genesis_single(output_amount, &mut rng, &mut rng8)?;
 
         // ----------
         // 2. reissue genesis DBC (a) to Dbc (b)  with value 1000.
