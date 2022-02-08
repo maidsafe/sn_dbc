@@ -9,7 +9,7 @@
 use crate::{AmountSecrets, KeyImage, Owner, SpentProof, TransactionValidator};
 use crate::{DbcContent, DerivationIndex, Error, KeyManager, Result};
 use blst_ringct::ringct::{OutputProof, RingCtTransaction};
-use blst_ringct::RevealedCommitment;
+use blst_ringct::{RevealedCommitment, TrueInput};
 use blstrs::group::Curve;
 use blstrs::G1Projective;
 use blsttc::{PublicKey, SecretKey, Signature};
@@ -148,6 +148,17 @@ impl Dbc {
     /// will return an error if the SecretKey is not available.  (not bearer)
     pub fn key_image_bearer(&self) -> Result<KeyImage> {
         self.key_image(&self.owner_base().secret_key()?)
+    }
+
+    pub fn as_true_input(&self, base_sk: &SecretKey) -> Result<TrueInput> {
+        Ok(TrueInput {
+            secret_key: self.owner_once(base_sk)?.secret_key_blst()?,
+            revealed_commitment: self.amount_secrets(base_sk)?.into(),
+        })
+    }
+
+    pub fn as_true_input_bearer(&self) -> Result<TrueInput> {
+        self.as_true_input(&self.owner_base().secret_key()?)
     }
 
     /// Generate hash of this DBC
