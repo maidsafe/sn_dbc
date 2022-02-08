@@ -5,7 +5,6 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
-#![allow(clippy::from_iter_instead_of_collect)]
 
 use std::fmt;
 
@@ -221,18 +220,5 @@ mod tests {
     \xca\x71\xfb\xa1\xd9\x72\xfd\x94\xa3\x1c\x3b\xfb\xf2\x4e\x39\x38\
 ";
         assert_eq!(sha3_256(data), *expected);
-    }
-
-    pub(crate) fn init_genesis(
-        rng: &mut impl rand::RngCore,
-        rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng + Clone),
-        genesis_amount: Amount,
-    ) -> Result<(
-        MintNode<SimpleKeyManager>,
-        SpentBookNodeMock,
-        GenesisDbcShare,
-        Dbc,
-    )> {
-        GenesisBuilderMock::init_genesis_single(genesis_amount, rng, rng8)
     }
 }
