@@ -155,11 +155,22 @@ impl ReissueRequestBuilder {
         }
     }
 
-    /// Add a SpentProofShare for the given key_image
+    /// Add a SpentProofShare for the given input index
     pub fn add_spent_proof_share(mut self, input_index: usize, share: SpentProofShare) -> Self {
         let shares = self.spent_proof_shares.entry(input_index).or_default();
         shares.insert(share);
 
+        self
+    }
+
+    /// Add a list of SpentProofShare for the given input index
+    pub fn add_spent_proof_shares(
+        mut self,
+        shares: impl IntoIterator<Item = (usize, SpentProofShare)>,
+    ) -> Self {
+        for (input_index, share) in shares.into_iter() {
+            self = self.add_spent_proof_share(input_index, share);
+        }
         self
     }
 
@@ -421,12 +432,13 @@ pub mod mock {
     impl GenesisBuilderMock {
         /// generates a list of mint nodes sharing a random SecretKeySet and adds to the builder.
         pub fn gen_mint_nodes(
-            self,
+            mut self,
             num_nodes: usize,
             rng: &mut impl rand::RngCore,
         ) -> Result<Self> {
             let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
-            Ok(self.gen_mint_nodes_with_sks(num_nodes, &sks))
+            self = self.gen_mint_nodes_with_sks(num_nodes, &sks);
+            Ok(self)
         }
 
         /// generates a list of mint nodes sharing a provided SecretKeySet and adds to the builder.
@@ -443,12 +455,13 @@ pub mod mock {
 
         /// generates a list of spentbook nodes sharing a random SecretKeySet and adds to the builder.
         pub fn gen_spentbook_nodes(
-            self,
+            mut self,
             num_nodes: usize,
             rng: &mut impl rand::RngCore,
         ) -> Result<Self> {
             let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
-            Ok(self.gen_spentbook_nodes_with_sks(num_nodes, &sks))
+            self = self.gen_spentbook_nodes_with_sks(num_nodes, &sks);
+            Ok(self)
         }
 
         /// generates a list of spentbook nodes sharing a provided SecretKeySet and adds to the builder.

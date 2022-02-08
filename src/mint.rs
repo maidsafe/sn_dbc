@@ -259,8 +259,8 @@ mod tests {
 
     use crate::{
         tests::{init_genesis, TinyInt, TinyVec},
-        AmountSecrets, DbcBuilder, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner,
-        SpentBookNodeMock,
+        AmountSecrets, DbcBuilder, OwnerOnce, ReissueRequestBuilder, SimpleKeyManager,
+        SimpleSigner, SpentBookNodeMock,
     };
 
     #[test]
