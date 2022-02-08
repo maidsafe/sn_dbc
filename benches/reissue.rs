@@ -1,3 +1,11 @@
+// Copyright 2022 MaidSafe.net limited.
+//
+// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
+// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
+// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. Please review the Licences for the specific language governing
+// permissions and limitations relating to use of the SAFE Network Software.
+
 #![allow(clippy::from_iter_instead_of_collect)]
 
 use sn_dbc::{
@@ -11,13 +19,14 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::SeedableRng;
 use rand8::SeedableRng as SeedableRng8;
 
+const N_OUTPUTS: u32 = 2;
+
 fn bench_reissue_1_to_100(c: &mut Criterion) {
     let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
     let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-    let n_outputs: u32 = 100;
     let (mintnode, mut spentbook, _genesis_dbc_share, genesis_dbc) =
-        GenesisBuilderMock::init_genesis_single(n_outputs as u64, &mut rng, &mut rng8).unwrap();
+        GenesisBuilderMock::init_genesis_single(N_OUTPUTS as u64, &mut rng, &mut rng8).unwrap();
 
     let (reissue_tx, _revealed_commitments, _material, _output_owners) =
         sn_dbc::TransactionBuilder::default()
@@ -31,7 +40,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
                 vec![], // never any decoys for genesis
                 &mut rng8,
             )
-            .add_outputs((0..n_outputs).into_iter().map(|_| {
+            .add_outputs((0..N_OUTPUTS).into_iter().map(|_| {
                 let owner_once =
                     OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
                 (
@@ -55,7 +64,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    c.bench_function(&format!("reissue split 1 to {}", n_outputs), |b| {
+    c.bench_function(&format!("reissue split 1 to {}", N_OUTPUTS), |b| {
         b.iter(|| {
             mintnode.reissue(black_box(rr.clone())).unwrap();
         })
@@ -67,9 +76,8 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
     let num_decoys = 0;
 
-    let n_outputs: u32 = 100;
     let (mintnode, mut spentbook, _genesis_dbc_share, genesis_dbc) =
-        GenesisBuilderMock::init_genesis_single(n_outputs as u64, &mut rng, &mut rng8).unwrap();
+        GenesisBuilderMock::init_genesis_single(N_OUTPUTS as u64, &mut rng, &mut rng8).unwrap();
 
     let (reissue_tx, revealed_commitments, _material, output_owners) =
         sn_dbc::TransactionBuilder::default()
@@ -83,7 +91,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                 vec![], // never any decoy inputs for genesis
                 &mut rng8,
             )
-            .add_outputs((0..n_outputs).into_iter().map(|_| {
+            .add_outputs((0..N_OUTPUTS).into_iter().map(|_| {
                 let owner_once =
                     OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
                 (
@@ -132,7 +140,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
             )
             .add_output(
                 Output {
-                    amount: n_outputs as Amount,
+                    amount: N_OUTPUTS as Amount,
                     public_key: output_owner_once.as_owner().public_key_blst(),
                 },
                 output_owner_once,
@@ -159,7 +167,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build()
         .unwrap();
 
-    c.bench_function(&format!("reissue merge {} to 1", n_outputs), |b| {
+    c.bench_function(&format!("reissue merge {} to 1", N_OUTPUTS), |b| {
         b.iter(|| {
             mintnode.reissue(black_box(merge_rr.clone())).unwrap();
         })
