@@ -150,6 +150,8 @@ impl Dbc {
         self.key_image(&self.owner_base().secret_key()?)
     }
 
+    /// returns a TrueInput that represents this Dbc for use as
+    /// a transaction input.
     pub fn as_true_input(&self, base_sk: &SecretKey) -> Result<TrueInput> {
         Ok(TrueInput {
             secret_key: self.owner_once(base_sk)?.secret_key_blst()?,
@@ -157,6 +159,9 @@ impl Dbc {
         })
     }
 
+    /// returns a TrueInput that represents this Dbc for use as
+    /// a transaction input.
+    /// will return an error if the SecretKey is not available.  (not bearer)
     pub fn as_true_input_bearer(&self) -> Result<TrueInput> {
         self.as_true_input(&self.owner_base().secret_key()?)
     }
@@ -298,6 +303,8 @@ mod tests {
     use rand_core::RngCore;
     use rand_core::SeedableRng as SeedableRngCore;
 
+    const STD_NUM_DECOYS: usize = 3;
+
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
         (0..n_ways).into_iter().map(move |i| {
             let equal_parts = amount / (n_ways as Amount);
@@ -318,7 +325,7 @@ mod tests {
     ) -> Result<(ReissueRequest, Vec<RevealedCommitment>, OutputOwnerMap)> {
         let amount = amount_secrets.amount();
 
-        let decoy_inputs = vec![]; // for now.
+        let decoy_inputs = spentbook.random_decoys(STD_NUM_DECOYS, rng8);
 
         let (reissue_tx, revealed_commitments, _material, output_owners) =
             crate::TransactionBuilder::default()
@@ -443,7 +450,7 @@ mod tests {
                 (
                     dbc,
                     owner_once.owner_base().secret_key().unwrap(),
-                    vec![], // todo: decoy_inputs,
+                    spentbook.random_decoys(STD_NUM_DECOYS, &mut rng8),
                 )
             })
             .collect();
