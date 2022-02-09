@@ -19,7 +19,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::SeedableRng;
 use rand8::SeedableRng as SeedableRng8;
 
-const N_OUTPUTS: u32 = 2;
+const N_OUTPUTS: u32 = 100;
 
 fn bench_reissue_1_to_100(c: &mut Criterion) {
     let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
