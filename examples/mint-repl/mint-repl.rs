@@ -12,7 +12,7 @@
 
 use anyhow::{anyhow, Result};
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
-use blst_ringct::{MlsagMaterial, RevealedCommitment, TrueInput};
+use blst_ringct::RevealedCommitment;
 use blsttc::poly::Poly;
 use blsttc::serde_impl::SerdeSecret;
 use blsttc::{PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare};
@@ -624,16 +624,8 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionUnblinded> {
             }
         };
 
-        let amount_secrets = dbc.amount_secrets(&base_secret_key)?;
-
-        let true_input = TrueInput {
-            secret_key: dbc.owner_once(&base_secret_key)?.secret_key_blst()?,
-            revealed_commitment: amount_secrets.into(),
-        };
-
         let decoy_inputs = mintinfo.spentbook()?.random_decoys(STD_DECOYS, &mut rng8);
-        let mlsag = MlsagMaterial::new(true_input, decoy_inputs, &mut rng8);
-        tx_builder = tx_builder.add_input(mlsag);
+        tx_builder = tx_builder.add_input_dbc(&dbc, &base_secret_key, decoy_inputs, &mut rng8)?;
     }
 
     let mut i = 0u32;
@@ -838,12 +830,8 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             let base_sk = dbc.owner_base().secret_key()?;
             let decoy_inputs = mintinfo.spentbook()?.random_decoys(STD_DECOYS, &mut rng8);
 
-            tx_builder = tx_builder.add_input_by_secrets(
-                dbc.owner_once(&base_sk)?.secret_key_blst()?,
-                dbc.amount_secrets(&base_sk)?,
-                decoy_inputs,
-                &mut rng8,
-            );
+            tx_builder = tx_builder.add_input_dbc(dbc, &base_sk, decoy_inputs, &mut rng8)?;
+
             mintinfo.reissue_auto.unspent_dbcs.remove(&dbc.hash());
         }
 

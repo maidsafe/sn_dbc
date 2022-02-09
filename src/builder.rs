@@ -73,55 +73,53 @@ impl TransactionBuilder {
     }
 
     /// add an input given a Dbc, SecretKey and decoy list
-    pub fn add_input_dbc<D: AsRef<Dbc>, S: AsRef<SecretKey>>(
+    pub fn add_input_dbc(
         mut self,
-        dbc: D,
-        base_sk: S,
+        dbc: &Dbc,
+        base_sk: &SecretKey,
         decoy_inputs: Vec<DecoyInput>,
         rng: &mut impl RngCore,
     ) -> Result<Self> {
-        self = self.add_input_by_true_input(
-            dbc.as_ref().as_true_input(base_sk.as_ref())?,
-            decoy_inputs,
-            rng,
-        );
+        self = self.add_input_by_true_input(dbc.as_true_input(base_sk)?, decoy_inputs, rng);
         Ok(self)
     }
 
     /// add an input given a list of Dbcs and associated SecretKey and decoys
-    pub fn add_inputs_dbc<D: AsRef<Dbc>, S: AsRef<SecretKey>>(
+    pub fn add_inputs_dbc(
         mut self,
-        dbcs: impl IntoIterator<Item = (D, S, Vec<DecoyInput>)>,
+        dbcs: impl IntoIterator<Item = (Dbc, SecretKey, Vec<DecoyInput>)>,
         rng: &mut impl RngCore,
     ) -> Result<Self> {
         for (dbc, base_sk, decoy_inputs) in dbcs.into_iter() {
-            self = self.add_input_dbc(dbc, base_sk, decoy_inputs, rng)?;
+            self = self.add_input_dbc(&dbc, &base_sk, decoy_inputs, rng)?;
         }
         Ok(self)
     }
 
-    pub fn add_input_dbc_bearer<D: AsRef<Dbc>>(
+    /// add an input given a bearer Dbc, SecretKey and decoy list
+    pub fn add_input_dbc_bearer(
         mut self,
-        dbc: D,
+        dbc: &Dbc,
         decoy_inputs: Vec<DecoyInput>,
         rng: &mut impl RngCore,
     ) -> Result<Self> {
-        self =
-            self.add_input_by_true_input(dbc.as_ref().as_true_input_bearer()?, decoy_inputs, rng);
+        self = self.add_input_by_true_input(dbc.as_true_input_bearer()?, decoy_inputs, rng);
         Ok(self)
     }
 
-    pub fn add_inputs_dbc_bearer<D: AsRef<Dbc>>(
+    /// add an input given a list of bearer Dbcs and associated SecretKey and decoys
+    pub fn add_inputs_dbc_bearer(
         mut self,
-        dbcs: impl IntoIterator<Item = (D, Vec<DecoyInput>)>,
+        dbcs: impl IntoIterator<Item = (Dbc, Vec<DecoyInput>)>,
         rng: &mut impl RngCore,
     ) -> Result<Self> {
         for (dbc, decoy_inputs) in dbcs.into_iter() {
-            self = self.add_input_dbc_bearer(dbc, decoy_inputs, rng)?;
+            self = self.add_input_dbc_bearer(&dbc, decoy_inputs, rng)?;
         }
         Ok(self)
     }
 
+    /// add an input given a SecretKeyBlst, AmountSecrets, and list of decoys
     pub fn add_input_by_secrets(
         mut self,
         secret_key: SecretKeyBlst,
@@ -140,6 +138,7 @@ impl TransactionBuilder {
         self
     }
 
+    /// add an input given a list of (SecretKeyBlst, AmountSecrets, and list of decoys)
     pub fn add_inputs_by_secrets(
         mut self,
         secrets: Vec<(SecretKeyBlst, AmountSecrets, Vec<DecoyInput>)>,
@@ -151,12 +150,14 @@ impl TransactionBuilder {
         self
     }
 
+    /// add an output
     pub fn add_output(mut self, output: Output, owner: OwnerOnce) -> Self {
         self.output_owners.insert(output.public_key().into(), owner);
         self.material.outputs.push(output);
         self
     }
 
+    /// add a list of outputs
     pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = (Output, OwnerOnce)>) -> Self {
         for (output, owner) in outputs.into_iter() {
             self = self.add_output(output, owner);
@@ -164,10 +165,12 @@ impl TransactionBuilder {
         self
     }
 
+    /// get a list of input owners
     pub fn input_owners(&self) -> Vec<PublicKeyBlst> {
         self.material.public_keys()
     }
 
+    /// get sum of input amounts
     pub fn inputs_amount_sum(&self) -> Amount {
         self.material
             .inputs
@@ -176,10 +179,12 @@ impl TransactionBuilder {
             .sum()
     }
 
+    /// get sum of output amounts
     pub fn outputs_amount_sum(&self) -> Amount {
         self.material.outputs.iter().map(|o| o.amount).sum()
     }
 
+    /// build a RingCtTransaction and associated secrets
     pub fn build(
         self,
         rng: impl RngCore + rand_core::CryptoRng,
@@ -238,6 +243,7 @@ impl ReissueRequestBuilder {
         self
     }
 
+    /// build a ReissueRequest
     pub fn build(&self) -> Result<ReissueRequest> {
         let spent_proofs: BTreeSet<SpentProof> = self
             .spent_proof_shares

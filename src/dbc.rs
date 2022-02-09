@@ -293,7 +293,7 @@ mod tests {
         SimpleSigner, SpentBookNodeMock,
     };
     use blst_ringct::ringct::RingCtMaterial;
-    use blst_ringct::{Output, RevealedCommitment};
+    use blst_ringct::{DecoyInput, Output, RevealedCommitment};
     use rand::SeedableRng;
     use rand_core::RngCore;
     use rand_core::SeedableRng as SeedableRngCore;
@@ -437,14 +437,13 @@ mod tests {
         let output_dbcs = dbc_builder.build()?;
 
         // The outputs become inputs for next reissue.
-        let inputs: Vec<(SecretKeyBlst, AmountSecrets, Vec<blst_ringct::DecoyInput>)> = output_dbcs
+        let inputs: Vec<(Dbc, SecretKey, Vec<DecoyInput>)> = output_dbcs
             .into_iter()
-            .map(|(_dbc, owner_once, amount_secrets)| {
-                let decoy_inputs = vec![]; // todo
+            .map(|(dbc, owner_once, _amount_secrets)| {
                 (
-                    owner_once.as_owner().secret_key_blst().unwrap(),
-                    amount_secrets,
-                    decoy_inputs,
+                    dbc,
+                    owner_once.owner_base().secret_key().unwrap(),
+                    vec![], // todo: decoy_inputs,
                 )
             })
             .collect();
@@ -454,7 +453,7 @@ mod tests {
 
         let (reissue_tx, _revealed_commitments, material, _output_owners) =
             crate::TransactionBuilder::default()
-                .add_inputs_by_secrets(inputs, &mut rng8)
+                .add_inputs_dbc(inputs, &mut rng8)?
                 .add_output(
                     Output {
                         amount,

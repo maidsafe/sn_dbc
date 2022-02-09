@@ -251,6 +251,7 @@ impl<K: KeyManager> MintNode<K> {
 mod tests {
     use super::*;
     use blst_ringct::DecoyInput;
+    use blsttc::SecretKey;
     use quickcheck_macros::quickcheck;
     use rand::SeedableRng;
     use rand_core::SeedableRng as SeedableRngCore;
@@ -259,7 +260,7 @@ mod tests {
 
     use crate::{
         tests::{TinyInt, TinyVec},
-        AmountSecrets, DbcBuilder, GenesisBuilderMock, OwnerOnce, ReissueRequestBuilder,
+        AmountSecrets, Dbc, DbcBuilder, GenesisBuilderMock, OwnerOnce, ReissueRequestBuilder,
         SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
     };
 
@@ -290,7 +291,7 @@ mod tests {
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
 
-        let (mint_node, mut spentbook, genesis, _genesis_dbc) =
+        let (mint_node, mut spentbook, _genesis, genesis_dbc) =
             GenesisBuilderMock::init_genesis_single(output_amount, &mut rng, &mut rng8)?;
 
         let owners: Vec<OwnerOnce> = (0..output_amounts.len())
@@ -299,12 +300,12 @@ mod tests {
 
         let (reissue_tx, revealed_commitments, _material, output_owners) =
             crate::TransactionBuilder::default()
-                .add_input_by_secrets(
-                    genesis.owner_once.as_owner().secret_key_blst()?,
-                    genesis.amount_secrets,
+                .add_input_dbc(
+                    &genesis_dbc,
+                    &genesis_dbc.owner_base().secret_key()?,
                     vec![], // genesis is only input, so no decoys.
                     &mut rng8,
-                )
+                )?
                 .add_outputs(output_amounts.iter().enumerate().map(|(idx, a)| {
                     (
                         crate::Output {
@@ -422,17 +423,17 @@ mod tests {
         // something like:  genesis --> 100 outputs --> x outputs --> y outputs.
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
-        let (mint_node, mut spentbook, genesis, _genesis_dbc) =
+        let (mint_node, mut spentbook, _genesis, genesis_dbc) =
             GenesisBuilderMock::init_genesis_single(genesis_amount, &mut rng, &mut rng8)?;
 
         let (reissue_tx, revealed_commitments, _material, output_owners) =
             crate::TransactionBuilder::default()
-                .add_input_by_secrets(
-                    genesis.owner_once.as_owner().secret_key_blst()?,
-                    genesis.amount_secrets,
-                    vec![], // genesis is input, no decoys possible.
+                .add_input_dbc(
+                    &genesis_dbc,
+                    &genesis_dbc.owner_base().secret_key()?,
+                    vec![], // genesis is only input, so no decoys.
                     &mut rng8,
-                )
+                )?
                 .add_outputs(input_amounts.iter().copied().map(|amount| {
                     let owner_once = OwnerOnce::from_owner_base(
                         Owner::from_random_secret_key(&mut rng),
@@ -490,20 +491,19 @@ mod tests {
         // Aggregate ReissueShare to build output DBCs
         let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-        let input_dbcs = dbc_builder.build()?;
+        let output_dbcs = dbc_builder.build()?;
 
-        let input_dbc_secrets = input_dbcs
-            .iter()
-            .map(|(_dbc, owner_once, amount_secrets)| {
-                let secret_key_blstrs = owner_once.as_owner().secret_key_blst().unwrap();
-                let public_key_blstrs = owner_once.as_owner().public_key_blst();
-
-                // note: decoy inputs can be created from OutputProof + dbc owner's pubkey.
-                let decoy_inputs =
-                    gen_decoy_inputs(&spentbook, &public_key_blstrs, num_decoy_inputs);
-                Ok((secret_key_blstrs, amount_secrets.clone(), decoy_inputs))
+        // The outputs become inputs for next reissue.
+        let inputs_dbcs: Vec<(Dbc, SecretKey, Vec<DecoyInput>)> = output_dbcs
+            .into_iter()
+            .map(|(dbc, owner_once, _amount_secrets)| {
+                (
+                    dbc,
+                    owner_once.owner_base().secret_key().unwrap(),
+                    spentbook.random_decoys(num_decoy_inputs, &mut rng8),
+                )
             })
-            .collect::<Result<Vec<(SecretKeyBlst, crate::AmountSecrets, Vec<DecoyInput>)>>>()?;
+            .collect();
 
         let owners: Vec<OwnerOnce> = (0..=output_amounts.len())
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8))
@@ -525,7 +525,7 @@ mod tests {
 
         let (reissue_tx2, revealed_commitments, material, output_owners) =
             crate::TransactionBuilder::default()
-                .add_inputs_by_secrets(input_dbc_secrets, &mut rng8)
+                .add_inputs_dbc(inputs_dbcs.clone(), &mut rng8)?
                 .add_outputs(outputs.clone())
                 .build(&mut rng8)?;
 
@@ -534,7 +534,7 @@ mod tests {
 
         let mut rr2_builder = ReissueRequestBuilder::new(reissue_tx2.clone());
 
-        assert_eq!(input_dbcs.len(), reissue_tx2.mlsags.len());
+        assert_eq!(inputs_dbcs.len(), reissue_tx2.mlsags.len());
 
         // note: this closure is used for checking errors returned from both
         // MintNode::reissue and SpentBookNodeMock::log_spent().
@@ -666,29 +666,6 @@ mod tests {
         }
     }
 
-    fn gen_decoy_inputs(
-        spentbook: &SpentBookNodeMock,
-        public_key: &PublicKeyBlst,
-        num: usize,
-    ) -> Vec<DecoyInput> {
-        let mut decoys: Vec<DecoyInput> = Default::default();
-
-        for (_key_image, tx) in spentbook.iter() {
-            for op in tx.outputs.iter() {
-                if op.public_key() != public_key && decoys.len() < num {
-                    decoys.push(DecoyInput {
-                        public_key: *op.public_key(),
-                        commitment: op.commitment(),
-                    })
-                }
-            }
-        }
-        if decoys.len() != num {
-            panic!("Not enough decoys found in spentbook");
-        }
-        decoys
-    }
-
     #[quickcheck]
     #[ignore]
     fn prop_in_progress_transaction_can_be_continued_across_churn() {
@@ -795,7 +772,7 @@ mod tests {
 
         let output_amount = 1000;
 
-        let (mint_node, mut spentbook, genesis, _genesis_dbc) =
+        let (mint_node, mut spentbook, genesis, genesis_dbc) =
             GenesisBuilderMock::init_genesis_single(output_amount, &mut rng, &mut rng8)?;
 
         // ----------
@@ -808,16 +785,14 @@ mod tests {
         let output_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
-        let decoy_inputs = vec![];
-
         let (tx, revealed_commitments, _ringct_material, output_owner_map) =
             crate::TransactionBuilder::default()
-                .add_input_by_secrets(
-                    genesis.owner_once.as_owner().secret_key_blst()?,
-                    genesis.amount_secrets.clone(),
-                    decoy_inputs,
+                .add_input_dbc(
+                    &genesis_dbc,
+                    &genesis_dbc.owner_base().secret_key()?,
+                    vec![], // genesis is only input, so no decoys.
                     &mut rng8,
-                )
+                )?
                 .add_output(
                     Output {
                         public_key: output_owner.as_owner().public_key_blst(),
@@ -903,19 +878,18 @@ mod tests {
         // 5. create a tx with (b_fudged) as input, and Dbc (c) with amount 2000 as output.
         // ----------
 
-        let input_owner = output_owner;
         let decoy_inputs = vec![];
 
         let output_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
         let (tx_fudged, ..) = crate::TransactionBuilder::default()
-            .add_input_by_secrets(
-                input_owner.as_owner().secret_key_blst()?,
-                fudged_secrets.clone(),
+            .add_input_dbc(
+                &fudged_output_dbc,
+                &fudged_output_dbc.owner_base().secret_key()?,
                 decoy_inputs.clone(),
                 &mut rng8,
-            )
+            )?
             .add_output(
                 Output {
                     amount: fudged_secrets.amount(),
@@ -975,7 +949,7 @@ mod tests {
 
         let (tx_true, ..) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
-                input_owner.as_owner().secret_key_blst()?,
+                fudged_output_dbc.owner_once_bearer()?.secret_key_blst()?,
                 true_secrets.clone(),
                 decoy_inputs,
                 &mut rng8,
