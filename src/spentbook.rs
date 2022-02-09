@@ -79,10 +79,16 @@ impl From<(SimpleKeyManager, KeyImage, Commitment)> for SpentBookNodeMock {
 
 impl SpentBookNodeMock {
     pub fn iter(&self) -> impl Iterator<Item = (&KeyImage, &RingCtTransaction)> + '_ {
-        // fixme: unwrap.  maybe try_iter() instead?
-        self.key_images
-            .iter()
-            .map(move |(k, h)| (k, self.transactions.get(h).unwrap()))
+        self.key_images.iter().map(move |(k, h)| {
+            (
+                k,
+                match self.transactions.get(h) {
+                    Some(tx) => tx,
+                    // todo: something better.
+                    None => panic!("Spentbook is in an inconsistent state"),
+                },
+            )
+        })
     }
 
     pub fn is_spent(&self, key_image: &KeyImage) -> bool {
@@ -141,9 +147,8 @@ impl SpentBookNodeMock {
                             .public_keys()
                             .iter()
                             .flat_map(|pk| {
-                                // fixme: we (ab)use KeyImage G1Affine wrapper to give us Ord trait.
-                                let pki: KeyImage = (*pk).into();
-                                self.outputs.get(&pki)
+                                let pkbm: PublicKeyBlstMappable = (*pk).into();
+                                self.outputs.get(&pkbm)
                             })
                             .collect();
 
@@ -191,10 +196,9 @@ impl SpentBookNodeMock {
             let existing_tx = self.transactions.entry(tx_hash).or_insert_with(|| tx);
 
             // Add public_key:output_proof to public_key index.
-            // fixme: we (ab)use KeyImage G1Affine wrapper to give us Ord trait.
             for output in existing_tx.outputs.iter() {
-                let pki: KeyImage = (*output.public_key()).into();
-                self.outputs.entry(pki).or_insert_with(|| output.clone());
+                let pkbm: PublicKeyBlstMappable = (*output.public_key()).into();
+                self.outputs.entry(pkbm).or_insert_with(|| output.clone());
             }
 
             Ok(SpentProofShare {
@@ -204,7 +208,7 @@ impl SpentBookNodeMock {
                 public_commitments,
             })
         } else {
-            // fixme: return an error.
+            // fixme: return an error.  can wait until we refactor into a Mock feature flag.
             panic!("Attempt to Double Spend")
         }
     }

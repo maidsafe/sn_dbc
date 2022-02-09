@@ -18,6 +18,25 @@ use rand::Rng;
 
 pub type DerivationIndex = [u8; 32];
 
+/// Represents a Dbc owner.
+///
+/// If the type is SecretKey, the Dbc is considered
+/// to be bearer (anyone in possession can spend).
+///
+/// If the type is PublicKey, the Dbc is considered
+/// to be owned (by whoever holds the SecretKey).
+///
+/// Dbc's have both a base Owner and a one-time-use Owner.
+///
+/// The base Owner public key is given out to other people
+/// in order to receive payments from them. It is never
+/// seen by the Mint or SpentBook.
+///
+/// The one-time-use Owner public key is not normally given
+/// to 3rd parties. It is used by Mint and SpentBook exactly
+/// once, when spending the associated Dbc.
+///
+/// See OwnerOnce which relates the two.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone)]
 pub enum Owner {

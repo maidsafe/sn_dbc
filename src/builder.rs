@@ -458,9 +458,6 @@ impl DbcBuilder {
             })
             .collect();
 
-        // sort outputs by name.  todo: is sorting necessary?
-        // output_dbcs.sort_by_key(Dbc::owner);
-
         Ok(output_dbcs)
     }
 }

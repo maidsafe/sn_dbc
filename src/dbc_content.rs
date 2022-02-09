@@ -18,6 +18,7 @@ use crate::{Error, Hash, Result};
 // note: Amount should move into blst_ringct crate.
 // (or else blst_ringct::RevealedCommitment should be made generic over Amount type)
 
+/// Represents a Dbc's value.
 pub type Amount = u64;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
