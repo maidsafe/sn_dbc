@@ -9,9 +9,13 @@ use thiserror::Error;
 
 use crate::KeyImage;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 /// Specialisation of `std::Result`.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[allow(clippy::large_enum_variant)]
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -92,13 +96,16 @@ pub enum Error {
     #[error("Secret key does not match public key")]
     SecretKeyDoesNotMatchPublicKey,
 
+    #[cfg_attr(feature = "serde", serde(skip))]
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 
     /// blst_ringct error.
+    #[cfg_attr(feature = "serde", serde(skip))]
     #[error("ringct error: {0}")]
     RingCt(#[from] blst_ringct::Error),
 
+    #[cfg_attr(feature = "serde", serde(skip))]
     #[error("Infallible.  Can never fail")]
     Infallible(#[from] std::convert::Infallible),
 }
