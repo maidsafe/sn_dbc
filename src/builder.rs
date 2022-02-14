@@ -452,7 +452,7 @@ impl DbcBuilder {
                         amount_secrets_list[0].clone(),
                     )),
                     transaction: transaction.clone(),
-                    transaction_sigs: transaction
+                    mint_sigs: transaction
                         .mlsags
                         .iter()
                         .map(|mlsag| {
@@ -681,7 +681,7 @@ pub mod mock {
             let genesis_dbc = Dbc {
                 content: genesis_dbc_share_arbitrary.dbc_content.clone(),
                 transaction: genesis_dbc_share_arbitrary.transaction.clone(),
-                transaction_sigs: BTreeMap::from_iter([(
+                mint_sigs: BTreeMap::from_iter([(
                     genesis_dbc_share_arbitrary.input_key_image.clone(),
                     (
                         mint_node_arbitrary
