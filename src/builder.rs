@@ -184,6 +184,16 @@ impl TransactionBuilder {
         self.material.outputs.iter().map(|o| o.amount).sum()
     }
 
+    /// get inputs
+    pub fn inputs(&self) -> &Vec<MlsagMaterial> {
+        &self.material.inputs
+    }
+
+    /// get outputs
+    pub fn outputs(&self) -> &Vec<Output> {
+        &self.material.outputs
+    }
+
     /// build a RingCtTransaction and associated secrets
     pub fn build(
         self,
