@@ -31,19 +31,19 @@ impl TransactionValidator {
     pub fn validate<K: KeyManager>(
         mint_verifier: &K,
         transaction: &RingCtTransaction,
-        transaction_sigs: &BTreeMap<KeyImage, (PublicKey, Signature)>,
+        mint_sigs: &BTreeMap<KeyImage, (PublicKey, Signature)>,
         spent_proofs: &BTreeSet<SpentProof>,
     ) -> Result<(), Error> {
         // Do quick checks first to reduce potential DOS vectors.
 
-        if transaction_sigs.len() < transaction.mlsags.len() {
+        if mint_sigs.len() < transaction.mlsags.len() {
             return Err(Error::MissingSignatureForInput);
         }
 
         let tx_hash = Hash::from(transaction.hash());
 
         // Verify that each input has a corresponding valid mint signature.
-        for (key_image, (mint_key, mint_sig)) in transaction_sigs.iter() {
+        for (key_image, (mint_key, mint_sig)) in mint_sigs.iter() {
             if !transaction
                 .mlsags
                 .iter()

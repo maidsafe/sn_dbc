@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 /// index is generated and used to derive a one-time-use Owner Once.
 ///
 /// The Owner Once is used for a single transaction only and must be unique
-/// within a transaction.
+/// within the transaction as well as globally for the output DBC's to be spendable.
 ///
 /// Separate methods are available for Owned and Bearer DBCs.
 ///
@@ -69,7 +69,7 @@ use serde::{Deserialize, Serialize};
 pub struct Dbc {
     pub content: DbcContent,
     pub transaction: RingCtTransaction,
-    pub transaction_sigs: BTreeMap<KeyImage, (PublicKey, Signature)>,
+    pub mint_sigs: BTreeMap<KeyImage, (PublicKey, Signature)>,
     pub spent_proofs: BTreeSet<SpentProof>,
 }
 
@@ -173,7 +173,7 @@ impl Dbc {
         sha3.update(&self.content.to_bytes());
         sha3.update(&self.transaction.hash());
 
-        for (in_key, (mint_key, mint_sig)) in self.transaction_sigs.iter() {
+        for (in_key, (mint_key, mint_sig)) in self.mint_sigs.iter() {
             sha3.update(&in_key.to_bytes());
             sha3.update(&mint_key.to_bytes());
             sha3.update(&mint_sig.to_bytes());
@@ -200,7 +200,7 @@ impl Dbc {
         TransactionValidator::validate(
             mint_verifier,
             &self.transaction,
-            &self.transaction_sigs,
+            &self.mint_sigs,
             &self.spent_proofs,
         )?;
 
@@ -385,7 +385,7 @@ mod tests {
         let dbc = Dbc {
             content: input_content,
             transaction,
-            transaction_sigs: Default::default(),
+            mint_sigs: Default::default(),
             spent_proofs: Default::default(),
         };
 
@@ -503,11 +503,10 @@ mod tests {
             fuzzed_amt_secrets.clone(),
         ));
 
-        let mut fuzzed_transaction_sigs: BTreeMap<KeyImage, (PublicKey, Signature)> =
-            BTreeMap::new();
+        let mut fuzzed_mint_sigs: BTreeMap<KeyImage, (PublicKey, Signature)> = BTreeMap::new();
 
         let mint_pk = mint_node.key_manager().public_key_set()?.public_key();
-        fuzzed_transaction_sigs.extend(
+        fuzzed_mint_sigs.extend(
             reissue_share
                 .mint_node_signatures
                 .into_iter()
@@ -534,7 +533,7 @@ mod tests {
                     .public_key_set()?
                     .combine_signatures(vec![trans_sig_share.threshold_crypto()])
                     .unwrap();
-                fuzzed_transaction_sigs.insert(
+                fuzzed_mint_sigs.insert(
                     input.key_image.into(),
                     (key_manager.public_key_set()?.public_key(), trans_sig),
                 );
@@ -551,7 +550,7 @@ mod tests {
                     .combine_signatures(vec![wrong_msg_sig.threshold_crypto()])
                     .unwrap();
 
-                fuzzed_transaction_sigs.insert(
+                fuzzed_mint_sigs.insert(
                     input.key_image.into(),
                     (
                         mint_node.key_manager.public_key_set()?.public_key(),
@@ -563,7 +562,7 @@ mod tests {
 
         // Valid mint signatures for inputs not present in the transaction
         for _ in 0..n_extra_input_sigs.coerce() {
-            fuzzed_transaction_sigs.insert(
+            fuzzed_mint_sigs.insert(
                 Default::default(),
                 (
                     mint_node.key_manager().public_key_set()?.public_key(),
@@ -575,7 +574,7 @@ mod tests {
         let dbc = Dbc {
             content: fuzzed_content,
             transaction: reissue_share.transaction.clone(),
-            transaction_sigs: fuzzed_transaction_sigs,
+            mint_sigs: fuzzed_mint_sigs,
             spent_proofs: reissue_share.spent_proofs.clone(), // todo: fuzz spent proofs.
         };
 
@@ -622,7 +621,7 @@ mod tests {
             Err(Error::UnknownInput) => {
                 assert!(n_extra_input_sigs.coerce::<u8>() > 0);
                 assert_ne!(
-                    Vec::from_iter(dbc.transaction_sigs.keys().cloned()),
+                    Vec::from_iter(dbc.mint_sigs.keys().cloned()),
                     dbc.transaction
                         .mlsags
                         .iter()
@@ -649,14 +648,14 @@ mod tests {
             Err(Error::UnrecognisedAuthority) => {
                 assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
                 assert!(dbc
-                    .transaction_sigs
+                    .mint_sigs
                     .values()
                     .any(|(pk, _)| key_manager.verify_known_key(pk).is_err()));
             }
             Err(Error::Signing(s)) if s == Error::UnrecognisedAuthority.to_string() => {
                 assert!(n_wrong_signer_sigs.coerce::<u8>() > 0);
                 assert!(dbc
-                    .transaction_sigs
+                    .mint_sigs
                     .values()
                     .any(|(pk, _)| key_manager.verify_known_key(pk).is_err()));
             }
