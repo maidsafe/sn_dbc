@@ -382,10 +382,10 @@ impl DbcBuilder {
 
             // Verify that each input has a NodeSignature
             for mlsag in rs.transaction.mlsags.iter() {
-                if !rs
+                if rs
                     .mint_node_signatures
                     .keys()
-                    .any(|k| *k == mlsag.key_image.into())
+                    .all(|k| *k != mlsag.key_image.into())
                 {
                     return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
                 }
