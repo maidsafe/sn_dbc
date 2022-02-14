@@ -91,20 +91,19 @@ pub fn bls_dkg_id(rng: &mut impl RngCore) -> bls_dkg::outcome::Outcome {
     let owner_xorname = xor_name::XorName::from_content(&owner_name);
 
     let threshold = 0;
-    let (mut key_gen, proposal) = bls_dkg::KeyGen::initialize(
+    let (mut key_gen, mut proposal) = bls_dkg::KeyGen::initialize(
         owner_xorname,
         threshold,
         BTreeSet::from_iter([owner_xorname]),
     )
     .expect("Failed to init key gen");
 
-    let mut msgs = vec![proposal];
-    while let Some(msg) = msgs.pop() {
+    while let Some((_xorname, msg)) = proposal.pop() {
         let response_msgs = key_gen
             .handle_message(rng, msg)
             .expect("Error while generating BLS key");
 
-        msgs.extend(response_msgs);
+        proposal.extend(response_msgs);
     }
 
     let (_, outcome) = key_gen.generate_keys().unwrap();

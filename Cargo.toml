@@ -43,7 +43,7 @@ xor_name = "3.1.0"
   version = "0.8.0"
 
   [dependencies.bls_dkg]
-  version = "~0.7"
+  version = "~0.9"
   optional = true
 
   [dependencies.tiny-keccak]
