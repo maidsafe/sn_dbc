@@ -264,18 +264,18 @@ impl ReissueRequestBuilder {
                     .next()
                     .ok_or(Error::ReissueRequestMissingSpentProofShare(*input_index))?;
 
-                if !shares
+                if shares
                     .iter()
                     .map(SpentProofShare::spentbook_pks)
-                    .any(|pks| pks == any_share.spentbook_pks())
+                    .any(|pks| pks != any_share.spentbook_pks())
                 {
                     return Err(Error::ReissueRequestPublicKeySetMismatch);
                 }
 
-                if !shares
+                if shares
                     .iter()
                     .map(|s| &s.public_commitments)
-                    .any(|pc| *pc == any_share.public_commitments)
+                    .any(|pc| *pc != any_share.public_commitments)
                 {
                     return Err(Error::ReissueRequestPublicCommitmentMismatch);
                 }
