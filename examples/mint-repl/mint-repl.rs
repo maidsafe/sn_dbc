@@ -68,7 +68,7 @@ impl MintInfo {
 
 /// A RingCtTransaction with pubkey set for all the input and output Dbcs
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct RingCtTransactionUnblinded {
+struct RingCtTransactionRevealed {
     inner: RingCtTransaction,
     revealed_commitments: Vec<RevealedCommitment>,
     ringct_material: RingCtMaterial,
@@ -77,7 +77,7 @@ struct RingCtTransactionUnblinded {
 
 /// A ReissueRequest with pubkey set for all the input and output Dbcs
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ReissueRequestUnblinded {
+struct ReissueRequestRevealed {
     inner: ReissueRequest,
     revealed_commitments: Vec<RevealedCommitment>,
     output_owner_map: OutputOwnerMap,
@@ -310,6 +310,7 @@ fn newkeys() -> Result<()> {
     let num: usize = readline_prompt("\nHow many keys to generate? ")?.parse()?;
 
     let num_signers = 1;
+    assert!(num_signers > 0);
 
     for idx in 1..=num {
         println!("\n");
@@ -526,11 +527,11 @@ fn decode_input() -> Result<()> {
         }
         "rt" => println!(
             "\n\n-- RingCtTransaction --\n\n{:#?}",
-            from_be_bytes::<RingCtTransactionUnblinded>(&bytes)?
+            from_be_bytes::<RingCtTransactionRevealed>(&bytes)?
         ),
         "rr" => println!(
             "\n\n-- ReissueRequest --\n\n{:#?}",
-            from_be_bytes::<ReissueRequestUnblinded>(&bytes)?
+            from_be_bytes::<ReissueRequestRevealed>(&bytes)?
         ),
         _ => println!("Unknown type!"),
     }
@@ -592,7 +593,7 @@ fn validate(mintinfo: &MintInfo) -> Result<()> {
 }
 
 /// Implements prepare_tx command.
-fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionUnblinded> {
+fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
     let mut rng = rand::thread_rng();
     let mut rng8 = rand8::thread_rng();
     let mut tx_builder: TransactionBuilder = Default::default();
@@ -709,7 +710,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionUnblinded> {
     let (reissue_tx, revealed_commitments, ringct_material, output_owner_map) =
         tx_builder.build(&mut rng8)?;
 
-    Ok(RingCtTransactionUnblinded {
+    Ok(RingCtTransactionRevealed {
         inner: reissue_tx,
         revealed_commitments,
         ringct_material,
@@ -732,8 +733,8 @@ fn prepare_tx_cli(mintinfo: &MintInfo) -> Result<()> {
 /// Implements prepare_reissue command.
 fn prepare_reissue(
     mintinfo: &mut MintInfo,
-    tx: RingCtTransactionUnblinded,
-) -> Result<ReissueRequestUnblinded> {
+    tx: RingCtTransactionRevealed,
+) -> Result<ReissueRequestRevealed> {
     let mut rr_builder = ReissueRequestBuilder::new(tx.inner.clone());
     for (idx, mlsag) in tx.inner.mlsags.iter().enumerate() {
         for (sp_idx, sb_node) in mintinfo.spentbook_nodes.iter_mut().enumerate() {
@@ -747,7 +748,7 @@ fn prepare_reissue(
     println!("\n\nThank-you.   Preparing ReissueRequest...\n\n");
     let rr = rr_builder.build()?;
 
-    let reissue_request = ReissueRequestUnblinded {
+    let reissue_request = ReissueRequestRevealed {
         inner: rr,
         revealed_commitments: tx.revealed_commitments,
         output_owner_map: tx.output_owner_map,
@@ -761,7 +762,7 @@ fn prepare_reissue(
 #[allow(dead_code)]
 fn prepare_reissue_cli(mintinfo: &mut MintInfo) -> Result<()> {
     let tx_input = readline_prompt_nl("\nRingCtTransaction: ")?;
-    let tx: RingCtTransactionUnblinded = from_be_hex(&tx_input)?;
+    let tx: RingCtTransactionRevealed = from_be_hex(&tx_input)?;
 
     let reissue_request = prepare_reissue(mintinfo, tx)?;
 
@@ -777,7 +778,7 @@ fn prepare_reissue_cli(mintinfo: &mut MintInfo) -> Result<()> {
 #[allow(dead_code)]
 fn reissue_prepared_cli(mintinfo: &mut MintInfo) -> Result<()> {
     let mr_input = readline_prompt_nl("\nReissueRequest: ")?;
-    let reissue_request: ReissueRequestUnblinded = from_be_hex(&mr_input)?;
+    let reissue_request: ReissueRequestRevealed = from_be_hex(&mr_input)?;
 
     println!("\n\nThank-you.   Generating DBC(s)...\n\n");
 
@@ -804,15 +805,8 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
         readline_prompt_nl_default("\nHow many reissues to perform [10]: ", "10")?.parse()?;
 
     for _i in 1..=num_reissues {
-        let max_inputs = vec![mintinfo.reissue_auto.unspent_dbcs.len(), 10]
-            .into_iter()
-            .min()
-            .unwrap_or(10);
-        let num_inputs = if 1 == max_inputs {
-            1
-        } else {
-            rng.gen_range(1, max_inputs)
-        };
+        let max_inputs = std::cmp::min(mintinfo.reissue_auto.unspent_dbcs.len(), 10);
+        let num_inputs = rng.gen_range(1, max_inputs + 1);
 
         // subset of unspent_dbcs become the inputs for next reissue.
         let input_dbcs: Vec<Dbc> = mintinfo
@@ -831,16 +825,14 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             let decoy_inputs = mintinfo.spentbook()?.random_decoys(STD_DECOYS, &mut rng8);
 
             tx_builder = tx_builder.add_input_dbc(dbc, &base_sk, decoy_inputs, &mut rng8)?;
-
-            mintinfo.reissue_auto.unspent_dbcs.remove(&dbc.hash());
         }
 
         let inputs_sum = tx_builder.inputs_amount_sum();
 
-        while tx_builder.outputs_amount_sum() < inputs_sum {
+        while tx_builder.outputs_amount_sum() < inputs_sum || tx_builder.outputs().is_empty() {
             // randomize output amount
             let diff = inputs_sum - tx_builder.outputs_amount_sum();
-            let amount = if diff == 1 { 1 } else { rng.gen_range(1, diff) };
+            let amount = rng.gen_range(0, diff + 1);
 
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
@@ -876,6 +868,10 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
         let outputs = dbc_builder.build()?;
         let output_dbcs: Vec<Dbc> = outputs.into_iter().map(|(dbc, ..)| dbc).collect();
 
+        for dbc in input_dbcs.iter() {
+            mintinfo.reissue_auto.unspent_dbcs.remove(&dbc.hash());
+        }
+
         println!(
             "Reissued {} inputs to {} outputs.  total value: {}",
             input_dbcs.len(),
@@ -900,8 +896,8 @@ fn reissue_cli(mintinfo: &mut MintInfo) -> Result<()> {
 }
 
 /// Performs reissue
-fn reissue(mintinfo: &mut MintInfo, reissue_request: ReissueRequestUnblinded) -> Result<()> {
-    let ReissueRequestUnblinded {
+fn reissue(mintinfo: &mut MintInfo, reissue_request: ReissueRequestRevealed) -> Result<()> {
+    let ReissueRequestRevealed {
         inner,
         revealed_commitments,
         output_owner_map,
