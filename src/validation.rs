@@ -110,7 +110,7 @@ impl TransactionValidator {
             if !transaction
                 .mlsags
                 .iter()
-                .any(|m| m.key_image == *spent_proof.key_image.as_ref())
+                .any(|m| m.key_image == *spent_proof.key_image().as_ref())
             {
                 return Err(Error::SpentProofInputMismatch);
             }
@@ -126,7 +126,7 @@ impl TransactionValidator {
                 transaction
                     .mlsags
                     .iter()
-                    .position(|m| m.key_image == *s.key_image.as_ref())
+                    .position(|m| m.key_image == *s.key_image().as_ref())
                     .map(|idx| (idx, s))
             })
             .collect();
@@ -137,7 +137,7 @@ impl TransactionValidator {
 
         let public_commitments: Vec<Vec<Commitment>> = spent_proofs_sorted
             .iter()
-            .map(|s| s.public_commitments.clone())
+            .map(|s| s.public_commitments().clone())
             .collect();
 
         transaction.verify(&public_commitments)?;

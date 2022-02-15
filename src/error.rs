@@ -39,6 +39,9 @@ pub enum Error {
     #[error("Invalid SpentProof Signature for {0:?}")]
     InvalidSpentProofSignature(KeyImage),
 
+    #[error("Transaction hash does not match the transaction signed by spentbook")]
+    InvalidTransactionHash,
+
     #[error("The DBC transaction must have at least one input")]
     TransactionMustHaveAnInput,
 

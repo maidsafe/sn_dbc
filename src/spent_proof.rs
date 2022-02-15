@@ -12,110 +12,169 @@ use crate::{
 };
 
 use std::cmp::Ordering;
-use std::hash;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-/// A share of a SpentProof, combine enough of these to form a
-/// SpentProof.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
-pub struct SpentProofShare {
-    pub key_image: KeyImage,
-
-    /// The Spentbook who notarized that this DBC was spent.
-    pub spentbook_pks: PublicKeySet,
-
-    pub spentbook_sig_share: NodeSignature,
-
-    pub public_commitments: Vec<Commitment>,
-}
-
-impl PartialEq for SpentProofShare {
-    fn eq(&self, other: &Self) -> bool {
-        self.spentbook_pks == other.spentbook_pks
-            && self.spentbook_sig_share == other.spentbook_sig_share
-            && self.public_commitments == other.public_commitments
-    }
-}
-
-impl Eq for SpentProofShare {}
-
-impl hash::Hash for SpentProofShare {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.key_image.hash(state);
-        self.spentbook_pks.hash(state);
-        self.spentbook_sig_share.hash(state);
-        for pc in self.public_commitments.iter() {
-            let bytes = pc.to_compressed();
-            bytes.hash(state);
-        }
-    }
-}
-
-impl SpentProofShare {
-    pub fn spentbook_sig_share(&self) -> &NodeSignature {
-        &self.spentbook_sig_share
-    }
-
-    pub fn spentbook_pks(&self) -> &PublicKeySet {
-        &self.spentbook_pks
-    }
-
-    pub fn spentbook_public_key(&self) -> PublicKey {
-        self.spentbook_pks.public_key()
-    }
-}
-
-/// SpentProof's are constructed when a DBC is logged to the spentbook.
-// #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-
+/// Represents the data to be signed by the SpentBook in a SpentProof.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpentProof {
+pub struct SpentProofContent {
+    /// KeyImage of input Dbc that this SpentProof is proving to be spent.
     pub key_image: KeyImage,
 
-    /// The Spentbook who notarized that this DBC was spent.
-    pub spentbook_pub_key: PublicKey,
+    /// Hash of transaction that input Dbc is being spent in.
+    pub transaction_hash: Hash,
 
-    /// The Spentbook's signature notarizing the DBC was spent.
-    /// signing over RingCtTransaction, spent_sig, and public_commitments.
-    pub spentbook_sig: Signature,
-
+    /// public commitments for the transaction
     pub public_commitments: Vec<Commitment>,
 }
 
-impl SpentProof {
+impl SpentProofContent {
+    /// represent this SpentProofContent as bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
         bytes.extend(&self.key_image.to_bytes());
-        bytes.extend(&self.spentbook_sig.to_bytes());
-
+        bytes.extend(self.transaction_hash.as_ref());
         for pc in self.public_commitments.iter() {
             bytes.extend(&pc.to_compressed());
         }
         bytes
     }
 
-    pub fn validate<K: KeyManager>(&self, tx: Hash, verifier: &K) -> Result<()> {
-        verifier
-            .verify(&tx, &self.spentbook_pub_key, &self.spentbook_sig)
-            .map_err(|_| Error::InvalidSpentProofSignature(self.key_image.clone()))?;
-        Ok(())
+    /// represent this SpentProofContent as a Hash
+    pub fn hash(&self) -> Hash {
+        Hash::hash(&self.to_bytes())
     }
 }
 
-impl PartialOrd for SpentProof {
+impl PartialOrd for SpentProofContent {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for SpentProof {
+impl Ord for SpentProofContent {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key_image.cmp(&other.key_image)
+    }
+}
+
+/// A share of a SpentProof, combine enough of these to form a
+/// SpentProof.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpentProofShare {
+    /// data to be signed
+    pub content: SpentProofContent,
+
+    /// The Spentbook who notarized that this DBC was spent.
+    pub spentbook_pks: PublicKeySet,
+    pub spentbook_sig_share: NodeSignature,
+}
+
+impl PartialOrd for SpentProofShare {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SpentProofShare {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.content.cmp(&other.content)
+    }
+}
+
+impl SpentProofShare {
+    /// get KeyImage of input Dbc
+    pub fn key_image(&self) -> &KeyImage {
+        &self.content.key_image
+    }
+
+    /// get transaction hash
+    pub fn transaction_hash(&self) -> Hash {
+        self.content.transaction_hash
+    }
+
+    /// get public commitments
+    pub fn public_commitments(&self) -> &Vec<Commitment> {
+        &self.content.public_commitments
+    }
+
+    /// get spentbook's signature share
+    pub fn spentbook_sig_share(&self) -> &NodeSignature {
+        &self.spentbook_sig_share
+    }
+
+    /// get spentbook's PublicKeySet
+    pub fn spentbook_pks(&self) -> &PublicKeySet {
+        &self.spentbook_pks
+    }
+}
+
+/// SpentProof's are constructed when a DBC is logged to the spentbook.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SpentProof {
+    /// data to be signed
+    pub content: SpentProofContent,
+
+    /// The Spentbook who notarized that this DBC was spent.
+    pub spentbook_pub_key: PublicKey,
+
+    /// The Spentbook's signature notarizing the DBC was spent.
+    /// signing over SpentProofContent. (KeyImage, RingCtTransaction, and public_commitments).
+    pub spentbook_sig: Signature,
+}
+
+impl SpentProof {
+    /// get KeyImage of input Dbc
+    pub fn key_image(&self) -> &KeyImage {
+        &self.content.key_image
+    }
+
+    /// get transaction hash
+    pub fn transaction_hash(&self) -> Hash {
+        self.content.transaction_hash
+    }
+
+    /// get public commitments
+    pub fn public_commitments(&self) -> &Vec<Commitment> {
+        &self.content.public_commitments
+    }
+
+    /// represent this SpentProof as bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes: Vec<u8> = Default::default();
+
+        bytes.extend(&self.content.to_bytes());
+        bytes.extend(&self.spentbook_pub_key.to_bytes());
+        bytes.extend(&self.spentbook_sig.to_bytes());
+
+        bytes
+    }
+
+    /// validate this SpentProof
+    ///
+    /// checks that the input transaction hash matches the tx_hash that was
+    /// signed by the spentbook and validates that spentbook signature is
+    /// valid for this SpentProof.
+    ///
+    /// note that the verifier must already hold (trust) the spentbook's public key.
+    pub fn validate<K: KeyManager>(&self, tx_hash: Hash, verifier: &K) -> Result<()> {
+        // verify input tx_hash matches our tx_hash which was signed by spentbook.
+        if tx_hash != self.content.transaction_hash {
+            return Err(Error::InvalidTransactionHash);
+        }
+
+        verifier
+            .verify(
+                &self.content.hash(),
+                &self.spentbook_pub_key,
+                &self.spentbook_sig,
+            )
+            .map_err(|_| Error::InvalidSpentProofSignature(self.key_image().clone()))?;
+        Ok(())
     }
 }

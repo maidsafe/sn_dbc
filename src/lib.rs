@@ -38,7 +38,7 @@ pub use crate::{
     },
     mint::{GenesisDbcShare, MintNode, MintNodeSignatures, ReissueRequest, ReissueShare},
     owner::{DerivationIndex, Owner, OwnerOnce},
-    spent_proof::{SpentProof, SpentProofShare},
+    spent_proof::{SpentProof, SpentProofContent, SpentProofShare},
     spentbook::SpentBookNodeMock,
     validation::TransactionValidator,
 };

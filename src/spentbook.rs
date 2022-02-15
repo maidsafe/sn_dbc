@@ -15,7 +15,7 @@ use rand8::prelude::IteratorRandom;
 
 use crate::{
     Commitment, Hash, KeyImage, KeyManager, PublicKeyBlstMappable, Result, SimpleKeyManager,
-    SpentProofShare,
+    SpentProofContent, SpentProofShare,
 };
 
 /// This is a mock SpentBook used for our test cases. A proper implementation
@@ -123,9 +123,6 @@ impl SpentBookNodeMock {
     ) -> Result<SpentProofShare> {
         let tx_hash = Hash::from(tx.hash());
 
-        let spentbook_pks = self.key_manager.public_key_set()?;
-        let spentbook_sig_share = self.key_manager.sign(&tx_hash)?;
-
         // If this is the very first tx logged and genesis key_image was not
         // provided, then it becomes the genesis tx.
         let (genesis_key_image, genesis_public_commitment) = match &self.genesis {
@@ -201,11 +198,19 @@ impl SpentBookNodeMock {
                 self.outputs.entry(pkbm).or_insert_with(|| output.clone());
             }
 
-            Ok(SpentProofShare {
+            let sp_content = SpentProofContent {
                 key_image,
+                transaction_hash: tx_hash,
+                public_commitments,
+            };
+
+            let spentbook_pks = self.key_manager.public_key_set()?;
+            let spentbook_sig_share = self.key_manager.sign(&sp_content.hash())?;
+
+            Ok(SpentProofShare {
+                content: sp_content,
                 spentbook_pks,
                 spentbook_sig_share,
-                public_commitments,
             })
         } else {
             // fixme: return an error.  can wait until we refactor into a Mock feature flag.
