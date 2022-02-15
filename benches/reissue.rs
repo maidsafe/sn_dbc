@@ -60,7 +60,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .unwrap();
 
     let rr = ReissueRequestBuilder::new(reissue_tx)
-        .add_spent_proof_share(0, spent_proof_share)
+        .add_spent_proof_share(spent_proof_share)
         .build()
         .unwrap();
 
@@ -111,7 +111,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .unwrap();
 
     let rr = ReissueRequestBuilder::new(reissue_tx)
-        .add_spent_proof_share(0, spent_proof_share)
+        .add_spent_proof_share(spent_proof_share)
         .build()
         .unwrap();
 
@@ -148,17 +148,13 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
             .build(&mut rng8)
             .unwrap();
 
-    let spent_proof_shares: Vec<(usize, SpentProofShare)> = merge_tx
+    let spent_proof_shares: Vec<SpentProofShare> = merge_tx
         .mlsags
         .iter()
-        .enumerate()
-        .map(|(i, m)| {
-            (
-                i,
-                spentbook
-                    .log_spent(m.key_image.into(), merge_tx.clone())
-                    .unwrap(),
-            )
+        .map(|m| {
+            spentbook
+                .log_spent(m.key_image.into(), merge_tx.clone())
+                .unwrap()
         })
         .collect();
 

@@ -347,7 +347,7 @@ mod tests {
         let spent_proof_share = spentbook.log_spent(key_image, reissue_tx.clone())?;
 
         let rr = ReissueRequestBuilder::new(reissue_tx)
-            .add_spent_proof_share(0, spent_proof_share)
+            .add_spent_proof_share(spent_proof_share)
             .build()?;
 
         Ok((rr, revealed_commitments, output_owners))
@@ -470,10 +470,10 @@ mod tests {
                 .build(&mut rng8)?;
 
         let mut rr_builder = ReissueRequestBuilder::new(reissue_tx.clone());
-        for (i, mlsag) in reissue_tx.mlsags.iter().enumerate() {
+        for mlsag in reissue_tx.mlsags.iter() {
             let spent_proof_share =
                 spentbook.log_spent(mlsag.key_image.into(), reissue_tx.clone())?;
-            rr_builder = rr_builder.add_spent_proof_share(i, spent_proof_share);
+            rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
         }
 
         let rr = rr_builder.build()?;

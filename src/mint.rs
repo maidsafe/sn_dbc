@@ -343,7 +343,7 @@ mod tests {
         };
 
         let rr = ReissueRequestBuilder::new(reissue_tx)
-            .add_spent_proof_share(0, spent_proof_share)
+            .add_spent_proof_share(spent_proof_share)
             .build()?;
 
         let reissue_share = match mint_node.reissue(rr) {
@@ -474,7 +474,7 @@ mod tests {
         };
 
         let rr1 = ReissueRequestBuilder::new(reissue_tx)
-            .add_spent_proof_share(0, spent_proof_share)
+            .add_spent_proof_share(spent_proof_share)
             .build()?;
 
         let reissue_share = match mint_node.reissue(rr1) {
@@ -621,7 +621,7 @@ mod tests {
                 }
             };
 
-            rr2_builder = rr2_builder.add_spent_proof_share(i, spent_proof_share);
+            rr2_builder = rr2_builder.add_spent_proof_share(spent_proof_share);
         }
 
         let rr2 = rr2_builder.build()?;
@@ -806,7 +806,7 @@ mod tests {
         let spent_proof_share = spentbook.log_spent(tx.mlsags[0].key_image.into(), tx.clone())?;
 
         let rr = ReissueRequestBuilder::new(tx.clone())
-            .add_spent_proof_share(0, spent_proof_share)
+            .add_spent_proof_share(spent_proof_share)
             .build()?;
 
         let reissue_share = mint_node.reissue(rr)?;
@@ -922,7 +922,7 @@ mod tests {
         )?;
 
         let rr_fudged = ReissueRequestBuilder::new(tx_fudged)
-            .add_spent_proof_share(0, spent_proof_share_fudged.clone())
+            .add_spent_proof_share(spent_proof_share_fudged.clone())
             .build()?;
 
         // The mint should give an error on reissue because the sum(inputs) does not equal sum(outputs)
@@ -965,7 +965,7 @@ mod tests {
             .build(&mut rng8)?;
 
         let rr_burned = ReissueRequestBuilder::new(tx_true.clone())
-            .add_spent_proof_share(0, spent_proof_share_fudged)
+            .add_spent_proof_share(spent_proof_share_fudged)
             .build()?;
 
         // The mint should return an error because the spentproof does not match the tx.
@@ -1010,7 +1010,7 @@ mod tests {
         // This simulates the situation where recipient wallet later obtains the correct
         // secrets and spends them.
         let rr_true = ReissueRequestBuilder::new(tx_true)
-            .add_spent_proof_share(0, spent_proof_share_true)
+            .add_spent_proof_share(spent_proof_share_true)
             .build()?;
 
         // The mint should reissue without error because the sum(inputs) equals sum(outputs)
