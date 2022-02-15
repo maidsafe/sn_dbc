@@ -15,9 +15,9 @@ use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, NodeSignature, OwnerOnce,
-    PublicKeyBlst, PublicKeyBlstMappable, ReissueRequest, ReissueShare, Result, SecretKeyBlst,
-    SpentProof, SpentProofContent, SpentProofShare,
+    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, KeyImage, NodeSignature,
+    OwnerOnce, PublicKeyBlst, PublicKeyBlstMappable, ReissueRequest, ReissueShare, Result,
+    SecretKeyBlst, SpentProof, SpentProofContent, SpentProofShare,
 };
 
 #[cfg(feature = "serde")]
@@ -222,7 +222,7 @@ impl TransactionBuilder {
 #[derive(Debug)]
 pub struct ReissueRequestBuilder {
     pub transaction: RingCtTransaction,
-    pub spent_proof_shares: BTreeMap<usize, BTreeSet<SpentProofShare>>,
+    pub spent_proof_shares: BTreeMap<KeyImage, BTreeSet<SpentProofShare>>,
 }
 
 impl ReissueRequestBuilder {
@@ -235,8 +235,11 @@ impl ReissueRequestBuilder {
     }
 
     /// Add a SpentProofShare for the given input index
-    pub fn add_spent_proof_share(mut self, input_index: usize, share: SpentProofShare) -> Self {
-        let shares = self.spent_proof_shares.entry(input_index).or_default();
+    pub fn add_spent_proof_share(mut self, share: SpentProofShare) -> Self {
+        let shares = self
+            .spent_proof_shares
+            .entry(share.key_image().clone())
+            .or_default();
         shares.insert(share);
 
         self
@@ -245,10 +248,10 @@ impl ReissueRequestBuilder {
     /// Add a list of SpentProofShare for the given input index
     pub fn add_spent_proof_shares(
         mut self,
-        shares: impl IntoIterator<Item = (usize, SpentProofShare)>,
+        shares: impl IntoIterator<Item = SpentProofShare>,
     ) -> Self {
-        for (input_index, share) in shares.into_iter() {
-            self = self.add_spent_proof_share(input_index, share);
+        for share in shares.into_iter() {
+            self = self.add_spent_proof_share(share);
         }
         self
     }
@@ -258,11 +261,10 @@ impl ReissueRequestBuilder {
         let spent_proofs: BTreeSet<SpentProof> = self
             .spent_proof_shares
             .iter()
-            .map(|(input_index, shares)| {
-                let any_share = shares
-                    .iter()
-                    .next()
-                    .ok_or(Error::ReissueRequestMissingSpentProofShare(*input_index))?;
+            .map(|(key_image, shares)| {
+                let any_share = shares.iter().next().ok_or_else(|| {
+                    Error::ReissueRequestMissingSpentProofShare(key_image.clone())
+                })?;
 
                 if shares
                     .iter()
@@ -292,7 +294,7 @@ impl ReissueRequestBuilder {
 
                 let spent_proof = SpentProof {
                     content: SpentProofContent {
-                        key_image: any_share.key_image().clone(),
+                        key_image: key_image.clone(),
                         transaction_hash: Hash::from(self.transaction.hash()),
                         public_commitments,
                     },

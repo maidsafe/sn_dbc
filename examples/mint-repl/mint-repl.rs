@@ -736,12 +736,11 @@ fn prepare_reissue(
     tx: RingCtTransactionRevealed,
 ) -> Result<ReissueRequestRevealed> {
     let mut rr_builder = ReissueRequestBuilder::new(tx.inner.clone());
-    for (idx, mlsag) in tx.inner.mlsags.iter().enumerate() {
+    for mlsag in tx.inner.mlsags.iter() {
         for (sp_idx, sb_node) in mintinfo.spentbook_nodes.iter_mut().enumerate() {
-            println!("logging input {}, spentbook {}", idx, sp_idx);
+            println!("logging input {:?}, spentbook {}", mlsag.key_image, sp_idx);
             let spent_proof_share = sb_node.log_spent(mlsag.key_image.into(), tx.inner.clone())?;
-
-            rr_builder = rr_builder.add_spent_proof_share(idx, spent_proof_share);
+            rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
         }
     }
 
@@ -850,10 +849,9 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             tx_builder.build(&mut rng8)?;
 
         let mut rr_builder = ReissueRequestBuilder::new(reissue_tx.clone());
-        for (idx, mlsag) in reissue_tx.mlsags.iter().enumerate() {
+        for mlsag in reissue_tx.mlsags.iter() {
             for spentbook_node in mintinfo.spentbook_nodes.iter_mut() {
                 rr_builder = rr_builder.add_spent_proof_share(
-                    idx,
                     spentbook_node.log_spent(mlsag.key_image.into(), reissue_tx.clone())?,
                 );
             }

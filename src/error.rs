@@ -67,7 +67,7 @@ pub enum Error {
     ReissueRequestPublicCommitmentMismatch,
 
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
-    ReissueRequestMissingSpentProofShare(usize),
+    ReissueRequestMissingSpentProofShare(KeyImage),
 
     #[error("The PublicKeySet differs between ReissueShare entries")]
     ReissueSharePublicKeySetMismatch,
