@@ -22,7 +22,8 @@
 //! We could consider moving some or all of this lower into blst_ringct to make these
 //! crates consistent.
 
-use blstrs::{G1Affine, Scalar};
+use blstrs::group::{Curve, Group};
+use blstrs::{G1Affine, G1Projective, Scalar};
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
@@ -49,12 +50,16 @@ pub type KeyImage = PublicKeyBlstMappable;
 // This is a NewType wrapper for blstrs::G1Affine because in places we
 // need to use it as a key in a BTreeMap.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PublicKeyBlstMappable(G1Affine);
 
 impl PublicKeyBlstMappable {
     pub fn to_bytes(&self) -> [u8; 48] {
         self.0.to_compressed()
+    }
+
+    pub fn random(rng: &mut impl rand8::RngCore) -> Self {
+        Self(G1Projective::random(rng).to_affine())
     }
 }
 

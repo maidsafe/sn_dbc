@@ -418,7 +418,7 @@ mod tests {
         let (mint_node, mut spentbook, genesis, _genesis_dbc) =
             GenesisBuilderMock::init_genesis_single(amount, &mut rng, &mut rng8)?;
 
-        let input_owners: Vec<OwnerOnce> = (0..=n_inputs.coerce())
+        let input_owners: Vec<OwnerOnce> = (0..n_inputs.coerce())
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8))
             .collect();
 
@@ -458,7 +458,7 @@ mod tests {
         let owner_once =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
-        let (reissue_tx, _revealed_commitments, material, _output_owners) =
+        let (reissue_tx, _revealed_commitments, _material, _output_owners) =
             crate::TransactionBuilder::default()
                 .add_inputs_dbc(inputs, &mut rng8)?
                 .add_output(
@@ -471,12 +471,7 @@ mod tests {
                 .build(&mut rng8)?;
 
         let mut rr_builder = ReissueRequestBuilder::new(reissue_tx.clone());
-        for (i, (mlsag, _mlsag_material)) in reissue_tx
-            .mlsags
-            .iter()
-            .zip(material.inputs.iter())
-            .enumerate()
-        {
+        for (i, mlsag) in reissue_tx.mlsags.iter().enumerate() {
             let spent_proof_share =
                 spentbook.log_spent(mlsag.key_image.into(), reissue_tx.clone())?;
             rr_builder = rr_builder.add_spent_proof_share(i, spent_proof_share);
@@ -509,9 +504,9 @@ mod tests {
         fuzzed_mint_sigs.extend(
             reissue_share
                 .mint_node_signatures
-                .into_iter()
+                .into_keys()
                 .take(n_valid_sigs.coerce())
-                .map(|(in_owner, _)| (in_owner, (mint_pk, mint_sig.clone()))),
+                .map(|in_owner| (in_owner, (mint_pk, mint_sig.clone()))),
         );
 
         let mut repeating_inputs = reissue_tx
@@ -563,7 +558,7 @@ mod tests {
         // Valid mint signatures for inputs not present in the transaction
         for _ in 0..n_extra_input_sigs.coerce() {
             fuzzed_mint_sigs.insert(
-                Default::default(),
+                KeyImage::random(&mut rng8),
                 (
                     mint_node.key_manager().public_key_set()?.public_key(),
                     mint_sig.clone(),
