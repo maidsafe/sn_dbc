@@ -15,9 +15,9 @@ use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, NodeSignature, OwnerOnce,
+    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, NodeSignature, OwnerOnce,
     PublicKeyBlst, PublicKeyBlstMappable, ReissueRequest, ReissueShare, Result, SecretKeyBlst,
-    SpentProof, SpentProofShare,
+    SpentProof, SpentProofContent, SpentProofShare,
 };
 
 #[cfg(feature = "serde")]
@@ -222,7 +222,7 @@ impl TransactionBuilder {
 #[derive(Debug)]
 pub struct ReissueRequestBuilder {
     pub transaction: RingCtTransaction,
-    pub spent_proof_shares: BTreeMap<usize, HashSet<SpentProofShare>>,
+    pub spent_proof_shares: BTreeMap<usize, BTreeSet<SpentProofShare>>,
 }
 
 impl ReissueRequestBuilder {
@@ -274,13 +274,13 @@ impl ReissueRequestBuilder {
 
                 if shares
                     .iter()
-                    .map(|s| &s.public_commitments)
-                    .any(|pc| *pc != any_share.public_commitments)
+                    .map(|s| s.public_commitments())
+                    .any(|pc| pc != any_share.public_commitments())
                 {
                     return Err(Error::ReissueRequestPublicCommitmentMismatch);
                 }
 
-                let spentbook_pub_key = any_share.spentbook_public_key();
+                let spentbook_pub_key = any_share.spentbook_pks().public_key();
                 let spentbook_sig = any_share.spentbook_pks.combine_signatures(
                     shares
                         .iter()
@@ -288,13 +288,16 @@ impl ReissueRequestBuilder {
                         .map(NodeSignature::threshold_crypto),
                 )?;
 
-                let public_commitments: Vec<Commitment> = any_share.public_commitments.clone();
+                let public_commitments: Vec<Commitment> = any_share.public_commitments().clone();
 
                 let spent_proof = SpentProof {
-                    key_image: any_share.key_image.clone(),
+                    content: SpentProofContent {
+                        key_image: any_share.key_image().clone(),
+                        transaction_hash: Hash::from(self.transaction.hash()),
+                        public_commitments,
+                    },
                     spentbook_pub_key,
                     spentbook_sig,
-                    public_commitments,
                 };
 
                 Ok(spent_proof)
@@ -477,8 +480,8 @@ impl DbcBuilder {
 // SpentBookNodeMock, SimpleKeyManager, SimpleSigner, GenesisBuilderMock
 pub mod mock {
     use crate::{
-        Amount, Dbc, GenesisDbcShare, KeyManager, MintNode, Result, SimpleKeyManager, SimpleSigner,
-        SpentBookNodeMock, SpentProof, SpentProofShare,
+        Amount, Dbc, GenesisDbcShare, Hash, KeyManager, MintNode, Result, SimpleKeyManager,
+        SimpleSigner, SpentBookNodeMock, SpentProof, SpentProofContent, SpentProofShare,
     };
     use blsttc::{SecretKeySet, SignatureShare};
     use std::collections::{BTreeMap, BTreeSet};
@@ -670,11 +673,16 @@ pub mod mock {
                 .spentbook_pks
                 .combine_signatures(spent_sigs)?;
 
+            let transaction_hash = Hash::from(genesis_dbc_share_arbitrary.transaction.hash());
+
             let spent_proofs = BTreeSet::from_iter([SpentProof {
-                key_image: spent_proof_share_arbitrary.key_image.clone(),
+                content: SpentProofContent {
+                    key_image: spent_proof_share_arbitrary.key_image().clone(),
+                    transaction_hash,
+                    public_commitments: spent_proof_share_arbitrary.public_commitments().clone(),
+                },
                 spentbook_pub_key: spent_proof_share_arbitrary.spentbook_pks.public_key(),
                 spentbook_sig,
-                public_commitments: spent_proof_share_arbitrary.public_commitments.clone(),
             }]);
 
             // Create the Genesis Dbc

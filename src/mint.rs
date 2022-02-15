@@ -260,7 +260,7 @@ mod tests {
     use crate::{
         tests::{TinyInt, TinyVec},
         AmountSecrets, Dbc, DbcBuilder, GenesisBuilderMock, OwnerOnce, ReissueRequestBuilder,
-        SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
+        SimpleKeyManager, SimpleSigner, SpentBookNodeMock, SpentProofContent,
     };
 
     #[test]
@@ -598,8 +598,11 @@ mod tests {
                             Err(e) => return check_error(e),
                         };
                     SpentProofShare {
-                        key_image: spent_proof_share.key_image,
-                        public_commitments: spent_proof_share.public_commitments,
+                        content: SpentProofContent {
+                            key_image: spent_proof_share.key_image().clone(),
+                            transaction_hash: spent_proof_share.transaction_hash(),
+                            public_commitments: spent_proof_share.public_commitments().clone(),
+                        },
                         spentbook_pks: spent_proof_share.spentbook_pks,
                         spentbook_sig_share: NodeSignature::new(
                             0,

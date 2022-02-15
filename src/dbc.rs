@@ -432,10 +432,9 @@ mod tests {
         )?;
 
         let sp = reissue_request.spent_proofs.iter().next().unwrap();
-        assert!(sp.spentbook_pub_key.verify(
-            &sp.spentbook_sig,
-            Hash::from(reissue_request.transaction.hash())
-        ));
+        assert!(sp
+            .spentbook_pub_key
+            .verify(&sp.spentbook_sig, sp.content.hash()));
 
         let split_reissue_share = mint_node.reissue(reissue_request)?;
 
