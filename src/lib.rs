@@ -14,6 +14,7 @@ mod builder;
 mod dbc;
 mod dbc_content;
 mod error;
+mod genesis;
 mod key_manager;
 mod mint;
 mod owner;
@@ -32,6 +33,7 @@ pub use crate::{
     dbc::Dbc,
     dbc_content::{Amount, DbcContent},
     error::{Error, Result},
+    genesis::GenesisMaterial,
     key_manager::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
         SimpleSigner,

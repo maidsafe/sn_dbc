@@ -653,7 +653,7 @@ pub mod mock {
             // Make a list of (Index, SignatureShare) for combining sigs.
             let node_sigs: Vec<(u64, &SignatureShare)> = genesis_set
                 .iter()
-                .map(|g| g.transaction_sig.threshold_crypto())
+                .map(|g| g.mintnode_sig_share.threshold_crypto())
                 .collect();
 
             let mint_node_arbitrary = &mint_nodes[0];
