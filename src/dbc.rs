@@ -135,9 +135,12 @@ impl Dbc {
     /// This is useful for checking if a Dbc has been spent.
     pub fn key_image(&self, base_sk: &SecretKey) -> Result<KeyImage> {
         let owner_once = self.owner_once(base_sk)?;
-        let derived_public_key = owner_once.public_key_blst();
         let secret_key = owner_once.secret_key_blst()?;
-        Ok(blst_ringct::key_image(derived_public_key.into(), secret_key).into())
+        Ok(
+            blst_ringct::key_image(secret_key)
+                .to_affine()
+                .into(),
+        )
     }
 
     /// returns KeyImage for the owner's derived public key
