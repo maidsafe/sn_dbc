@@ -11,7 +11,6 @@ use crate::{DbcContent, DerivationIndex, Error, KeyManager, Result};
 use blst_ringct::ringct::{OutputProof, RingCtTransaction};
 use blst_ringct::{RevealedCommitment, TrueInput};
 use blstrs::group::Curve;
-use blstrs::G1Projective;
 use blsttc::{PublicKey, SecretKey, Signature};
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::TryFrom;
@@ -136,11 +135,9 @@ impl Dbc {
     /// This is useful for checking if a Dbc has been spent.
     pub fn key_image(&self, base_sk: &SecretKey) -> Result<KeyImage> {
         let owner_once = self.owner_once(base_sk)?;
-        let public_key: G1Projective = owner_once.public_key_blst().into();
+        let derived_public_key = owner_once.public_key_blst();
         let secret_key = owner_once.secret_key_blst()?;
-        Ok((blst_ringct::hash_to_curve(public_key) * secret_key)
-            .to_affine()
-            .into())
+        Ok(blst_ringct::key_image(derived_public_key.into(), secret_key).into())
     }
 
     /// returns KeyImage for the owner's derived public key
