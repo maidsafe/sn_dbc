@@ -15,13 +15,12 @@
 
 use crate::{
     Amount, AmountSecrets, DbcContent, Error, Hash, KeyImage, KeyManager, NodeSignature, Owner,
-    OwnerOnce, PublicKey, PublicKeyBlst, PublicKeySet, Result, SecretKeyBlst, SpentProof,
-    SpentProofShare, TransactionValidator,
+    OwnerOnce, PublicKey, PublicKeySet, Result, SecretKeyBlst, SpentProof, SpentProofShare,
+    TransactionValidator,
 };
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 use blst_ringct::{Output, RevealedCommitment};
-use blstrs::group::prime::PrimeCurveAffine;
 use blstrs::group::Curve;
 use blsttc::{poly::Poly, SecretKeySet};
 use rand_core::RngCore;
@@ -110,7 +109,7 @@ impl<K: KeyManager> MintNode<K> {
         // create sk and derive pk.
         let secret_key =
             SecretKeyBlst::from_bytes_be(&secret_key_set_derived.secret_key().to_bytes()).unwrap();
-        let public_key = (PublicKeyBlst::generator() * secret_key).to_affine();
+        let public_key = blst_ringct::public_key(secret_key).to_affine();
 
         let true_input = TrueInput {
             secret_key: input_secret_key,
