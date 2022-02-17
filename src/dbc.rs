@@ -136,11 +136,7 @@ impl Dbc {
     pub fn key_image(&self, base_sk: &SecretKey) -> Result<KeyImage> {
         let owner_once = self.owner_once(base_sk)?;
         let secret_key = owner_once.secret_key_blst()?;
-        Ok(
-            blst_ringct::key_image(secret_key)
-                .to_affine()
-                .into(),
-        )
+        Ok(blst_ringct::key_image(secret_key).to_affine().into())
     }
 
     /// returns KeyImage for the owner's derived public key
