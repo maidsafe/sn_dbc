@@ -1,6 +1,6 @@
 [package]
 name = "sn_dbc"
-version = "2.9.2"
+version = "2.10.0"
 description = "Safe Network DBC"
 license = "MIT OR BSD-3-Clause"
 repository = "https://github.com/maidsafe/sn_dbc"
@@ -11,43 +11,32 @@ edition = "2018"
 
 [features]
 dkg = [ "bls_dkg" ]
-
-#-- Notes:
-#--  1. We want to be able to say cargo build --features serde
-#--  2. Feature name must be different from dependency name (or cargo gives error).
-#--  3. We must define serde feature explicitly in order to pass --features serde to crates we depend on.
-#--  4. Given 1-3, a solution *should* be to alias serde dep.  (serde --> serdes) and change code refs.
-#--  5. However that results in Serialize macro "can't find crate" error.
-#--  6. So for now we give up and name this feature "serdes" instead.
-#    7. But there is hope, because...
-#--  8. [2] is fixed with Namespaced Features in latest nightly.  Once in stable,
-#--     everything will work as desired.
-#--     See: https://doc.rust-lang.org/cargo/reference/unstable.html#namespaced-features
-#--     So this can change to:
-#--       serde = ["dep:serde", ... ]
-serdes = [
-  "serde",
-  "ringct-serde",
-#  "blsttc-serde",
-]
-
-ringct-serde = ["blst_ringct/serde"]
-#blsttc-serde = ["blsttc/serde"]
+serdes = [ "serde", "ringct-serde" ]
+ringct-serde = [ "blst_ringct/serde" ]
 
 [dependencies]
 thiserror = "1.0.24"
-quickcheck = {git="https://github.com/davidrusu/quickcheck.git", branch="only-build-debug-reprs-on-failure"}
 quickcheck_macros = "1"
 rand = "0.7.1"
-blst_ringct = {git="https://github.com/maidsafe/blst-ringct"}
 blsttc = "3.3.0"
 hex = "0.4.3"
-#blstrs = "0.4.1"
-blstrs = { git = "https://github.com/davidrusu/blstrs.git", branch="bulletproofs-fixes" }
-bulletproofs = { git = "https://github.com/davidrusu/blst-bulletproofs.git", branch="bls12-381-curve" }
 rand_core = "0.6.3"
 xor_name = "3.1.0"
 
+  [dependencies.quickcheck]
+  git = "https://github.com/davidrusu/quickcheck.git"
+  branch = "only-build-debug-reprs-on-failure"
+
+  [dependencies.blst_ringct]
+  git = "https://github.com/maidsafe/blst-ringct"
+
+  [dependencies.blstrs]
+  git = "https://github.com/davidrusu/blstrs.git"
+  branch = "bulletproofs-fixes"
+
+  [dependencies.bulletproofs]
+  git = "https://github.com/davidrusu/blst-bulletproofs.git"
+  branch = "bls12-381-curve"
 
   [dependencies.rand8]
   package = "rand"
@@ -61,7 +50,7 @@ xor_name = "3.1.0"
   version = "2.0.0"
   features = [ "sha3" ]
 
-[dependencies.serde]
+  [dependencies.serde]
   version = "1.0.133"
   features = [ "derive", "rc" ]
   optional = true

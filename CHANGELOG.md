@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.10.0](https://github.com/maidsafe/sn_dbc/compare/v2.9.2...v2.10.0) (2022-02-17)
+
+
+### Features
+
+* add Dbc::key_image() for checking if spent ([f72fe8f](https://github.com/maidsafe/sn_dbc/commit/f72fe8f04656328cce313dc0ee25389864a1f539))
+* add GenesisBuilderMock ([cfc2b67](https://github.com/maidsafe/sn_dbc/commit/cfc2b673d657bf0d1dbce02bff9ddfcc032e1d45))
+* add input/output getters to Tx builder ([78d910c](https://github.com/maidsafe/sn_dbc/commit/78d910c103b83d6d827a864badd2e28eeee3cd15))
+* add mock spentbook to tests ([f1ee03c](https://github.com/maidsafe/sn_dbc/commit/f1ee03c4a1f9d1ffc8710fa4f5530ebc563a6f51))
+* add serde feature flag ([ff32395](https://github.com/maidsafe/sn_dbc/commit/ff323950405538a4d8ba72642c53371462599dbc))
+* add spentbook pubkey to mint's key_manager ([c2bce8b](https://github.com/maidsafe/sn_dbc/commit/c2bce8b04ad11038cc3c65de196917efaa7a2200))
+* include AmountSecrets ciphertext in DbcContent ([90f8a01](https://github.com/maidsafe/sn_dbc/commit/90f8a01505211262b0dec04fff6d2477c57e12a2))
+* integrate ringct into sn_dbc. wip: it now builds without warnings ([289b242](https://github.com/maidsafe/sn_dbc/commit/289b242c1b65ebb033841fd99fd3f5812c914277))
+* re-enable two tests: tests::hash, mint::tests::prop_genesis ([b239316](https://github.com/maidsafe/sn_dbc/commit/b239316f657d3fa4b7eeb938baf2e5d780e91303))
+* return RingCtMaterial from TransactionBuilder::build() ([afede07](https://github.com/maidsafe/sn_dbc/commit/afede07dbe5aa99c20bf3a5368480c65222c59b4))
+* update mint-repl to use ringct ([5c41110](https://github.com/maidsafe/sn_dbc/commit/5c4111054b5cdd88aa6026382f41d71e2f880dfd))
+* use PublicKey from KeyManager for genesis dbc owner ([29dd342](https://github.com/maidsafe/sn_dbc/commit/29dd3428647fc2f801f1d8e00f4d133f4a8b145f))
+* validate tx in spentbook ([42fb29e](https://github.com/maidsafe/sn_dbc/commit/42fb29e664fa719652f403b3b60213dc1554346c))
+* working on ringct integration. does not build ([411d8d3](https://github.com/maidsafe/sn_dbc/commit/411d8d35fad773df5bc4dab4aab5e1862a97a7d1))
+
+
+### Bug Fixes
+
+* avoid possible panic in issue_genesis_dbc ([5fa45c7](https://github.com/maidsafe/sn_dbc/commit/5fa45c71d9e6e5d41511e50eff6ec413bf49b728))
+* first pass at public_commitments. prop_splitting_the_genesis_dbc() test (mostly) passes ([cf38ec7](https://github.com/maidsafe/sn_dbc/commit/cf38ec7c07bf420c8ee9ee3b452370cc968ceca9))
+* handle empty output_amounts in test prop_splitting_the_genesis_dbc ([26c05dd](https://github.com/maidsafe/sn_dbc/commit/26c05dde23da436f38c4356383ebd062e5bcff28))
+* make dbc_packet.rs build again ([6670818](https://github.com/maidsafe/sn_dbc/commit/6670818d8db6c36bb015eb061487724a9c5eab9a))
+* make ReissueRequestBuilder and DbcBuilder build again ([6db4449](https://github.com/maidsafe/sn_dbc/commit/6db44494eb688b0d5dedfbf6aabe0c8881f08ac2))
+* prop_dbc_transaction_many_to_many() is passing now ([d0e29f3](https://github.com/maidsafe/sn_dbc/commit/d0e29f3b0a4c07a6d4af1f2733b6df0eed2917d4))
+* refactor to include tx_hash in spentbook sig ([2069d34](https://github.com/maidsafe/sn_dbc/commit/2069d3421141241be02c4e6f502d386b008bec79))
+* refactor to validate spent_proofs in Dbc::confirm_valid ([0059b3e](https://github.com/maidsafe/sn_dbc/commit/0059b3ed907d35a00afe4992762f0781f9565fb6))
+* reverse logic valdiating spentproof shares ([b9d2e5c](https://github.com/maidsafe/sn_dbc/commit/b9d2e5ca4fa0d381096375bd7d3dd705ca920f0d))
+* **mint:** verify KeyImage unique across inputs ([56c62c8](https://github.com/maidsafe/sn_dbc/commit/56c62c8eeec0032d1cbe3311aa1a9f9227482e82))
+* **reissue:** key mint sigs by mlsag index not KeyImage ([5d0b72f](https://github.com/maidsafe/sn_dbc/commit/5d0b72f2ea0aeaf9edcdc5a675a696f38340f837))
+* use deterministic secret key for genesis dbc ([4edfd6c](https://github.com/maidsafe/sn_dbc/commit/4edfd6cf11774a2885c705e78730e711f6504c13))
+
 ### [2.9.2](https://github.com/maidsafe/sn_dbc/compare/v2.9.1...v2.9.2) (2021-12-04)
 
 ### [2.9.1](https://github.com/maidsafe/sn_dbc/compare/v2.9.0...v2.9.1) (2021-10-22)
