@@ -64,7 +64,7 @@ impl Ord for SpentProofContent {
 /// A share of a SpentProof, combine enough of these to form a
 /// SpentProof.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct SpentProofShare {
     /// data to be signed
     pub content: SpentProofContent,
@@ -74,15 +74,21 @@ pub struct SpentProofShare {
     pub spentbook_sig_share: NodeSignature,
 }
 
-impl PartialOrd for SpentProofShare {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+// impl manually to avoid clippy complaint about Hash conflict.
+impl PartialEq for SpentProofShare {
+    fn eq(&self, other: &Self) -> bool {
+        self.content == other.content
+            && self.spentbook_pks == other.spentbook_pks
+            && self.spentbook_sig_share == other.spentbook_sig_share
     }
 }
 
-impl Ord for SpentProofShare {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.content.cmp(&other.content)
+impl Eq for SpentProofShare {}
+
+impl std::hash::Hash for SpentProofShare {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let bytes = self.to_bytes();
+        bytes.hash(state);
     }
 }
 
@@ -110,6 +116,15 @@ impl SpentProofShare {
     /// get spentbook's PublicKeySet
     pub fn spentbook_pks(&self) -> &PublicKeySet {
         &self.spentbook_pks
+    }
+
+    /// represent this SpentProofContent as bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = self.content.to_bytes();
+
+        bytes.extend(&self.spentbook_pks.to_bytes());
+        bytes.extend(self.spentbook_sig_share.to_bytes());
+        bytes
     }
 }
 
