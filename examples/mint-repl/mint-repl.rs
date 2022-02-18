@@ -816,7 +816,8 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
         while tx_builder.outputs_amount_sum() < inputs_sum || tx_builder.outputs().is_empty() {
             // randomize output amount
             let diff = inputs_sum - tx_builder.outputs_amount_sum();
-            let amount = rng.gen_range(0, diff + 1);
+            let range_max = if diff == Amount::MAX { diff } else { diff + 1 };
+            let amount = rng.gen_range(0, range_max);
 
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);

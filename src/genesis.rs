@@ -1,11 +1,10 @@
-use crate::{Amount, KeyImage, Owner, OwnerOnce, PublicKeyBlst, SecretKeyBlst};
+use crate::{Amount, BlsHelper, KeyImage, Owner, OwnerOnce};
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::RingCtMaterial;
 use blst_ringct::{Output, RevealedCommitment};
-use blstrs::group::prime::PrimeCurveAffine;
 use blstrs::group::Curve;
 use blstrs::Scalar;
-use blsttc::{poly::Poly, SecretKeySet};
+use blsttc::IntoFr;
 
 /// represents all the inputs required to build the Genesis Dbc.
 pub struct GenesisMaterial {
@@ -28,70 +27,65 @@ impl Default for GenesisMaterial {
     ///
     /// todo: implement Network enum {Mainnet, Testnet, ...}
     fn default() -> Self {
-        // Make a secret key for the input to Genesis Tx.
-        let input_poly = Poly::zero();
-        let input_secret_key_set = SecretKeySet::from(input_poly);
-
-        // fixme, unwrap.
-        // note: this is only temporary until blsttc is impld with blstrs.  At which
-        // point the byte conversion and unwrap should not be necessary.
-        // Thus, we are not returning a Result from this fn.
-        let input_secret_key =
-            SecretKeyBlst::from_bytes_be(&input_secret_key_set.secret_key().to_bytes()).unwrap();
+        // Make a secret key for the input of Genesis Tx. (fictional Dbc)
+        // note that this represents the one-time-use key.
+        // (we have no need for the base key)
+        // The seed is an homage to bitcoin.  block 0 timestamp (utc).
+        let input_sk_seed: u64 = 1231006505;
+        let input_sk = blsttc::SecretKey::from_mut(&mut input_sk_seed.into_fr());
 
         // Make a secret key for the output of Genesis Tx. (The Genesis Dbc)
-        let poly = Poly::one();
-        let secret_key_set = SecretKeySet::from(poly);
+        // note that this represents the base key, from which one-time-use key is derived.
+        // The seed is an homage to monero.  block 1 timestamp (utc).
+        // We do not use the block 0 timestamp because it is 0 (1970) which is boring!
+        let output_sk_seed: u64 = 1397843393;
+        let output_sk = blsttc::SecretKey::from_mut(&mut output_sk_seed.into_fr());
 
-        let owner_once = OwnerOnce {
-            owner_base: Owner::from(secret_key_set.secret_key()),
+        // OwnerOnce ties together the base key and one-time-use key.
+        let output_owner_once = OwnerOnce {
+            owner_base: Owner::from(output_sk.clone()),
             derivation_index: [1; 32],
         };
 
-        let secret_key_set_derived = secret_key_set.derive_child(&owner_once.derivation_index);
+        // note: we could call output_owner_once.owner().secret_key()
+        //       but this way avoids need for an unwrap()
+        let output_sk_once = output_sk.derive_child(&output_owner_once.derivation_index);
 
-        // create sk and derive pk.
-        let secret_key =
-            SecretKeyBlst::from_bytes_be(&secret_key_set_derived.secret_key().to_bytes()).unwrap();
-        let public_key = (PublicKeyBlst::generator() * secret_key).to_affine();
-
+        // build our TrueInput
         let true_input = TrueInput {
-            secret_key: input_secret_key,
+            secret_key: BlsHelper::blsttc_to_blstrs_secret_key(input_sk),
             revealed_commitment: RevealedCommitment {
                 value: Self::GENESIS_AMOUNT,
-                blinding: 5.into(), // todo: choose Genesis blinding factor.
+                blinding: 1776.into(), // freedom baby!
             },
         };
 
-        let input_key_image = true_input.key_image().to_affine().into();
+        // make things a bit easier for our callers.
+        let input_key_image: KeyImage = true_input.key_image().to_affine().into();
 
+        // build our MlsagMaterial manually without randomness.
         // note: no decoy inputs because no other DBCs exist prior to genesis DBC.
-        let decoy_inputs = vec![];
-
-        let ring_len = decoy_inputs.len() + 1;
-        let r: Vec<(Scalar, Scalar)> = (0..ring_len)
-            .map(|_| (Scalar::default(), Scalar::default()))
-            .collect();
-
         let mlsag_material = MlsagMaterial {
             true_input,
-            decoy_inputs,
+            decoy_inputs: vec![],
             pi_base: 0,
             alpha: (Default::default(), Default::default()),
-            r,
+            r: vec![(Scalar::default(), Scalar::default())],
         };
 
+        // onward to RingCtMaterial
         let ringct_material = RingCtMaterial {
             inputs: vec![mlsag_material],
             outputs: vec![Output {
-                public_key,
+                public_key: BlsHelper::blsttc_to_blstrs_public_key(&output_sk_once.public_key()),
                 amount: Self::GENESIS_AMOUNT,
             }],
         };
 
+        // Voila!
         Self {
             ringct_material,
-            owner_once,
+            owner_once: output_owner_once,
             input_key_image,
         }
     }
