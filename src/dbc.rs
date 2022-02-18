@@ -280,7 +280,7 @@ impl Dbc {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use std::iter::FromIterator;
@@ -289,9 +289,9 @@ mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
-        Amount, AmountSecrets, DbcBuilder, GenesisBuilderMock, Hash, KeyManager, OutputOwnerMap,
-        Owner, OwnerOnce, ReissueRequest, ReissueRequestBuilder, SecretKeyBlst, SimpleKeyManager,
-        SimpleSigner, SpentBookNodeMock,
+        Amount, AmountSecrets, DbcBuilder, GenesisBuilderMock, Hash, KeyManager, MintNode,
+        OutputOwnerMap, Owner, OwnerOnce, ReissueRequest, ReissueRequestBuilder, SecretKeyBlst,
+        SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
     };
     use blst_ringct::ringct::RingCtMaterial;
     use blst_ringct::{DecoyInput, Output, RevealedCommitment};
@@ -411,16 +411,23 @@ mod tests {
 
         let amount = 100;
 
-        let (mint_node, mut spentbook, genesis, _genesis_dbc) =
-            GenesisBuilderMock::init_genesis_single(amount, &mut rng, &mut rng8)?;
+        // first we will reissue genesis into outputs (100, GENESIS-100).
+        // The 100 output will be our starting_dbc.
+        //
+        // we do this instead of just using GENESIS_AMOUNT as our starting amount
+        // because GENESIS_AMOUNT is u64::MAX (or could be) and later in the test
+        // we add extra_output_amount to amount, which would otherwise
+        // cause an integer overflow.
+        let (mint_node, mut spentbook, _genesis_dbc, starting_dbc, _change_dbc) =
+            generate_dbc_of_value(amount, &mut rng, &mut rng8)?;
 
         let input_owners: Vec<OwnerOnce> = (0..n_inputs.coerce())
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8))
             .collect();
 
         let (reissue_request, revealed_commitments, output_owners) = prepare_even_split(
-            genesis.owner_once.as_owner().secret_key_blst()?,
-            genesis.amount_secrets,
+            starting_dbc.owner_once_bearer()?.secret_key_blst()?,
+            starting_dbc.amount_secrets_bearer()?,
             n_inputs.coerce(),
             input_owners,
             &mut spentbook,
@@ -431,7 +438,6 @@ mod tests {
         assert!(sp
             .spentbook_pub_key
             .verify(&sp.spentbook_sig, sp.content.hash()));
-
         let split_reissue_share = mint_node.reissue(reissue_request)?;
 
         let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
@@ -473,7 +479,9 @@ mod tests {
         }
 
         let rr = rr_builder.build()?;
+
         let reissue_share = mint_node.reissue(rr)?;
+
         assert_eq!(reissue_tx.hash(), reissue_share.transaction.hash());
 
         let (mint_key_set, mint_sig_share) =
@@ -653,5 +661,61 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn generate_dbc_of_value(
+        amount: Amount,
+        rng: &mut impl rand::RngCore,
+        rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
+    ) -> Result<(MintNode<SimpleKeyManager>, SpentBookNodeMock, Dbc, Dbc, Dbc)> {
+        let (mint_node, mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
+            GenesisBuilderMock::init_genesis_single(rng, rng8)?;
+
+        let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
+
+        let (tx, revealed_commitments, _material, output_owners) =
+            crate::TransactionBuilder::default()
+                .add_input_by_secrets(
+                    genesis_dbc.owner_once_bearer()?.secret_key_blst()?,
+                    genesis_dbc.amount_secrets_bearer()?,
+                    vec![], // never any decoys for genesis
+                    rng8,
+                )
+                .add_outputs(output_amounts.into_iter().map(|amount| {
+                    let owner_once =
+                        OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng), rng8);
+                    (
+                        Output {
+                            amount,
+                            public_key: owner_once.as_owner().public_key_blst(),
+                        },
+                        owner_once,
+                    )
+                }))
+                .build(rng8)?;
+
+        // Build ReissuRequest
+        let mut rr_builder = ReissueRequestBuilder::new(tx.clone());
+        for mlsag in tx.mlsags.iter() {
+            let spent_proof_share = spentbook_node.log_spent(mlsag.key_image.into(), tx.clone())?;
+            rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
+        }
+        let rr = rr_builder.build()?;
+
+        let reissue_share = mint_node.reissue(rr)?;
+        let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
+        dbc_builder = dbc_builder.add_reissue_share(reissue_share);
+
+        let mut iter = dbc_builder.build()?.into_iter();
+        let (starting_dbc, ..) = iter.next().unwrap();
+        let (change_dbc, ..) = iter.next().unwrap();
+
+        Ok((
+            mint_node,
+            spentbook_node,
+            genesis_dbc,
+            starting_dbc,
+            change_dbc,
+        ))
     }
 }

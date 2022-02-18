@@ -94,7 +94,7 @@ fn main() -> Result<()> {
     println!("Type 'help' to get started.\n");
 
     // Create a default mint with money supply = 1000.
-    let mut mintinfo: MintInfo = mk_new_random_mint(0, 1000)?;
+    let mut mintinfo: MintInfo = mk_new_random_mint(0)?;
 
     let mut rl = Editor::<()>::new();
     rl.set_auto_add_history(true);
@@ -161,21 +161,6 @@ fn newmint() -> Result<MintInfo> {
         return Err(anyhow!("newmint operation cancelled"));
     }
 
-    let amount = loop {
-        let amount: Amount = readline_prompt("\nTotal Money Supply Amount: ")?.parse()?;
-
-        if amount == 0 {
-            let answer = readline_prompt(
-                "\nA mint with supply == 0 can only reissue Dbc worth 0. Change? [y/n]: ",
-            )?;
-            if answer.to_ascii_lowercase() != "n" {
-                continue;
-            }
-            // note: we allow amount to be 0.  Let sn_dbc validation deal with it (or not).
-        }
-        break amount;
-    };
-
     // polynomial, from which SecretKeySet is built.
     let poly_input = readline_prompt_nl("\nSecretKeySet Poly Hex, or [r]andom: ")?;
 
@@ -190,12 +175,12 @@ fn newmint() -> Result<MintInfo> {
                     println!("\nThere must be at least 1 signer\n");
                 }
             };
-            mk_new_random_mint(threshold, amount)?
+            mk_new_random_mint(threshold)?
         }
         _ => {
             let poly: Poly = from_be_hex(&poly_input)?;
             let secret_key_set = SecretKeySet::from(poly.clone());
-            mk_new_mint(secret_key_set, poly, amount)?
+            mk_new_mint(secret_key_set, poly)?
         }
     };
 
@@ -205,21 +190,21 @@ fn newmint() -> Result<MintInfo> {
 }
 
 /// creates a new mint using a random seed.
-fn mk_new_random_mint(threshold: usize, amount: Amount) -> Result<MintInfo> {
+fn mk_new_random_mint(threshold: usize) -> Result<MintInfo> {
     let (poly, secret_key_set) = mk_secret_key_set(threshold)?;
-    mk_new_mint(secret_key_set, poly, amount)
+    mk_new_mint(secret_key_set, poly)
 }
 
 /// creates a new mint from an existing SecretKeySet that was seeded by poly.
-fn mk_new_mint(sks: SecretKeySet, poly: Poly, genesis_amount: Amount) -> Result<MintInfo> {
+fn mk_new_mint(sks: SecretKeySet, poly: Poly) -> Result<MintInfo> {
     let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
 
     // make as many spentbook nodes as mintnodes. (for now)
     let num_mint_nodes = sks.threshold() + 1;
     let num_spentbook_nodes = num_mint_nodes;
 
-    let (mint_nodes, spentbook_nodes, _genesis_dbc_shares, genesis_dbc) =
-        GenesisBuilderMock::from(genesis_amount)
+    let (mint_nodes, spentbook_nodes, genesis_dbc, _genesis, _amount_secrets) =
+        GenesisBuilderMock::default()
             .gen_mint_nodes_with_sks(num_mint_nodes, &sks)
             .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
             .build(&mut rng8)?;

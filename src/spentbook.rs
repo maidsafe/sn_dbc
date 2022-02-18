@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blst_ringct::ringct::{OutputProof, RingCtMaterial, RingCtTransaction};
+use blst_ringct::ringct::{OutputProof, RingCtTransaction};
 use blst_ringct::DecoyInput;
 use blstrs::group::Curve;
 use std::collections::{BTreeMap, HashMap};
@@ -14,8 +14,8 @@ use std::collections::{BTreeMap, HashMap};
 use rand8::prelude::IteratorRandom;
 
 use crate::{
-    Commitment, Hash, KeyImage, KeyManager, PublicKeyBlstMappable, Result, SimpleKeyManager,
-    SpentProofContent, SpentProofShare,
+    Commitment, GenesisMaterial, Hash, KeyImage, KeyManager, PublicKeyBlstMappable, Result,
+    SimpleKeyManager, SpentProofContent, SpentProofShare,
 };
 
 /// This is a mock SpentBook used for our test cases. A proper implementation
@@ -48,31 +48,24 @@ pub struct SpentBookNodeMock {
     pub key_images: BTreeMap<KeyImage, Hash>,
     pub outputs: BTreeMap<PublicKeyBlstMappable, OutputProof>,
 
-    pub genesis: Option<(KeyImage, Commitment)>, // genesis input (keyimage, public_commitment)
+    pub genesis: (KeyImage, Commitment), // genesis input (keyimage, public_commitment)
 }
 
 impl From<SimpleKeyManager> for SpentBookNodeMock {
     fn from(key_manager: SimpleKeyManager) -> Self {
-        Self {
-            key_manager,
-            transactions: Default::default(),
-            key_images: Default::default(),
-            outputs: Default::default(),
-            genesis: None,
-        }
-    }
-}
-
-impl From<(SimpleKeyManager, KeyImage, Commitment)> for SpentBookNodeMock {
-    fn from(params: (SimpleKeyManager, KeyImage, Commitment)) -> Self {
-        let (key_manager, key_image, public_commitment) = params;
+        let genesis_material = GenesisMaterial::default();
+        let public_commitment = genesis_material.ringct_material.inputs[0]
+            .true_input
+            .revealed_commitment()
+            .commit(&bulletproofs::PedersenGens::default())
+            .to_affine();
 
         Self {
             key_manager,
             transactions: Default::default(),
             key_images: Default::default(),
             outputs: Default::default(),
-            genesis: Some((key_image, public_commitment)),
+            genesis: (genesis_material.input_key_image, public_commitment),
         }
     }
 }
@@ -125,10 +118,7 @@ impl SpentBookNodeMock {
 
         // If this is the very first tx logged and genesis key_image was not
         // provided, then it becomes the genesis tx.
-        let (genesis_key_image, genesis_public_commitment) = match &self.genesis {
-            Some((k, pc)) => (k, pc),
-            None => panic!("Genesis key_image and public commitments unavailable"),
-        };
+        let (genesis_key_image, genesis_public_commitment) = &self.genesis;
 
         // public_commitments are not available in spentbook for genesis transaction.
         let public_commitments_info: Vec<(KeyImage, Vec<Commitment>)> =
@@ -223,17 +213,6 @@ impl SpentBookNodeMock {
             // fixme: return an error.  can wait until we refactor into a Mock feature flag.
             Err(crate::Error::SpentbookKeyImageAlreadySpent)
         }
-    }
-
-    pub fn set_genesis(&mut self, material: &RingCtMaterial) {
-        let key_image = KeyImage::from(material.inputs[0].true_input.key_image().to_affine());
-        let public_commitment = material.inputs[0]
-            .true_input
-            .revealed_commitment
-            .commit(&Default::default())
-            .to_affine();
-
-        self.genesis = Some((key_image, public_commitment));
     }
 
     // return a list of DecoyInput built from randomly

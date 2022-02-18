@@ -14,12 +14,10 @@
 // Outputs <= input value
 
 use crate::{
-    Amount, AmountSecrets, DbcContent, Error, GenesisMaterial, Hash, KeyImage, KeyManager,
-    NodeSignature, OwnerOnce, PublicKey, PublicKeySet, Result, SpentProof, SpentProofShare,
-    TransactionValidator,
+    Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, SpentProof,
+    SpentProofShare, TransactionValidator,
 };
-use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
-use rand_core::RngCore;
+use blst_ringct::ringct::RingCtTransaction;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg(feature = "serde")]
@@ -27,18 +25,6 @@ use serde::{Deserialize, Serialize};
 
 pub type MintNodeSignature = (PublicKeySet, NodeSignature);
 pub type MintNodeSignatures = BTreeMap<KeyImage, MintNodeSignature>;
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Clone)]
-pub struct GenesisDbcShare {
-    pub ringct_material: RingCtMaterial,
-    pub dbc_content: DbcContent,
-    pub amount_secrets: AmountSecrets,
-    pub owner_once: OwnerOnce,
-    pub transaction: RingCtTransaction,
-    pub mintnode_sig_share: NodeSignature,
-    pub input_key_image: KeyImage,
-}
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
@@ -79,47 +65,6 @@ impl<K: KeyManager> MintNode<K> {
             .add_known_key(public_key)
             .map_err(|e| Error::Signing(e.to_string()))?;
         Ok(self)
-    }
-
-    pub fn issue_genesis_dbc(
-        self,
-        amount: Amount,
-        mut rng: impl RngCore + rand_core::CryptoRng,
-    ) -> Result<(Self, GenesisDbcShare)> {
-        let GenesisMaterial {
-            ringct_material,
-            owner_once,
-            input_key_image,
-        } = GenesisMaterial::new(amount)?;
-
-        // Here we sign as the input DBC owner.
-        let (transaction, revealed_commitments) = ringct_material.sign(&mut rng)?;
-
-        let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
-        let dbc_content = DbcContent::from((
-            owner_once.owner_base.clone(),
-            owner_once.derivation_index,
-            amount_secrets.clone(),
-        ));
-
-        // Here we sign as the mint.
-        let mintnode_sig_share = self
-            .key_manager
-            .sign(&Hash::from(transaction.hash()))
-            .map_err(|e| Error::Signing(e.to_string()))?;
-
-        Ok((
-            self,
-            GenesisDbcShare {
-                ringct_material,
-                dbc_content,
-                amount_secrets,
-                owner_once,
-                transaction,
-                mintnode_sig_share,
-                input_key_image,
-            },
-        ))
     }
 
     pub fn key_manager(&self) -> &K {
@@ -221,8 +166,8 @@ mod tests {
 
     use crate::{
         tests::{TinyInt, TinyVec},
-        AmountSecrets, Dbc, DbcBuilder, GenesisBuilderMock, Owner, OwnerOnce,
-        ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
+        Amount, AmountSecrets, Dbc, DbcBuilder, DbcContent, GenesisBuilderMock, GenesisMaterial,
+        Owner, OwnerOnce, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
         SpentProofContent,
     };
 
@@ -231,8 +176,8 @@ mod tests {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-        let (mint_node, _spentbook, genesis, genesis_dbc) =
-            GenesisBuilderMock::init_genesis_single(1000, &mut rng, &mut rng8)?;
+        let (mint_node, _spentbook, genesis_dbc, genesis, _amount_secrets) =
+            GenesisBuilderMock::init_genesis_single(&mut rng, &mut rng8)?;
 
         let validation = genesis_dbc.confirm_valid(
             &genesis.owner_once.owner_base().secret_key()?,
@@ -248,13 +193,16 @@ mod tests {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-        let output_amounts =
+        let mut output_amounts =
             Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
+        output_amounts
+            .push(GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<Amount>());
+
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
 
-        let (mint_node, mut spentbook, _genesis, genesis_dbc) =
-            GenesisBuilderMock::init_genesis_single(output_amount, &mut rng, &mut rng8)?;
+        let (mint_node, mut spentbook, genesis_dbc, _genesis, _amount_secrets) =
+            GenesisBuilderMock::init_genesis_single(&mut rng, &mut rng8)?;
 
         let owners: Vec<OwnerOnce> = (0..output_amounts.len())
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8))
@@ -366,11 +314,14 @@ mod tests {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-        let input_amounts =
+        let mut input_amounts =
             Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<Amount>));
+        input_amounts.push(GenesisMaterial::GENESIS_AMOUNT - input_amounts.iter().sum::<Amount>());
 
-        let output_amounts =
+        let mut output_amounts =
             Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
+        output_amounts
+            .push(GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<Amount>());
 
         let invalid_spent_proofs = BTreeSet::from_iter(
             invalid_spent_proofs
@@ -378,15 +329,13 @@ mod tests {
                 .map(TinyInt::coerce::<usize>),
         );
 
-        let genesis_amount: Amount = input_amounts.iter().sum();
-
         // We apply mod 2 because there is only one available decoy (genesis pubkey)
         // in the spentbook.  To test decoys further, we would need to devise a test
         // something like:  genesis --> 100 outputs --> x outputs --> y outputs.
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
-        let (mint_node, mut spentbook, _genesis, genesis_dbc) =
-            GenesisBuilderMock::init_genesis_single(genesis_amount, &mut rng, &mut rng8)?;
+        let (mint_node, mut spentbook, genesis_dbc, _genesis, _amount_secrets) =
+            GenesisBuilderMock::init_genesis_single(&mut rng, &mut rng8)?;
 
         let (reissue_tx, revealed_commitments, _material, output_owners) =
             crate::TransactionBuilder::default()
@@ -507,7 +456,7 @@ mod tests {
                 Error::RingCt(
                     blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
-                    if genesis_amount == output_total_amount {
+                    if GenesisMaterial::GENESIS_AMOUNT == output_total_amount {
                         // This can correctly occur if there are 0 outputs and inputs sum to zero.
                         //
                         // The error occurs because there is no output with a commitment
@@ -592,7 +541,7 @@ mod tests {
 
         match many_to_many_result {
             Ok(rs) => {
-                assert_eq!(genesis_amount, output_total_amount);
+                assert_eq!(GenesisMaterial::GENESIS_AMOUNT, output_total_amount);
                 assert!(invalid_spent_proofs
                     .iter()
                     .all(|i| i >= &reissue_tx2.mlsags.len()));
@@ -736,8 +685,8 @@ mod tests {
 
         let output_amount = 1000;
 
-        let (mint_node, mut spentbook, genesis, genesis_dbc) =
-            GenesisBuilderMock::init_genesis_single(output_amount, &mut rng, &mut rng8)?;
+        let (mint_node, mut spentbook, genesis_dbc, starting_dbc, _change_dbc) =
+            crate::dbc::tests::generate_dbc_of_value(output_amount, &mut rng, &mut rng8)?;
 
         // ----------
         // 2. reissue genesis DBC (a) to Dbc (b)  with value 1000.
@@ -752,8 +701,8 @@ mod tests {
         let (tx, revealed_commitments, _ringct_material, output_owner_map) =
             crate::TransactionBuilder::default()
                 .add_input_dbc(
-                    &genesis_dbc,
-                    &genesis_dbc.owner_base().secret_key()?,
+                    &starting_dbc,
+                    &starting_dbc.owner_base().secret_key()?,
                     vec![], // genesis is only input, so no decoys.
                     &mut rng8,
                 )?
@@ -780,15 +729,16 @@ mod tests {
         let output_dbcs = dbc_builder.build()?;
 
         // ----------
-        // 3. modify b's amount secrets.amount to 2000, thereby creating b_fudged
+        // 3. modify b's amount secrets.amount to AMOUNT/2, thereby creating b_fudged
         //    (which a bad actor could pass to innocent recipient).
         // ----------
 
         // Replace the encrypted secret amount with an encrypted secret claiming
         // twice the committed value.
+        let starting_amount_secrets = starting_dbc.amount_secrets_bearer()?;
         let fudged_amount_secrets = AmountSecrets::from((
-            genesis.amount_secrets.amount() * 2, // Claim we are paying twice the committed value
-            genesis.amount_secrets.blinding_factor(), // Use the real blinding factor
+            starting_amount_secrets.amount() * 2, // Claim we are paying twice the committed value
+            starting_amount_secrets.blinding_factor(), // Use the real blinding factor
         ));
 
         let (true_output_dbc, ..) = output_dbcs[0].clone();
@@ -808,7 +758,7 @@ mod tests {
             fudged_output_dbc.amount_secrets(&output_owner.owner_base().secret_key()?)?;
 
         // confirm the secret amount is 2000.
-        assert_eq!(fudged_secrets.amount(), 1000 * 2);
+        assert_eq!(fudged_secrets.amount(), output_amount * 2);
         // confirm the dbc is considered valid using the mint-accessible api.
         assert!(fudged_output_dbc
             .confirm_valid(
@@ -954,14 +904,20 @@ mod tests {
         //
         // For the test case, we can remedy by:
         //
-        // Make a new spentbook and replay the first two tx, plus the new tx_true
+        // Make a new spentbook and replay the first three tx, plus the new tx_true
         // Note that the new spentbook uses the same signing key as the original, which
         // MintNode's key_manager trusts.
         //
         let mut new_spentbook = SpentBookNodeMock::from(spentbook.key_manager);
-        new_spentbook.set_genesis(&genesis.ringct_material);
-        let _genesis_spent_proof_share =
-            new_spentbook.log_spent(genesis.input_key_image, genesis.transaction.clone())?;
+        // new_spentbook.set_genesis(&genesis.ringct_material);
+        let _genesis_spent_proof_share = new_spentbook.log_spent(
+            genesis_dbc.transaction.mlsags[0].key_image.into(),
+            genesis_dbc.transaction.clone(),
+        )?;
+        let _starting_spent_proof_share = new_spentbook.log_spent(
+            starting_dbc.transaction.mlsags[0].key_image.into(),
+            starting_dbc.transaction.clone(),
+        )?;
         let _spent_proof_share =
             new_spentbook.log_spent(tx.mlsags[0].key_image.into(), tx.clone())?;
         let spent_proof_share_true =
