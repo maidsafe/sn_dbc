@@ -29,6 +29,12 @@ impl NodeSignature {
     pub fn threshold_crypto(&self) -> (u64, &SignatureShare) {
         (self.index, &self.sig)
     }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = self.index.to_le_bytes().to_vec();
+        bytes.extend(&self.sig.to_bytes());
+        bytes
+    }
 }
 
 pub trait KeyManager {

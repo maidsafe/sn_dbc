@@ -222,7 +222,7 @@ impl TransactionBuilder {
 #[derive(Debug)]
 pub struct ReissueRequestBuilder {
     pub transaction: RingCtTransaction,
-    pub spent_proof_shares: BTreeMap<KeyImage, BTreeSet<SpentProofShare>>,
+    pub spent_proof_shares: BTreeMap<KeyImage, HashSet<SpentProofShare>>,
 }
 
 impl ReissueRequestBuilder {
@@ -241,7 +241,6 @@ impl ReissueRequestBuilder {
             .entry(share.key_image().clone())
             .or_default();
         shares.insert(share);
-
         self
     }
 
