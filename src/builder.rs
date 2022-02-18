@@ -481,12 +481,11 @@ impl DbcBuilder {
 // SpentBookNodeMock, SimpleKeyManager, SimpleSigner, GenesisBuilderMock
 pub mod mock {
     use crate::{
-        Amount, Dbc, GenesisDbcShare, Hash, KeyManager, MintNode, Result, SimpleKeyManager,
-        SimpleSigner, SpentBookNodeMock, SpentProof, SpentProofContent, SpentProofShare,
+        Amount, AmountSecrets, Dbc, DbcBuilder, GenesisMaterial, KeyManager, MintNode,
+        ReissueRequestBuilder, Result, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
+        TransactionBuilder,
     };
-    use blsttc::{SecretKeySet, SignatureShare};
-    use std::collections::{BTreeMap, BTreeSet};
-    use std::iter::FromIterator;
+    use blsttc::SecretKeySet;
 
     /// A builder for initializing a set of N mintnodes, a set
     /// of Y spentbooks, and generating a genesis dbc with amount Z.
@@ -494,20 +493,11 @@ pub mod mock {
     /// In SafeNetwork terms, the set of MintNodes represents a single
     /// Mint section (a) and the set of SpentBooksNodes represents a
     /// single Spentbook section (b).
+    #[derive(Default)]
     pub struct GenesisBuilderMock {
         pub genesis_amount: Amount,
         pub mint_nodes: Vec<MintNode<SimpleKeyManager>>,
         pub spentbook_nodes: Vec<SpentBookNodeMock>,
-    }
-
-    impl From<Amount> for GenesisBuilderMock {
-        fn from(genesis_amount: Amount) -> Self {
-            Self {
-                genesis_amount,
-                mint_nodes: Default::default(),
-                spentbook_nodes: Default::default(),
-            }
-        }
     }
 
     impl GenesisBuilderMock {
@@ -606,104 +596,66 @@ pub mod mock {
         /// builds and returns mintnodes, spentbooks, genesis_dbc_shares, and genesis dbc
         #[allow(clippy::type_complexity)]
         pub fn build(
-            self,
-            rng8_initial: &mut (impl rand8::RngCore + rand_core::CryptoRng + Clone),
+            mut self,
+            rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
         ) -> Result<(
             Vec<MintNode<SimpleKeyManager>>,
             Vec<SpentBookNodeMock>,
-            Vec<GenesisDbcShare>,
             Dbc,
+            GenesisMaterial,
+            AmountSecrets,
         )> {
-            let mut spent_proof_shares: Vec<SpentProofShare> = Default::default();
-            let mut genesis_set: Vec<GenesisDbcShare> = Default::default();
             let mut mint_nodes: Vec<MintNode<SimpleKeyManager>> = Default::default();
-            let mut spentbook_nodes: Vec<SpentBookNodeMock> = Default::default();
+
+            // note: rng is necessary for RingCtMaterial::sign().
+
+            let genesis_material = GenesisMaterial::default();
+            let (genesis_tx, revealed_commitments, _ringct_material, output_owner_map) =
+                TransactionBuilder::default()
+                    .add_input(genesis_material.ringct_material.inputs[0].clone())
+                    .add_output(
+                        genesis_material.ringct_material.outputs[0].clone(),
+                        genesis_material.owner_once.clone(),
+                    )
+                    .build(rng8)?;
+
+            let mut rr_builder = ReissueRequestBuilder::new(genesis_tx.clone());
+
+            for spentbook_node in self.spentbook_nodes.iter_mut() {
+                rr_builder = rr_builder.add_spent_proof_share(
+                    spentbook_node
+                        .log_spent(genesis_material.input_key_image.clone(), genesis_tx.clone())?,
+                );
+            }
+
+            let reissue_request = rr_builder.build()?;
+            let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owner_map);
 
             for mint_node in self.mint_nodes.into_iter() {
-                // Each MintNode must start from same random seed when issuing Genesis.
-                let mut rng8 = rng8_initial.clone();
-
-                let (mut mint_node, genesis_dbc_share) =
-                    mint_node.issue_genesis_dbc(self.genesis_amount, &mut rng8)?;
-
                 // note: for our (mock) purposes, all spentbook nodes are validated to
                 // have the same public key.  (in the same section)
                 let spentbook_node_arbitrary = &self.spentbook_nodes[0];
-                mint_node = mint_node.trust_spentbook_public_key(
+                let mint_node = mint_node.trust_spentbook_public_key(
                     spentbook_node_arbitrary
                         .key_manager
                         .public_key_set()?
                         .public_key(),
                 )?;
 
+                dbc_builder =
+                    dbc_builder.add_reissue_share(mint_node.reissue(reissue_request.clone())?);
                 mint_nodes.push(mint_node);
-                genesis_set.push(genesis_dbc_share);
-            }
-            let genesis_dbc_share_arbitrary = &genesis_set[0];
-
-            for mut spentbook_node in self.spentbook_nodes.into_iter() {
-                spentbook_node.set_genesis(&genesis_dbc_share_arbitrary.ringct_material);
-                spent_proof_shares.push(spentbook_node.log_spent(
-                    genesis_dbc_share_arbitrary.input_key_image.clone(),
-                    genesis_dbc_share_arbitrary.transaction.clone(),
-                )?);
-                spentbook_nodes.push(spentbook_node);
             }
 
-            // Make a list of (Index, SignatureShare) for combining sigs.
-            let node_sigs: Vec<(u64, &SignatureShare)> = genesis_set
-                .iter()
-                .map(|g| g.mintnode_sig_share.threshold_crypto())
-                .collect();
-
-            let mint_node_arbitrary = &mint_nodes[0];
-
-            let mint_sig = mint_node_arbitrary
-                .key_manager
-                .public_key_set()?
-                .combine_signatures(node_sigs)?;
-
-            let spent_sigs: Vec<(u64, &SignatureShare)> = spent_proof_shares
-                .iter()
-                .map(|s| s.spentbook_sig_share.threshold_crypto())
-                .collect();
-
-            let spent_proof_share_arbitrary = &spent_proof_shares[0];
-
-            let spentbook_sig = spent_proof_share_arbitrary
-                .spentbook_pks
-                .combine_signatures(spent_sigs)?;
-
-            let transaction_hash = Hash::from(genesis_dbc_share_arbitrary.transaction.hash());
-
-            let spent_proofs = BTreeSet::from_iter([SpentProof {
-                content: SpentProofContent {
-                    key_image: spent_proof_share_arbitrary.key_image().clone(),
-                    transaction_hash,
-                    public_commitments: spent_proof_share_arbitrary.public_commitments().clone(),
-                },
-                spentbook_pub_key: spent_proof_share_arbitrary.spentbook_pks.public_key(),
-                spentbook_sig,
-            }]);
-
-            // Create the Genesis Dbc
-            let genesis_dbc = Dbc {
-                content: genesis_dbc_share_arbitrary.dbc_content.clone(),
-                transaction: genesis_dbc_share_arbitrary.transaction.clone(),
-                mint_sigs: BTreeMap::from_iter([(
-                    genesis_dbc_share_arbitrary.input_key_image.clone(),
-                    (
-                        mint_node_arbitrary
-                            .key_manager
-                            .public_key_set()?
-                            .public_key(),
-                        mint_sig,
-                    ),
-                )]),
-                spent_proofs,
-            };
-
-            Ok((mint_nodes, spentbook_nodes, genesis_set, genesis_dbc))
+            let (genesis_dbc, _owner_once, amount_secrets) =
+                dbc_builder.build()?.into_iter().next().unwrap();
+            Ok((
+                mint_nodes,
+                self.spentbook_nodes,
+                genesis_dbc,
+                genesis_material,
+                amount_secrets,
+            ))
         }
 
         /// builds and returns mintnodes, spentbooks, genesis_dbc_shares, and genesis dbc
@@ -711,18 +663,18 @@ pub mod mock {
         /// the spentbook nodes use a different randomly generated SecretKeySet
         #[allow(clippy::type_complexity)]
         pub fn init_genesis(
-            genesis_amount: Amount,
             num_mint_nodes: usize,
             num_spentbook_nodes: usize,
             rng: &mut impl rand::RngCore,
-            rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng + Clone),
+            rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
         ) -> Result<(
             Vec<MintNode<SimpleKeyManager>>,
             Vec<SpentBookNodeMock>,
-            Vec<GenesisDbcShare>,
             Dbc,
+            GenesisMaterial,
+            AmountSecrets,
         )> {
-            Self::from(genesis_amount)
+            Self::default()
                 .gen_mint_nodes(num_mint_nodes, rng)?
                 .gen_spentbook_nodes(num_spentbook_nodes, rng)?
                 .build(rng8)
@@ -734,17 +686,17 @@ pub mod mock {
         /// the spentbook node uses a different randomly generated SecretKeySet
         #[allow(clippy::type_complexity)]
         pub fn init_genesis_single(
-            genesis_amount: Amount,
             rng: &mut impl rand::RngCore,
-            rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng + Clone),
+            rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
         ) -> Result<(
             MintNode<SimpleKeyManager>,
             SpentBookNodeMock,
-            GenesisDbcShare,
             Dbc,
+            GenesisMaterial,
+            AmountSecrets,
         )> {
-            let (mint_nodes, spentbook_nodes, genesis_dbc_shares, genesis_dbc) =
-                GenesisBuilderMock::from(genesis_amount)
+            let (mint_nodes, spentbook_nodes, genesis_dbc, genesis_material, amount_secrets) =
+                Self::default()
                     .gen_mint_nodes(1, rng)?
                     .gen_spentbook_nodes(1, rng)?
                     .build(rng8)?;
@@ -757,8 +709,9 @@ pub mod mock {
             Ok((
                 mint_nodes.into_iter().next().unwrap(),
                 spentbook_nodes.into_iter().next().unwrap(),
-                genesis_dbc_shares.into_iter().next().unwrap(),
                 genesis_dbc,
+                genesis_material,
+                amount_secrets,
             ))
         }
     }

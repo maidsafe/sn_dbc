@@ -1,4 +1,4 @@
-use crate::{Amount, KeyImage, Owner, OwnerOnce, PublicKeyBlst, Result, SecretKeyBlst};
+use crate::{Amount, KeyImage, Owner, OwnerOnce, PublicKeyBlst, SecretKeyBlst};
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::RingCtMaterial;
 use blst_ringct::{Output, RevealedCommitment};
@@ -15,9 +15,11 @@ pub struct GenesisMaterial {
 }
 
 impl GenesisMaterial {
-    /// This is the "real" amount that all network participants should use.
-    pub const STD_GENESIS_AMOUNT: Amount = 30000000;
+    /// The Genesis DBC will mint all possible tokens.
+    pub const GENESIS_AMOUNT: Amount = 18446744073709551615; // aka 2^64 aka Amount::MAX
+}
 
+impl Default for GenesisMaterial {
     /// generate the GenesisMaterial.
     ///
     /// It is allowed to pass in an amount for local testing purposes.
@@ -25,12 +27,15 @@ impl GenesisMaterial {
     /// one must use GenesisMaterial::STD_GENESIS_AMOUNT
     ///
     /// todo: implement Network enum {Mainnet, Testnet, ...}
-    pub fn new(amount: Amount) -> Result<Self> {
+    fn default() -> Self {
         // Make a secret key for the input to Genesis Tx.
         let input_poly = Poly::zero();
         let input_secret_key_set = SecretKeySet::from(input_poly);
 
         // fixme, unwrap.
+        // note: this is only temporary until blsttc is impld with blstrs.  At which
+        // point the byte conversion and unwrap should not be necessary.
+        // Thus, we are not returning a Result from this fn.
         let input_secret_key =
             SecretKeyBlst::from_bytes_be(&input_secret_key_set.secret_key().to_bytes()).unwrap();
 
@@ -53,7 +58,7 @@ impl GenesisMaterial {
         let true_input = TrueInput {
             secret_key: input_secret_key,
             revealed_commitment: RevealedCommitment {
-                value: amount,
+                value: Self::GENESIS_AMOUNT,
                 blinding: 5.into(), // todo: choose Genesis blinding factor.
             },
         };
@@ -78,13 +83,16 @@ impl GenesisMaterial {
 
         let ringct_material = RingCtMaterial {
             inputs: vec![mlsag_material],
-            outputs: vec![Output { public_key, amount }],
+            outputs: vec![Output {
+                public_key,
+                amount: Self::GENESIS_AMOUNT,
+            }],
         };
 
-        Ok(Self {
+        Self {
             ringct_material,
             owner_once,
             input_key_image,
-        })
+        }
     }
 }

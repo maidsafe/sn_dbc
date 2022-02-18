@@ -38,7 +38,7 @@ pub use crate::{
         KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
         SimpleSigner,
     },
-    mint::{GenesisDbcShare, MintNode, MintNodeSignatures, ReissueRequest, ReissueShare},
+    mint::{MintNode, MintNodeSignatures, ReissueRequest, ReissueShare},
     owner::{DerivationIndex, Owner, OwnerOnce},
     spent_proof::{SpentProof, SpentProofContent, SpentProofShare},
     spentbook::SpentBookNodeMock,
