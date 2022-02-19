@@ -17,7 +17,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[allow(clippy::large_enum_variant)]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 /// Node error variants.
 pub enum Error {
