@@ -51,9 +51,6 @@ pub enum Error {
     #[error("OutputProof not found in transaction outputs")]
     OutputProofNotFound,
 
-    #[error("key image is not unique across all transaction inputs")]
-    KeyImageNotUniqueAcrossInputs,
-
     #[error("public key is not unique across all transaction outputs")]
     PublicKeyNotUniqueAcrossOutputs,
 
