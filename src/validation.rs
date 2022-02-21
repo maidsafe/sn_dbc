@@ -75,20 +75,8 @@ impl TransactionValidator {
         transaction_hash: Hash,
         spent_proofs: &BTreeSet<SpentProof>,
     ) -> Result<(), Error> {
-        if transaction.mlsags.is_empty() {
-            return Err(Error::TransactionMustHaveAnInput);
-        } else if spent_proofs.len() != transaction.mlsags.len() {
+        if spent_proofs.len() != transaction.mlsags.len() {
             return Err(Error::SpentProofInputMismatch);
-        }
-
-        // Verify that each KeyImage is unique in this tx.
-        let keyimage_unique: BTreeSet<KeyImage> = transaction
-            .mlsags
-            .iter()
-            .map(|m| m.key_image.into())
-            .collect();
-        if keyimage_unique.len() != transaction.mlsags.len() {
-            return Err(Error::KeyImageNotUniqueAcrossInputs);
         }
 
         // Verify that each pubkey is unique in this transaction.
