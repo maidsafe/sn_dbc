@@ -149,17 +149,24 @@ impl SpentBookNodeMock {
                             })
                             .collect();
 
+                        if output_proofs.len() != mlsag.public_keys().len() {
+                            return Err(crate::Error::SpentbookRingSizeMismatch(
+                                mlsag.public_keys().len(),
+                                output_proofs.len(),
+                            ));
+                        }
+
                         // collect commitments from OutputProofs
                         let commitments: Vec<Commitment> =
                             output_proofs.iter().map(|o| o.commitment()).collect();
 
                         // check our assumptions.
                         assert_eq!(commitments.len(), mlsag.public_keys().len());
-                        assert!(commitments.len() == mlsag.ring.len());
+                        assert_eq!(commitments.len(), mlsag.ring.len());
 
-                        (mlsag.key_image.into(), commitments)
+                        Ok((mlsag.key_image.into(), commitments))
                     })
-                    .collect()
+                    .collect::<Result<_>>()?
             };
 
         // Grab all commitments, grouped by input mlsag
@@ -214,7 +221,7 @@ impl SpentBookNodeMock {
             })
         } else {
             // fixme: return an error.  can wait until we refactor into a Mock feature flag.
-            panic!("Attempt to Double Spend")
+            Err(crate::Error::SpentbookKeyImageAlreadySpent)
         }
     }
 
