@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.13.0](https://github.com/maidsafe/sn_dbc/compare/v2.12.2...v2.13.0) (2022-02-23)
+
+
+### Features
+
+* make GenesisMaterial available to wallets ([aad4e7f](https://github.com/maidsafe/sn_dbc/commit/aad4e7f4ed9dba3a9d001a98372eb315889eccae))
+* make GenesisMaterial usable by any node ([3b8d2d2](https://github.com/maidsafe/sn_dbc/commit/3b8d2d2664a1c5d1b7c8a61ff4272e82274fd6e9))
+* set genesis seed values ([d45477c](https://github.com/maidsafe/sn_dbc/commit/d45477c5e0a38ffe89623ed329513e25fd1ce5ac))
+
+
+### Bug Fixes
+
+* use TransactionMustHaveAnInput from ringct ([e0a814e](https://github.com/maidsafe/sn_dbc/commit/e0a814e11ac6eebea6865beff2cab454317ba928))
+
 ### [2.12.2](https://github.com/maidsafe/sn_dbc/compare/v2.12.1...v2.12.2) (2022-02-23)
 
 
