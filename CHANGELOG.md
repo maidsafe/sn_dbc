@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.12.0](https://github.com/maidsafe/sn_dbc/compare/v2.11.2...v2.12.0) (2022-02-23)
+
+
+### Features
+
+* remove the key image maths ([a8f40ed](https://github.com/maidsafe/sn_dbc/commit/a8f40ed8021143c3896fadb10179589e5c9b77a7))
+
 ### [2.11.2](https://github.com/maidsafe/sn_dbc/compare/v2.11.1...v2.11.2) (2022-02-23)
 
 
