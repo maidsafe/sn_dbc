@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [2.11.2](https://github.com/maidsafe/sn_dbc/compare/v2.11.1...v2.11.2) (2022-02-23)
+
+
+### Bug Fixes
+
+* return Spentbook errors. don't panic ([b280bde](https://github.com/maidsafe/sn_dbc/commit/b280bde92b8265bd1c1e3f1aa4e5789a394af84d))
+
 ### [2.11.1](https://github.com/maidsafe/sn_dbc/compare/v2.11.0...v2.11.1) (2022-02-23)
 
 ## [2.11.0](https://github.com/maidsafe/sn_dbc/compare/v2.10.0...v2.11.0) (2022-02-23)
