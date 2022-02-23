@@ -470,7 +470,7 @@ mod tests {
                 Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing) => {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
-                Error::TransactionMustHaveAnInput => {
+                Error::RingCt(blst_ringct::Error::TransactionMustHaveAnInput) => {
                     assert_eq!(input_amounts.len(), 0);
                 }
                 Error::FailedSignature => {
