@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.11.0](https://github.com/maidsafe/sn_dbc/compare/v2.10.0...v2.11.0) (2022-02-23)
+
+
+### Features
+
+* moved input and key image uniqueness checks to blst-ringct ([df4da9e](https://github.com/maidsafe/sn_dbc/commit/df4da9e7738727dbe0397c2ce7e879ab6eaca018))
+
 ## [2.10.0](https://github.com/maidsafe/sn_dbc/compare/v2.9.2...v2.10.0) (2022-02-17)
 
 
