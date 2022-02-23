@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [2.12.2](https://github.com/maidsafe/sn_dbc/compare/v2.12.1...v2.12.2) (2022-02-23)
+
+
+### Bug Fixes
+
+* change BTreeSet<SpentProofShare> to HashSet ([cf8a030](https://github.com/maidsafe/sn_dbc/commit/cf8a03006d04ffb3c34225113dbca5ecf3aa38f0))
+
 ### [2.12.1](https://github.com/maidsafe/sn_dbc/compare/v2.12.0...v2.12.1) (2022-02-23)
 
 ## [2.12.0](https://github.com/maidsafe/sn_dbc/compare/v2.11.2...v2.12.0) (2022-02-23)
