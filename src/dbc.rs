@@ -390,7 +390,9 @@ pub(crate) mod tests {
 
         assert!(matches!(
             dbc.confirm_valid(&owner_once.owner_base().secret_key()?, &mint_key_manager),
-            Err(Error::TransactionMustHaveAnInput)
+            Err(Error::RingCt(
+                blst_ringct::Error::TransactionMustHaveAnInput
+            ))
         ));
 
         Ok(())
@@ -634,7 +636,7 @@ pub(crate) mod tests {
                     .iter()
                     .any(|o| *o.public_key() == dbc_owner));
             }
-            Err(Error::TransactionMustHaveAnInput) => {
+            Err(Error::RingCt(blst_ringct::Error::TransactionMustHaveAnInput)) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
             }
             Err(Error::FailedSignature) => {

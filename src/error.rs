@@ -42,9 +42,6 @@ pub enum Error {
     #[error("Transaction hash does not match the transaction signed by spentbook")]
     InvalidTransactionHash,
 
-    #[error("The DBC transaction must have at least one input")]
-    TransactionMustHaveAnInput,
-
     #[error("Dbc Content is not a member of transaction outputs")]
     DbcContentNotPresentInTransactionOutput,
 
