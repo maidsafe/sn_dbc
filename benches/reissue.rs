@@ -9,8 +9,8 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, GenesisBuilderMock, KeyImage, MintNode, Owner, OwnerOnce,
-    ReissueRequestBuilder, Result, SimpleKeyManager, SpentBookNodeMock, SpentProofShare,
+    Amount, Dbc, GenesisBuilderMock, MintNode, Owner, OwnerOnce, Result, SimpleKeyManager,
+    SpentBookNodeMock,
 };
 
 use blst_ringct::Output;
@@ -28,41 +28,36 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
     let (mintnode, mut spentbook, starting_dbc) =
         generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng, &mut rng8).unwrap();
 
-    let (reissue_tx, _revealed_commitments, _material, _output_owners) =
-        sn_dbc::TransactionBuilder::default()
-            .add_input_by_secrets(
-                starting_dbc
-                    .owner_once_bearer()
-                    .unwrap()
-                    .secret_key_blst()
-                    .unwrap(),
-                starting_dbc.amount_secrets_bearer().unwrap(),
-                vec![], // never any decoys for genesis
-                &mut rng8,
+    let (mut rr_builder, ..) = sn_dbc::TransactionBuilder::default()
+        .add_input_by_secrets(
+            starting_dbc
+                .owner_once_bearer()
+                .unwrap()
+                .secret_key_blst()
+                .unwrap(),
+            starting_dbc.amount_secrets_bearer().unwrap(),
+            vec![], // never any decoys for genesis
+            &mut rng8,
+        )
+        .add_outputs((0..N_OUTPUTS).into_iter().map(|_| {
+            let owner_once =
+                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
+            (
+                Output {
+                    amount: 1,
+                    public_key: owner_once.as_owner().public_key_blst(),
+                },
+                owner_once,
             )
-            .add_outputs((0..N_OUTPUTS).into_iter().map(|_| {
-                let owner_once =
-                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
-                (
-                    Output {
-                        amount: 1,
-                        public_key: owner_once.as_owner().public_key_blst(),
-                    },
-                    owner_once,
-                )
-            }))
-            .build(&mut rng8)
-            .unwrap();
-
-    let genesis_key_image: KeyImage = reissue_tx.mlsags[0].key_image.into();
-    let spent_proof_share = spentbook
-        .log_spent(genesis_key_image, reissue_tx.clone())
+        }))
+        .build(&mut rng8)
         .unwrap();
 
-    let rr = ReissueRequestBuilder::new(reissue_tx)
-        .add_spent_proof_share(spent_proof_share)
-        .build()
-        .unwrap();
+    for (key_image, tx) in rr_builder.inputs() {
+        let spent_proof_share = spentbook.log_spent(key_image, tx).unwrap();
+        rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
+    }
+    let rr = rr_builder.build().unwrap();
 
     c.bench_function(&format!("reissue split 1 to {}", N_OUTPUTS), |b| {
         b.iter(|| {
@@ -79,89 +74,73 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let (mintnode, mut spentbook, starting_dbc) =
         generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng, &mut rng8).unwrap();
 
-    let (reissue_tx, revealed_commitments, _material, output_owners) =
-        sn_dbc::TransactionBuilder::default()
-            .add_input_by_secrets(
-                starting_dbc
-                    .owner_once_bearer()
-                    .unwrap()
-                    .secret_key_blst()
-                    .unwrap(),
-                starting_dbc.amount_secrets_bearer().unwrap(),
-                vec![], // never any decoy inputs for genesis
-                &mut rng8,
+    let (mut rr_builder, mut dbc_builder, ..) = sn_dbc::TransactionBuilder::default()
+        .add_input_by_secrets(
+            starting_dbc
+                .owner_once_bearer()
+                .unwrap()
+                .secret_key_blst()
+                .unwrap(),
+            starting_dbc.amount_secrets_bearer().unwrap(),
+            vec![], // never any decoy inputs for genesis
+            &mut rng8,
+        )
+        .add_outputs((0..N_OUTPUTS).into_iter().map(|_| {
+            let owner_once =
+                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
+            (
+                Output {
+                    amount: 1,
+                    public_key: owner_once.as_owner().public_key_blst(),
+                },
+                owner_once,
             )
-            .add_outputs((0..N_OUTPUTS).into_iter().map(|_| {
-                let owner_once =
-                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
-                (
-                    Output {
-                        amount: 1,
-                        public_key: owner_once.as_owner().public_key_blst(),
-                    },
-                    owner_once,
-                )
-            }))
-            .build(&mut rng8)
-            .unwrap();
-
-    let genesis_key_image: KeyImage = reissue_tx.mlsags[0].key_image.into();
-    let spent_proof_share = spentbook
-        .log_spent(genesis_key_image, reissue_tx.clone())
+        }))
+        .build(&mut rng8)
         .unwrap();
 
-    let rr = ReissueRequestBuilder::new(reissue_tx)
-        .add_spent_proof_share(spent_proof_share)
-        .build()
-        .unwrap();
+    for (key_image, tx) in rr_builder.inputs() {
+        let spent_proof_share = spentbook.log_spent(key_image, tx).unwrap();
+        rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
+    }
+    let rr = rr_builder.build().unwrap();
 
     let reissue_share = mintnode.reissue(rr).unwrap();
 
-    let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
     dbc_builder = dbc_builder.add_reissue_share(reissue_share);
     let dbcs = dbc_builder.build().unwrap();
 
     let output_owner_once =
         OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
-    let (merge_tx, _revealed_commitments, _material, _output_owners) =
-        sn_dbc::TransactionBuilder::default()
-            .add_inputs_by_secrets(
-                dbcs.into_iter()
-                    .map(|(_dbc, owner_once, amount_secrets)| {
-                        (
-                            owner_once.as_owner().secret_key_blst().unwrap(),
-                            amount_secrets,
-                            spentbook.random_decoys(num_decoys, &mut rng8),
-                        )
-                    })
-                    .collect(),
-                &mut rng8,
-            )
-            .add_output(
-                Output {
-                    amount: N_OUTPUTS as Amount,
-                    public_key: output_owner_once.as_owner().public_key_blst(),
-                },
-                output_owner_once,
-            )
-            .build(&mut rng8)
-            .unwrap();
-
-    let spent_proof_shares: Vec<SpentProofShare> = merge_tx
-        .mlsags
-        .iter()
-        .map(|m| {
-            spentbook
-                .log_spent(m.key_image.into(), merge_tx.clone())
-                .unwrap()
-        })
-        .collect();
-
-    let merge_rr = ReissueRequestBuilder::new(merge_tx)
-        .add_spent_proof_shares(spent_proof_shares)
-        .build()
+    let (mut merge_rr_builder, ..) = sn_dbc::TransactionBuilder::default()
+        .add_inputs_by_secrets(
+            dbcs.into_iter()
+                .map(|(_dbc, owner_once, amount_secrets)| {
+                    (
+                        owner_once.as_owner().secret_key_blst().unwrap(),
+                        amount_secrets,
+                        spentbook.random_decoys(num_decoys, &mut rng8),
+                    )
+                })
+                .collect(),
+            &mut rng8,
+        )
+        .add_output(
+            Output {
+                amount: N_OUTPUTS as Amount,
+                public_key: output_owner_once.as_owner().public_key_blst(),
+            },
+            output_owner_once,
+        )
+        .build(&mut rng8)
         .unwrap();
+
+    for (key_image, tx) in merge_rr_builder.inputs() {
+        let spent_proof_share = spentbook.log_spent(key_image, tx).unwrap();
+        merge_rr_builder = merge_rr_builder.add_spent_proof_share(spent_proof_share);
+    }
+    let merge_rr = merge_rr_builder.build().unwrap();
 
     c.bench_function(&format!("reissue merge {} to 1", N_OUTPUTS), |b| {
         b.iter(|| {
@@ -180,37 +159,33 @@ fn generate_dbc_of_value(
 
     let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
 
-    let (tx, revealed_commitments, _material, output_owners) =
-        sn_dbc::TransactionBuilder::default()
-            .add_input_by_secrets(
-                genesis_dbc.owner_once_bearer()?.secret_key_blst()?,
-                genesis_dbc.amount_secrets_bearer()?,
-                vec![], // never any decoys for genesis
-                rng8,
+    let (mut rr_builder, mut dbc_builder, _material) = sn_dbc::TransactionBuilder::default()
+        .add_input_by_secrets(
+            genesis_dbc.owner_once_bearer()?.secret_key_blst()?,
+            genesis_dbc.amount_secrets_bearer()?,
+            vec![], // never any decoys for genesis
+            rng8,
+        )
+        .add_outputs(output_amounts.into_iter().map(|amount| {
+            let owner_once = OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng), rng8);
+            (
+                Output {
+                    amount,
+                    public_key: owner_once.as_owner().public_key_blst(),
+                },
+                owner_once,
             )
-            .add_outputs(output_amounts.into_iter().map(|amount| {
-                let owner_once =
-                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng), rng8);
-                (
-                    Output {
-                        amount,
-                        public_key: owner_once.as_owner().public_key_blst(),
-                    },
-                    owner_once,
-                )
-            }))
-            .build(rng8)?;
+        }))
+        .build(rng8)?;
 
     // Build ReissuRequest
-    let mut rr_builder = ReissueRequestBuilder::new(tx.clone());
-    for mlsag in tx.mlsags.iter() {
-        let spent_proof_share = spentbook_node.log_spent(mlsag.key_image.into(), tx.clone())?;
+    for (key_image, tx) in rr_builder.inputs() {
+        let spent_proof_share = spentbook_node.log_spent(key_image, tx)?;
         rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
     }
     let rr = rr_builder.build()?;
 
     let reissue_share = mint_node.reissue(rr)?;
-    let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
     dbc_builder = dbc_builder.add_reissue_share(reissue_share);
     let (starting_dbc, ..) = dbc_builder.build()?.into_iter().next().unwrap();
 

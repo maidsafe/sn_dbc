@@ -30,20 +30,20 @@ pub type OutputOwnerMap = BTreeMap<PublicKeyBlstMappable, OwnerOnce>;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
-    material: RingCtMaterial,
-    output_owners: OutputOwnerMap,
+    ringct_material: RingCtMaterial,
+    output_owner_map: OutputOwnerMap,
 }
 
 impl TransactionBuilder {
     /// add an input given an MlsagMaterial
     pub fn add_input(mut self, mlsag: MlsagMaterial) -> Self {
-        self.material.inputs.push(mlsag);
+        self.ringct_material.inputs.push(mlsag);
         self
     }
 
     /// add an input given an iterator over MlsagMaterial
     pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = MlsagMaterial>) -> Self {
-        self.material.inputs.extend(inputs);
+        self.ringct_material.inputs.extend(inputs);
         self
     }
 
@@ -54,7 +54,7 @@ impl TransactionBuilder {
         decoy_inputs: Vec<DecoyInput>,
         rng: &mut impl RngCore,
     ) -> Self {
-        self.material
+        self.ringct_material
             .inputs
             .push(MlsagMaterial::new(true_input, decoy_inputs, rng));
         self
@@ -132,7 +132,7 @@ impl TransactionBuilder {
             revealed_commitment: amount_secrets.into(),
         };
 
-        self.material
+        self.ringct_material
             .inputs
             .push(MlsagMaterial::new(true_input, decoy_inputs, rng));
         self
@@ -152,8 +152,9 @@ impl TransactionBuilder {
 
     /// add an output
     pub fn add_output(mut self, output: Output, owner: OwnerOnce) -> Self {
-        self.output_owners.insert(output.public_key().into(), owner);
-        self.material.outputs.push(output);
+        self.output_owner_map
+            .insert(output.public_key().into(), owner);
+        self.ringct_material.outputs.push(output);
         self
     }
 
@@ -167,12 +168,12 @@ impl TransactionBuilder {
 
     /// get a list of input owners
     pub fn input_owners(&self) -> Vec<PublicKeyBlst> {
-        self.material.public_keys()
+        self.ringct_material.public_keys()
     }
 
     /// get sum of input amounts
     pub fn inputs_amount_sum(&self) -> Amount {
-        self.material
+        self.ringct_material
             .inputs
             .iter()
             .map(|m| m.true_input.revealed_commitment.value)
@@ -181,37 +182,32 @@ impl TransactionBuilder {
 
     /// get sum of output amounts
     pub fn outputs_amount_sum(&self) -> Amount {
-        self.material.outputs.iter().map(|o| o.amount).sum()
+        self.ringct_material.outputs.iter().map(|o| o.amount).sum()
     }
 
     /// get inputs
     pub fn inputs(&self) -> &Vec<MlsagMaterial> {
-        &self.material.inputs
+        &self.ringct_material.inputs
     }
 
     /// get outputs
     pub fn outputs(&self) -> &Vec<Output> {
-        &self.material.outputs
+        &self.ringct_material.outputs
     }
 
     /// build a RingCtTransaction and associated secrets
     pub fn build(
         self,
         rng: impl RngCore + rand_core::CryptoRng,
-    ) -> Result<(
-        RingCtTransaction,
-        Vec<RevealedCommitment>,
-        RingCtMaterial,
-        OutputOwnerMap,
-    )> {
+    ) -> Result<(ReissueRequestBuilder, DbcBuilder, RingCtMaterial)> {
         let result: Result<(RingCtTransaction, Vec<RevealedCommitment>)> =
-            self.material.sign(rng).map_err(|e| e.into());
+            self.ringct_material.sign(rng).map_err(|e| e.into());
         let (transaction, revealed_commitments) = result?;
+
         Ok((
-            transaction,
-            revealed_commitments,
-            self.material,
-            self.output_owners,
+            ReissueRequestBuilder::new(transaction),
+            DbcBuilder::new(revealed_commitments, self.output_owner_map),
+            self.ringct_material,
         ))
     }
 }
@@ -238,7 +234,7 @@ impl ReissueRequestBuilder {
     pub fn add_spent_proof_share(mut self, share: SpentProofShare) -> Self {
         let shares = self
             .spent_proof_shares
-            .entry(share.key_image().clone())
+            .entry(*share.key_image())
             .or_default();
         shares.insert(share);
         self
@@ -255,15 +251,26 @@ impl ReissueRequestBuilder {
         self
     }
 
+    /// returns Vec of key_image and tx intended for use as inputs
+    /// to Spendbook::log_spent().
+    pub fn inputs(&self) -> Vec<(KeyImage, RingCtTransaction)> {
+        self.transaction
+            .mlsags
+            .iter()
+            .map(|mlsag| (mlsag.key_image.into(), self.transaction.clone()))
+            .collect()
+    }
+
     /// build a ReissueRequest
-    pub fn build(&self) -> Result<ReissueRequest> {
+    pub fn build(self) -> Result<ReissueRequest> {
         let spent_proofs: BTreeSet<SpentProof> = self
             .spent_proof_shares
             .iter()
             .map(|(key_image, shares)| {
-                let any_share = shares.iter().next().ok_or_else(|| {
-                    Error::ReissueRequestMissingSpentProofShare(key_image.clone())
-                })?;
+                let any_share = shares
+                    .iter()
+                    .next()
+                    .ok_or(Error::ReissueRequestMissingSpentProofShare(*key_image))?;
 
                 if shares
                     .iter()
@@ -293,7 +300,7 @@ impl ReissueRequestBuilder {
 
                 let spent_proof = SpentProof {
                     content: SpentProofContent {
-                        key_image: key_image.clone(),
+                        key_image: *key_image,
                         transaction_hash: Hash::from(self.transaction.hash()),
                         public_commitments,
                     },
@@ -305,10 +312,8 @@ impl ReissueRequestBuilder {
             })
             .collect::<Result<_>>()?;
 
-        let transaction = self.transaction.clone();
-
         let rr = ReissueRequest {
-            transaction,
+            transaction: self.transaction,
             spent_proofs,
         };
         Ok(rr)
@@ -322,7 +327,7 @@ impl ReissueRequestBuilder {
 #[derive(Debug)]
 pub struct DbcBuilder {
     pub revealed_commitments: Vec<RevealedCommitment>,
-    pub output_owners: OutputOwnerMap,
+    pub output_owner_map: OutputOwnerMap,
 
     pub reissue_shares: Vec<ReissueShare>,
 }
@@ -331,11 +336,11 @@ impl DbcBuilder {
     /// Create a new DbcBuilder
     pub fn new(
         revealed_commitments: Vec<RevealedCommitment>,
-        output_owners: OutputOwnerMap,
+        output_owner_map: OutputOwnerMap,
     ) -> Self {
         Self {
             revealed_commitments,
-            output_owners,
+            output_owner_map,
             reissue_shares: Default::default(),
         }
     }
@@ -430,7 +435,7 @@ impl DbcBuilder {
             .outputs
             .iter()
             .map(|output| {
-                self.output_owners
+                self.output_owner_map
                     .get(&(*output.public_key()).into())
                     .ok_or(Error::PublicKeyNotFound)
             })
@@ -481,9 +486,8 @@ impl DbcBuilder {
 // SpentBookNodeMock, SimpleKeyManager, SimpleSigner, GenesisBuilderMock
 pub mod mock {
     use crate::{
-        Amount, AmountSecrets, Dbc, DbcBuilder, GenesisMaterial, KeyManager, MintNode,
-        ReissueRequestBuilder, Result, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
-        TransactionBuilder,
+        Amount, AmountSecrets, Dbc, GenesisMaterial, KeyManager, MintNode, Result,
+        SimpleKeyManager, SimpleSigner, SpentBookNodeMock, TransactionBuilder,
     };
     use blsttc::SecretKeySet;
 
@@ -610,26 +614,22 @@ pub mod mock {
             // note: rng is necessary for RingCtMaterial::sign().
 
             let genesis_material = GenesisMaterial::default();
-            let (genesis_tx, revealed_commitments, _ringct_material, output_owner_map) =
-                TransactionBuilder::default()
-                    .add_input(genesis_material.ringct_material.inputs[0].clone())
-                    .add_output(
-                        genesis_material.ringct_material.outputs[0].clone(),
-                        genesis_material.owner_once.clone(),
-                    )
-                    .build(rng8)?;
+            let (mut rr_builder, mut dbc_builder, _ringct_material) = TransactionBuilder::default()
+                .add_input(genesis_material.ringct_material.inputs[0].clone())
+                .add_output(
+                    genesis_material.ringct_material.outputs[0].clone(),
+                    genesis_material.owner_once.clone(),
+                )
+                .build(rng8)?;
 
-            let mut rr_builder = ReissueRequestBuilder::new(genesis_tx.clone());
-
-            for spentbook_node in self.spentbook_nodes.iter_mut() {
-                rr_builder = rr_builder.add_spent_proof_share(
-                    spentbook_node
-                        .log_spent(genesis_material.input_key_image.clone(), genesis_tx.clone())?,
-                );
+            for (key_image, tx) in rr_builder.inputs() {
+                for spentbook_node in self.spentbook_nodes.iter_mut() {
+                    rr_builder = rr_builder
+                        .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?);
+                }
             }
 
             let reissue_request = rr_builder.build()?;
-            let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owner_map);
 
             for mint_node in self.mint_nodes.into_iter() {
                 // note: for our (mock) purposes, all spentbook nodes are validated to

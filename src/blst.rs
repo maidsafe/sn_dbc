@@ -50,7 +50,7 @@ pub type KeyImage = PublicKeyBlstMappable;
 // This is a NewType wrapper for blstrs::G1Affine because in places we
 // need to use it as a key in a BTreeMap.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct PublicKeyBlstMappable(G1Affine);
 
 impl PublicKeyBlstMappable {
