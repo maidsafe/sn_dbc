@@ -692,14 +692,13 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
 
     println!("\n\nPreparing RingCtTransaction...\n\n");
 
-    let (reissue_tx, revealed_commitments, ringct_material, output_owner_map) =
-        tx_builder.build(&mut rng8)?;
+    let (reissue_tx, dbc_builder, ringct_material) = tx_builder.build(&mut rng8)?;
 
     Ok(RingCtTransactionRevealed {
-        inner: reissue_tx,
-        revealed_commitments,
+        inner: reissue_tx.transaction,
+        revealed_commitments: dbc_builder.revealed_commitments,
         ringct_material,
-        output_owner_map,
+        output_owner_map: dbc_builder.output_owner_map,
     })
 }
 
@@ -831,20 +830,15 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             );
         }
 
-        let (reissue_tx, revealed_commitments, _material, output_owners) =
-            tx_builder.build(&mut rng8)?;
+        let (mut rr_builder, mut dbc_builder, _material) = tx_builder.build(&mut rng8)?;
 
-        let mut rr_builder = ReissueRequestBuilder::new(reissue_tx.clone());
-        for mlsag in reissue_tx.mlsags.iter() {
+        for (key_image, tx) in rr_builder.inputs() {
             for spentbook_node in mintinfo.spentbook_nodes.iter_mut() {
-                rr_builder = rr_builder.add_spent_proof_share(
-                    spentbook_node.log_spent(mlsag.key_image.into(), reissue_tx.clone())?,
-                );
+                rr_builder = rr_builder
+                    .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?);
             }
         }
         let rr = rr_builder.build()?;
-
-        let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
 
         for mint_node in mintinfo.mintnodes.iter() {
             dbc_builder = dbc_builder.add_reissue_share(mint_node.reissue(rr.clone())?);

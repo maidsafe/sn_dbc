@@ -123,7 +123,7 @@ impl SpentBookNodeMock {
         // public_commitments are not available in spentbook for genesis transaction.
         let public_commitments_info: Vec<(KeyImage, Vec<Commitment>)> =
             if key_image == *genesis_key_image {
-                vec![(key_image.clone(), vec![*genesis_public_commitment])]
+                vec![(key_image, vec![*genesis_public_commitment])]
             } else {
                 tx.mlsags
                     .iter()
@@ -180,10 +180,7 @@ impl SpentBookNodeMock {
         }
 
         // Add key_image:tx_hash to key_image index.
-        let existing_tx_hash = self
-            .key_images
-            .entry(key_image.clone())
-            .or_insert_with(|| tx_hash);
+        let existing_tx_hash = self.key_images.entry(key_image).or_insert_with(|| tx_hash);
 
         if *existing_tx_hash == tx_hash {
             // Add tx_hash:tx to transaction entries. (primary data store)

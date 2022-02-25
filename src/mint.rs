@@ -166,8 +166,8 @@ mod tests {
 
     use crate::{
         tests::{TinyInt, TinyVec},
-        Amount, AmountSecrets, Dbc, DbcBuilder, DbcContent, GenesisBuilderMock, GenesisMaterial,
-        Owner, OwnerOnce, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
+        Amount, AmountSecrets, Dbc, DbcContent, GenesisBuilderMock, GenesisMaterial, Owner,
+        OwnerOnce, ReissueRequestBuilder, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
         SpentProofContent,
     };
 
@@ -208,24 +208,23 @@ mod tests {
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8))
             .collect();
 
-        let (reissue_tx, revealed_commitments, _material, output_owners) =
-            crate::TransactionBuilder::default()
-                .add_input_dbc(
-                    &genesis_dbc,
-                    &genesis_dbc.owner_base().secret_key()?,
-                    vec![], // genesis is only input, so no decoys.
-                    &mut rng8,
-                )?
-                .add_outputs(output_amounts.iter().enumerate().map(|(idx, a)| {
-                    (
-                        crate::Output {
-                            amount: *a,
-                            public_key: owners[idx].as_owner().public_key_blst(),
-                        },
-                        owners[idx].clone(),
-                    )
-                }))
-                .build(&mut rng8)?;
+        let (mut rr_builder, mut dbc_builder, _material) = crate::TransactionBuilder::default()
+            .add_input_dbc(
+                &genesis_dbc,
+                &genesis_dbc.owner_base().secret_key()?,
+                vec![], // genesis is only input, so no decoys.
+                &mut rng8,
+            )?
+            .add_outputs(output_amounts.iter().enumerate().map(|(idx, a)| {
+                (
+                    crate::Output {
+                        amount: *a,
+                        public_key: owners[idx].as_owner().public_key_blst(),
+                    },
+                    owners[idx].clone(),
+                )
+            }))
+            .build(&mut rng8)?;
 
         // We make this a closure because it is used for checking both spentbook
         // result and reissue result.
@@ -247,15 +246,14 @@ mod tests {
             }
         };
 
-        let genesis_key_image: KeyImage = reissue_tx.mlsags[0].key_image.into();
-        let spent_proof_share = match spentbook.log_spent(genesis_key_image, reissue_tx.clone()) {
-            Ok(s) => s,
-            Err(e) => return check_error(e),
-        };
-
-        let rr = ReissueRequestBuilder::new(reissue_tx)
-            .add_spent_proof_share(spent_proof_share)
-            .build()?;
+        for (key_image, tx) in rr_builder.inputs() {
+            let spent_proof_share = match spentbook.log_spent(key_image, tx.clone()) {
+                Ok(s) => s,
+                Err(e) => return check_error(e),
+            };
+            rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
+        }
+        let rr = rr_builder.build()?;
 
         let reissue_share = match mint_node.reissue(rr) {
             Ok(rs) => {
@@ -267,7 +265,6 @@ mod tests {
         };
 
         // Aggregate ReissueShare to build output DBCs
-        let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
         let output_dbcs = dbc_builder.build()?;
 
@@ -337,30 +334,25 @@ mod tests {
         let (mint_node, mut spentbook, genesis_dbc, _genesis, _amount_secrets) =
             GenesisBuilderMock::init_genesis_single(&mut rng, &mut rng8)?;
 
-        let (reissue_tx, revealed_commitments, _material, output_owners) =
-            crate::TransactionBuilder::default()
-                .add_input_dbc(
-                    &genesis_dbc,
-                    &genesis_dbc.owner_base().secret_key()?,
-                    vec![], // genesis is only input, so no decoys.
-                    &mut rng8,
-                )?
-                .add_outputs(input_amounts.iter().copied().map(|amount| {
-                    let owner_once = OwnerOnce::from_owner_base(
-                        Owner::from_random_secret_key(&mut rng),
-                        &mut rng8,
-                    );
-                    (
-                        crate::Output {
-                            amount,
-                            public_key: owner_once.as_owner().public_key_blst(),
-                        },
-                        owner_once,
-                    )
-                }))
-                .build(&mut rng8)?;
-
-        let genesis_key_image = reissue_tx.mlsags[0].key_image.into();
+        let (mut rr_builder, mut dbc_builder, _material) = crate::TransactionBuilder::default()
+            .add_input_dbc(
+                &genesis_dbc,
+                &genesis_dbc.owner_base().secret_key()?,
+                vec![], // genesis is only input, so no decoys.
+                &mut rng8,
+            )?
+            .add_outputs(input_amounts.iter().copied().map(|amount| {
+                let owner_once =
+                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
+                (
+                    crate::Output {
+                        amount,
+                        public_key: owner_once.as_owner().public_key_blst(),
+                    },
+                    owner_once,
+                )
+            }))
+            .build(&mut rng8)?;
 
         // note: this closure is used for checking errors returned from both
         // MintNode::reissue and SpentBookNodeMock::log_spent().
@@ -377,17 +369,16 @@ mod tests {
             }
         };
 
-        // normally spentbook verifies the tx, but here we skip it in order check reissue results.
-        let spent_proof_share = match spentbook
-            .log_spent_and_skip_tx_verification(genesis_key_image, reissue_tx.clone())
-        {
-            Ok(s) => s,
-            Err(e) => return check_tx_error(e),
-        };
-
-        let rr1 = ReissueRequestBuilder::new(reissue_tx)
-            .add_spent_proof_share(spent_proof_share)
-            .build()?;
+        for (key_image, tx) in rr_builder.inputs() {
+            // normally spentbook verifies the tx, but here we skip it in order check reissue results.
+            let spent_proof_share =
+                match spentbook.log_spent_and_skip_tx_verification(key_image, tx.clone()) {
+                    Ok(s) => s,
+                    Err(e) => return check_tx_error(e),
+                };
+            rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
+        }
+        let rr1 = rr_builder.build()?;
 
         let reissue_share = match mint_node.reissue(rr1) {
             Ok(rs) => {
@@ -399,7 +390,6 @@ mod tests {
         };
 
         // Aggregate ReissueShare to build output DBCs
-        let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
         let output_dbcs = dbc_builder.build()?;
 
@@ -433,18 +423,18 @@ mod tests {
             })
             .collect();
 
-        let (reissue_tx2, revealed_commitments, material, output_owners) =
-            crate::TransactionBuilder::default()
-                .add_inputs_dbc(inputs_dbcs.clone(), &mut rng8)?
-                .add_outputs(outputs.clone())
-                .build(&mut rng8)?;
+        let (mut rr2_builder, mut dbc_builder, _material) = crate::TransactionBuilder::default()
+            .add_inputs_dbc(inputs_dbcs.clone(), &mut rng8)?
+            .add_outputs(outputs.clone())
+            .build(&mut rng8)?;
 
         let dbc_output_amounts: Vec<Amount> = outputs.iter().map(|(o, _)| o.amount).collect();
         let output_total_amount: Amount = dbc_output_amounts.iter().sum();
 
-        let mut rr2_builder = ReissueRequestBuilder::new(reissue_tx2.clone());
+        assert_eq!(inputs_dbcs.len(), rr2_builder.transaction.mlsags.len());
+        assert_eq!(inputs_dbcs.len(), rr2_builder.inputs().len());
 
-        assert_eq!(inputs_dbcs.len(), reissue_tx2.mlsags.len());
+        let reissue_tx2 = rr2_builder.transaction.clone();
 
         // note: this closure is used for checking errors returned from both
         // MintNode::reissue and SpentBookNodeMock::log_spent().
@@ -489,12 +479,7 @@ mod tests {
             Ok(())
         };
 
-        for (i, (in_mlsag, _in_material)) in reissue_tx2
-            .mlsags
-            .iter()
-            .zip(material.inputs.iter())
-            .enumerate()
-        {
+        for (i, (key_image, tx)) in rr2_builder.inputs().into_iter().enumerate() {
             let is_invalid_spent_proof = invalid_spent_proofs.contains(&i);
 
             let spent_proof_share = match i % 2 {
@@ -504,14 +489,13 @@ mod tests {
                 }
                 1 if is_invalid_spent_proof => {
                     // spentbook verifies the tx.  If an error, we need to check it same as with reissue result
-                    let spent_proof_share =
-                        match spentbook.log_spent(in_mlsag.key_image.into(), reissue_tx2.clone()) {
-                            Ok(s) => s,
-                            Err(e) => return check_error(e),
-                        };
+                    let spent_proof_share = match spentbook.log_spent(key_image, tx.clone()) {
+                        Ok(s) => s,
+                        Err(e) => return check_error(e),
+                    };
                     SpentProofShare {
                         content: SpentProofContent {
-                            key_image: spent_proof_share.key_image().clone(),
+                            key_image: *spent_proof_share.key_image(),
                             transaction_hash: spent_proof_share.transaction_hash(),
                             public_commitments: spent_proof_share.public_commitments().clone(),
                         },
@@ -526,7 +510,7 @@ mod tests {
                 }
                 _ => {
                     // spentbook verifies the tx.  If an error, we need to check it same as with reissue result
-                    match spentbook.log_spent(in_mlsag.key_image.into(), reissue_tx2.clone()) {
+                    match spentbook.log_spent(key_image, tx.clone()) {
                         Ok(s) => s,
                         Err(e) => return check_error(e),
                     }
@@ -553,7 +537,6 @@ mod tests {
                 );
 
                 // Aggregate ReissueShare to build output DBCs
-                let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owners);
                 dbc_builder = dbc_builder.add_reissue_share(rs);
                 let output_dbcs = dbc_builder.build()?;
 
@@ -603,7 +586,7 @@ mod tests {
         let output1_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
-        let (_transaction, revealed_commitments, ..) = crate::TransactionBuilder::default()
+        let (_rr_builder, dbc_builder, ..) = crate::TransactionBuilder::default()
             .add_output(
                 Output {
                     public_key: output1_owner.as_owner().public_key_blst(),
@@ -613,14 +596,14 @@ mod tests {
             )
             .build(&mut rng8)?;
 
-        let amount_secrets = AmountSecrets::from(revealed_commitments[0]);
+        let amount_secrets = AmountSecrets::from(dbc_builder.revealed_commitments[0]);
         let secret_key = output1_owner.as_owner().secret_key_blst()?;
         let decoy_inputs = vec![]; // no decoys.
 
         let output2_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
-        let (fraud_tx, ..) = crate::TransactionBuilder::default()
+        let (fraud_rr_builder, ..) = crate::TransactionBuilder::default()
             .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng8)
             .add_output(
                 Output {
@@ -631,7 +614,7 @@ mod tests {
             )
             .build(&mut rng8)?;
 
-        let fraud_rr = ReissueRequestBuilder::new(fraud_tx).build()?;
+        let fraud_rr = fraud_rr_builder.build()?;
 
         let fraudulant_reissue_result = mint_node.reissue(fraud_rr);
 
@@ -698,35 +681,34 @@ mod tests {
         let output_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
-        let (tx, revealed_commitments, _ringct_material, output_owner_map) =
-            crate::TransactionBuilder::default()
-                .add_input_dbc(
-                    &starting_dbc,
-                    &starting_dbc.owner_base().secret_key()?,
-                    vec![], // genesis is only input, so no decoys.
-                    &mut rng8,
-                )?
-                .add_output(
-                    Output {
-                        public_key: output_owner.as_owner().public_key_blst(),
-                        amount: output_amount,
-                    },
-                    output_owner.clone(),
-                )
-                .build(&mut rng8)?;
+        let (mut rr_builder, mut dbc_builder, ..) = crate::TransactionBuilder::default()
+            .add_input_dbc(
+                &starting_dbc,
+                &starting_dbc.owner_base().secret_key()?,
+                vec![], // genesis is only input, so no decoys.
+                &mut rng8,
+            )?
+            .add_output(
+                Output {
+                    public_key: output_owner.as_owner().public_key_blst(),
+                    amount: output_amount,
+                },
+                output_owner.clone(),
+            )
+            .build(&mut rng8)?;
 
-        let spent_proof_share = spentbook.log_spent(tx.mlsags[0].key_image.into(), tx.clone())?;
-
-        let rr = ReissueRequestBuilder::new(tx.clone())
-            .add_spent_proof_share(spent_proof_share)
-            .build()?;
+        for (key_image, tx) in rr_builder.inputs() {
+            rr_builder =
+                rr_builder.add_spent_proof_share(spentbook.log_spent(key_image, tx.clone())?);
+        }
+        let rr = rr_builder.build()?;
 
         let reissue_share = mint_node.reissue(rr)?;
 
         // Aggregate ReissueShare to build output DBCs
-        let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owner_map);
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
         let output_dbcs = dbc_builder.build()?;
+        let (b_dbc, ..) = &output_dbcs[0];
 
         // ----------
         // 3. modify b's amount secrets.amount to AMOUNT/2, thereby creating b_fudged
@@ -797,7 +779,7 @@ mod tests {
         let output_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
-        let (tx_fudged, ..) = crate::TransactionBuilder::default()
+        let (mut rr_builder_fudged, ..) = crate::TransactionBuilder::default()
             .add_input_dbc(
                 &fudged_output_dbc,
                 &fudged_output_dbc.owner_base().secret_key()?,
@@ -817,9 +799,11 @@ mod tests {
         // 6. Attempt to write this tx to the spentbook.
         //    This will fail because the input and output commitments do not match.
         // ----------
-        match spentbook.log_spent(tx_fudged.mlsags[0].key_image.into(), tx_fudged.clone()) {
-            Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
-            _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
+        for (key_image, tx) in rr_builder_fudged.inputs() {
+            match spentbook.log_spent(key_image, tx) {
+                Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
+                _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
+            }
         }
 
         // ----------
@@ -829,12 +813,17 @@ mod tests {
 
         // normally spentbook verifies the tx, but here we skip it in order to obtain
         // a spentproof with an invalid tx.
+        for (key_image, tx) in rr_builder_fudged.inputs() {
+            let spent_proof_share = spentbook.log_spent_and_skip_tx_verification(key_image, tx)?;
+            rr_builder_fudged = rr_builder_fudged.add_spent_proof_share(spent_proof_share);
+        }
+
         let spent_proof_share_fudged = spentbook.log_spent_and_skip_tx_verification(
-            tx_fudged.mlsags[0].key_image.into(),
-            tx_fudged.clone(),
+            rr_builder_fudged.transaction.mlsags[0].key_image.into(),
+            rr_builder_fudged.transaction.clone(),
         )?;
 
-        let rr_fudged = ReissueRequestBuilder::new(tx_fudged)
+        let rr_fudged = rr_builder_fudged
             .add_spent_proof_share(spent_proof_share_fudged.clone())
             .build()?;
 
@@ -861,7 +850,7 @@ mod tests {
         // is doomed to fail also.  And we can't write to the spentbook again
         // because entries are immutable.
 
-        let (tx_true, ..) = crate::TransactionBuilder::default()
+        let (rr_builder_true, ..) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
                 fudged_output_dbc.owner_once_bearer()?.secret_key_blst()?,
                 true_secrets.clone(),
@@ -877,7 +866,8 @@ mod tests {
             )
             .build(&mut rng8)?;
 
-        let rr_burned = ReissueRequestBuilder::new(tx_true.clone())
+        let tx_true = rr_builder_true.transaction.clone();
+        let rr_burned = rr_builder_true
             .add_spent_proof_share(spent_proof_share_fudged)
             .build()?;
 
@@ -918,8 +908,10 @@ mod tests {
             starting_dbc.transaction.mlsags[0].key_image.into(),
             starting_dbc.transaction.clone(),
         )?;
-        let _spent_proof_share =
-            new_spentbook.log_spent(tx.mlsags[0].key_image.into(), tx.clone())?;
+        let _spent_proof_share = new_spentbook.log_spent(
+            b_dbc.transaction.mlsags[0].key_image.into(),
+            b_dbc.transaction.clone(),
+        )?;
         let spent_proof_share_true =
             new_spentbook.log_spent(tx_true.mlsags[0].key_image.into(), tx_true.clone())?;
 
