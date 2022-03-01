@@ -6,15 +6,15 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{BlsHelper, Error, PublicKey, PublicKeyBlst, Result, SecretKeyBlst};
+use crate::{Error, PublicKey, Result};
 use blsttc::{serde_impl::SerdeSecret, SecretKey};
 use std::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use rand::distributions::Standard;
-use rand::Rng;
+use rand8::distributions::Standard;
+use rand8::Rng;
 
 pub type DerivationIndex = [u8; 32];
 
@@ -98,18 +98,6 @@ impl Owner {
         }
     }
 
-    /// returns owner BLST PublicKey derived from owner base PublicKey
-    // note: can go away once blsttc integrated with blst_ringct.
-    pub fn public_key_blst(&self) -> PublicKeyBlst {
-        BlsHelper::blsttc_to_blstrs_public_key(&self.public_key())
-    }
-
-    /// returns owner BLST SecretKey derived from owner base SecretKey, if available.
-    // note: can go away once blsttc integrated with blst_ringct.
-    pub fn secret_key_blst(&self) -> Result<SecretKeyBlst> {
-        Ok(BlsHelper::blsttc_to_blstrs_secret_key(self.secret_key()?))
-    }
-
     /// derives new Owner from provided DerivationIndex
     pub fn derive(&self, i: &DerivationIndex) -> Self {
         match self {
@@ -135,7 +123,7 @@ impl Owner {
     }
 
     /// create Owner from a randomly generated SecretKey
-    pub fn from_random_secret_key(rng: &mut impl rand::RngCore) -> Self {
+    pub fn from_random_secret_key(rng: &mut impl rand8::RngCore) -> Self {
         let sk: SecretKey = rng.sample(Standard);
         Self::from(sk)
     }

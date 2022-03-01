@@ -27,16 +27,14 @@ use blstrs::{G1Affine, G1Projective, Scalar};
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
-use blsttc::{PublicKey, SecretKey};
-
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// a SecretKey in Blst format
-pub type SecretKeyBlst = Scalar;
+// pub type SecretKeyBlst = Scalar;
 
 /// a PublicKey in Blst format
-pub type PublicKeyBlst = G1Affine;
+// pub type PublicKeyBlst = G1Affine;
 
 /// a Commitment
 pub type Commitment = G1Affine;
@@ -106,31 +104,31 @@ impl From<G1Affine> for PublicKeyBlstMappable {
 // For this reason, we allow unwrap() in these methods so that
 // it doesn't force higher APIs to return a Result when they should
 // not need to do so once the integration is complete.
-pub struct BlsHelper {}
+// pub struct BlsHelper {}
 
-impl BlsHelper {
-    #[allow(dead_code)]
-    pub fn blsttc_to_blstrs_secret_key(sk: SecretKey) -> SecretKeyBlst {
-        let bytes = sk.to_bytes();
-        // fixme: unwrap
-        SecretKeyBlst::from_bytes_be(&bytes).unwrap()
-    }
+// impl BlsHelper {
+//     #[allow(dead_code)]
+//     pub fn blsttc_to_blstrs_secret_key(sk: SecretKey) -> SecretKeyBlst {
+//         let bytes = sk.to_bytes();
+//         // fixme: unwrap
+//         SecretKeyBlst::from_bytes_be(&bytes).unwrap()
+//     }
 
-    pub fn blsttc_to_blstrs_public_key(pk: &PublicKey) -> PublicKeyBlst {
-        let bytes = pk.to_bytes();
-        // fixme: unwrap
-        PublicKeyBlst::from_compressed(&bytes).unwrap()
-    }
+//     pub fn blsttc_to_blstrs_public_key(pk: &PublicKey) -> PublicKeyBlst {
+//         let bytes = pk.to_bytes();
+//         // fixme: unwrap
+//         PublicKeyBlst::from_compressed(&bytes).unwrap()
+//     }
 
-    pub fn blstrs_to_blsttc_public_key(pk: &PublicKeyBlst) -> PublicKey {
-        let bytes = pk.to_compressed();
-        // fixme: unwrap
-        PublicKey::from_bytes(bytes).unwrap()
-    }
+//     pub fn blstrs_to_blsttc_public_key(pk: &PublicKeyBlst) -> PublicKey {
+//         let bytes = pk.to_compressed();
+//         // fixme: unwrap
+//         PublicKey::from_bytes(bytes).unwrap()
+//     }
 
-    pub fn blstrs_to_blsttc_secret_key(sk: SecretKeyBlst) -> SecretKey {
-        let bytes = sk.to_bytes_be();
-        // fixme: unwrap
-        SecretKey::from_bytes(bytes).unwrap()
-    }
-}
+//     pub fn blstrs_to_blsttc_secret_key(sk: SecretKeyBlst) -> SecretKey {
+//         let bytes = sk.to_bytes_be();
+//         // fixme: unwrap
+//         SecretKey::from_bytes(bytes).unwrap()
+//     }
+// }

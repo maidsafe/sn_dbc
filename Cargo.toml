@@ -18,10 +18,12 @@ ringct-serde = [ "blst_ringct/serde" ]
 thiserror = "1.0.24"
 quickcheck_macros = "1"
 rand = "0.7.1"
-blsttc = "3.3.0"
+# blsttc = "3.3.0"
+blsttc = {git = "https://github.com/dan-da/blsttc", branch = "sn_dbc_integration"}
 hex = "0.4.3"
 rand_core = "0.6.3"
-xor_name = "3.1.0"
+# xor_name = "3.1.0"
+xor_name = {git = "https://github.com/iancoleman/xor_name", branch = "remove_osrng"}
 
   [dependencies.quickcheck]
   git = "https://github.com/davidrusu/quickcheck.git"
@@ -43,7 +45,9 @@ xor_name = "3.1.0"
   version = "0.8.0"
 
   [dependencies.bls_dkg]
-  version = "~0.9"
+  git = "https://github.com/dan-da/bls_dkg.git"
+  branch = "sn_dbc_integration"
+  version = "~0.9.1"
   optional = true
 
   [dependencies.tiny-keccak]

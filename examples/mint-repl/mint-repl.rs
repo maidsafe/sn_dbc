@@ -579,7 +579,6 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
 
 /// Implements prepare_tx command.
 fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
-    let mut rng = rand::thread_rng();
     let mut rng8 = rand8::thread_rng();
     let mut tx_builder: TransactionBuilder = Default::default();
 
@@ -668,7 +667,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
                             Some(Owner::from(public_key))
                         }
                     },
-                    "r" => Some(Owner::from_random_secret_key(&mut rng)),
+                    "r" => Some(Owner::from_random_secret_key(&mut rng8)),
                     "c" => return Err(anyhow!("Cancelled")),
                     _ => None,
                 };
@@ -680,10 +679,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
         let owner_once = OwnerOnce::from_owner_base(owner_base, &mut rng8);
 
         tx_builder = tx_builder.add_output(
-            Output {
-                amount,
-                public_key: owner_once.as_owner().public_key_blst(),
-            },
+            Output::new(owner_once.as_owner().public_key(), amount),
             owner_once,
         );
 
@@ -819,13 +815,10 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             let amount = rng.gen_range(0, range_max);
 
             let owner_once =
-                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
+                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
 
             tx_builder = tx_builder.add_output(
-                Output {
-                    amount,
-                    public_key: owner_once.as_owner().public_key_blst(),
-                },
+                Output::new(owner_once.as_owner().public_key(), amount),
                 owner_once,
             );
         }
@@ -909,7 +902,7 @@ fn reissue(mintinfo: &mut MintInfo, reissue_request: ReissueRequestRevealed) -> 
 
 /// Makes a new random SecretKeySet
 fn mk_secret_key_set(threshold: usize) -> Result<(Poly, SecretKeySet)> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand8::thread_rng();
     let poly = Poly::try_random(threshold, &mut rng).map_err(|e| anyhow!(e))?;
     Ok((poly.clone(), SecretKeySet::from(poly)))
 }

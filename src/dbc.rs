@@ -134,8 +134,7 @@ impl Dbc {
     /// returns KeyImage for the owner's derived public key
     /// This is useful for checking if a Dbc has been spent.
     pub fn key_image(&self, base_sk: &SecretKey) -> Result<KeyImage> {
-        let owner_once = self.owner_once(base_sk)?;
-        let secret_key = owner_once.secret_key_blst()?;
+        let secret_key = self.owner_once(base_sk)?.secret_key()?;
         Ok(blst_ringct::key_image(secret_key).to_affine().into())
     }
 
@@ -149,10 +148,10 @@ impl Dbc {
     /// returns a TrueInput that represents this Dbc for use as
     /// a transaction input.
     pub fn as_true_input(&self, base_sk: &SecretKey) -> Result<TrueInput> {
-        Ok(TrueInput {
-            secret_key: self.owner_once(base_sk)?.secret_key_blst()?,
-            revealed_commitment: self.amount_secrets(base_sk)?.into(),
-        })
+        Ok(TrueInput::new(
+            self.owner_once(base_sk)?.secret_key()?,
+            self.amount_secrets(base_sk)?.into(),
+        ))
     }
 
     /// returns a TrueInput that represents this Dbc for use as
@@ -202,13 +201,13 @@ impl Dbc {
             &self.spent_proofs,
         )?;
 
-        let owner = self.owner_once(base_sk)?.public_key_blst();
+        let owner = self.owner_once(base_sk)?.public_key();
 
         if !self
             .transaction
             .outputs
             .iter()
-            .any(|o| *o.public_key() == owner)
+            .any(|o| owner.eq(o.public_key()))
         {
             return Err(Error::DbcContentNotPresentInTransactionOutput);
         }
@@ -255,11 +254,11 @@ impl Dbc {
     }
 
     fn my_output_proof(&self, base_sk: &SecretKey) -> Result<&OutputProof> {
-        let owner = self.owner_once(base_sk)?.public_key_blst();
+        let owner = self.owner_once(base_sk)?.public_key();
         self.transaction
             .outputs
             .iter()
-            .find(|o| *o.public_key() == owner)
+            .find(|o| owner.eq(o.public_key()))
             .ok_or(Error::OutputProofNotFound)
     }
 }
@@ -273,12 +272,10 @@ pub(crate) mod tests {
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::{
         Amount, AmountSecrets, DbcBuilder, GenesisBuilderMock, Hash, KeyManager, MintNode, Owner,
-        OwnerOnce, ReissueRequest, SecretKeyBlst, SimpleKeyManager, SimpleSigner,
-        SpentBookNodeMock,
+        OwnerOnce, ReissueRequest, SimpleKeyManager, SimpleSigner, SpentBookNodeMock,
     };
     use blst_ringct::ringct::RingCtMaterial;
     use blst_ringct::{DecoyInput, Output};
-    use rand::SeedableRng;
     use rand_core::RngCore;
     use rand_core::SeedableRng as SeedableRngCore;
 
@@ -295,7 +292,7 @@ pub(crate) mod tests {
     }
 
     fn prepare_even_split(
-        dbc_owner_blst: SecretKeyBlst,
+        dbc_owner: SecretKey,
         amount_secrets: AmountSecrets,
         n_ways: u8,
         output_owners: Vec<OwnerOnce>,
@@ -307,14 +304,11 @@ pub(crate) mod tests {
         let decoy_inputs = spentbook.random_decoys(STD_NUM_DECOYS, rng8);
 
         let (mut rr_builder, dbc_builder, _material) = crate::TransactionBuilder::default()
-            .add_input_by_secrets(dbc_owner_blst, amount_secrets, decoy_inputs, rng8)
+            .add_input_by_secrets(dbc_owner, amount_secrets, decoy_inputs, rng8)
             .add_outputs(divide(amount, n_ways).zip(output_owners.into_iter()).map(
                 |(amount, owner_once)| {
                     (
-                        Output {
-                            amount,
-                            public_key: owner_once.as_owner().public_key_blst(),
-                        },
+                        Output::new(owner_once.as_owner().public_key(), amount),
                         owner_once,
                     )
                 },
@@ -332,18 +326,14 @@ pub(crate) mod tests {
     #[test]
     fn test_dbc_without_inputs_fails_verification() -> Result<(), Error> {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
-        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
         let amount = 100;
 
         let owner_once =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
 
         let ringct_material = RingCtMaterial {
             inputs: vec![],
-            outputs: vec![Output {
-                public_key: owner_once.as_owner().public_key_blst(),
-                amount,
-            }],
+            outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
         };
 
         let (transaction, revealed_commitments) = ringct_material
@@ -365,7 +355,7 @@ pub(crate) mod tests {
             spent_proofs: Default::default(),
         };
 
-        let id = crate::bls_dkg_id(&mut rng);
+        let id = crate::bls_dkg_id(&mut rng8);
         let mint_key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
 
         assert!(matches!(
@@ -389,7 +379,6 @@ pub(crate) mod tests {
         extra_output_amount: TinyInt, // Artifically increase output dbc value
     ) -> Result<(), Error> {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
-        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
         let amount = 100;
 
@@ -401,14 +390,16 @@ pub(crate) mod tests {
         // we add extra_output_amount to amount, which would otherwise
         // cause an integer overflow.
         let (mint_node, mut spentbook, _genesis_dbc, starting_dbc, _change_dbc) =
-            generate_dbc_of_value(amount, &mut rng, &mut rng8)?;
+            generate_dbc_of_value(amount, &mut rng8)?;
 
         let input_owners: Vec<OwnerOnce> = (0..n_inputs.coerce())
-            .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8))
+            .map(|_| {
+                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8)
+            })
             .collect();
 
         let (reissue_request, mut dbc_builder) = prepare_even_split(
-            starting_dbc.owner_once_bearer()?.secret_key_blst()?,
+            starting_dbc.owner_once_bearer()?.secret_key()?,
             starting_dbc.amount_secrets_bearer()?,
             n_inputs.coerce(),
             input_owners,
@@ -438,15 +429,12 @@ pub(crate) mod tests {
             .collect();
 
         let owner_once =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
 
         let (mut rr_builder, dbc_builder, _material) = crate::TransactionBuilder::default()
             .add_inputs_dbc(inputs, &mut rng8)?
             .add_output(
-                Output {
-                    amount,
-                    public_key: owner_once.as_owner().public_key_blst(),
-                },
+                Output::new(owner_once.as_owner().public_key(), amount),
                 owner_once.clone(),
             )
             .build(&mut rng8)?;
@@ -516,7 +504,7 @@ pub(crate) mod tests {
         // Invalid mint signatures BUT signing correct message
         for _ in 0..n_wrong_signer_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
-                let id = crate::bls_dkg_id(&mut rng);
+                let id = crate::bls_dkg_id(&mut rng8);
                 let key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
                 let trans_sig_share = key_manager
                     .sign(&Hash::from(reissue_share.transaction.hash()))
@@ -575,7 +563,7 @@ pub(crate) mod tests {
 
         let dbc_owner = dbc
             .owner_once(&owner_once.owner_base().secret_key()?)?
-            .public_key_blst();
+            .public_key();
 
         match verification_res {
             Ok(()) => {
@@ -583,7 +571,7 @@ pub(crate) mod tests {
                     .transaction
                     .outputs
                     .iter()
-                    .any(|o| *o.public_key() == dbc_owner));
+                    .any(|o| dbc_owner.eq(o.public_key())));
                 assert!(n_inputs.coerce::<u8>() > 0);
                 assert!(n_valid_sigs.coerce::<u8>() >= n_inputs.coerce::<u8>());
                 assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
@@ -608,7 +596,7 @@ pub(crate) mod tests {
                     .transaction
                     .outputs
                     .iter()
-                    .any(|o| *o.public_key() == dbc_owner));
+                    .any(|o| dbc_owner.eq(o.public_key())));
             }
             Err(Error::RingCt(blst_ringct::Error::TransactionMustHaveAnInput)) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
@@ -645,29 +633,25 @@ pub(crate) mod tests {
 
     pub(crate) fn generate_dbc_of_value(
         amount: Amount,
-        rng: &mut impl rand::RngCore,
         rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
     ) -> Result<(MintNode<SimpleKeyManager>, SpentBookNodeMock, Dbc, Dbc, Dbc)> {
         let (mint_node, mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(rng, rng8)?;
+            GenesisBuilderMock::init_genesis_single(rng8)?;
 
         let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
 
         let (mut rr_builder, mut dbc_builder, _material) = crate::TransactionBuilder::default()
             .add_input_by_secrets(
-                genesis_dbc.owner_once_bearer()?.secret_key_blst()?,
+                genesis_dbc.owner_once_bearer()?.secret_key()?,
                 genesis_dbc.amount_secrets_bearer()?,
                 vec![], // never any decoys for genesis
                 rng8,
             )
             .add_outputs(output_amounts.into_iter().map(|amount| {
                 let owner_once =
-                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng), rng8);
+                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng8), rng8);
                 (
-                    Output {
-                        amount,
-                        public_key: owner_once.as_owner().public_key_blst(),
-                    },
+                    Output::new(owner_once.as_owner().public_key(), amount),
                     owner_once,
                 )
             }))

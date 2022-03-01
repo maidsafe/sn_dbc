@@ -23,15 +23,12 @@ mod spentbook;
 mod verification;
 
 pub use crate::{
-    amount_secrets::AmountSecrets,
-    blst::{
-        BlindingFactor, BlsHelper, Commitment, KeyImage, PublicKeyBlst, PublicKeyBlstMappable,
-        SecretKeyBlst,
-    },
+    amount_secrets::{Amount, AmountSecrets},
+    blst::{BlindingFactor, Commitment, KeyImage, PublicKeyBlstMappable},
     builder::mock::GenesisBuilderMock,
     builder::{DbcBuilder, Output, OutputOwnerMap, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,
-    dbc_content::{Amount, DbcContent},
+    dbc_content::DbcContent,
     error::{Error, Result},
     genesis::GenesisMaterial,
     key_manager::{
@@ -81,7 +78,7 @@ impl AsRef<[u8]> for Hash {
 }
 
 #[cfg(feature = "dkg")]
-use rand::RngCore;
+use rand8::RngCore;
 
 #[cfg(feature = "dkg")]
 pub fn bls_dkg_id(rng: &mut impl RngCore) -> bls_dkg::outcome::Outcome {

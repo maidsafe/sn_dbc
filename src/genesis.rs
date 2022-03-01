@@ -1,4 +1,4 @@
-use crate::{Amount, BlsHelper, KeyImage, Owner, OwnerOnce};
+use crate::{Amount, KeyImage, Owner, OwnerOnce};
 use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
 use blst_ringct::ringct::RingCtMaterial;
 use blst_ringct::{Output, RevealedCommitment};
@@ -52,13 +52,13 @@ impl Default for GenesisMaterial {
         let output_sk_once = output_sk.derive_child(&output_owner_once.derivation_index);
 
         // build our TrueInput
-        let true_input = TrueInput {
-            secret_key: BlsHelper::blsttc_to_blstrs_secret_key(input_sk),
-            revealed_commitment: RevealedCommitment {
+        let true_input = TrueInput::new(
+            input_sk,
+            RevealedCommitment {
                 value: Self::GENESIS_AMOUNT,
                 blinding: 1776.into(), // freedom baby!
             },
-        };
+        );
 
         // make things a bit easier for our callers.
         let input_key_image: KeyImage = true_input.key_image().to_affine().into();
@@ -76,10 +76,10 @@ impl Default for GenesisMaterial {
         // onward to RingCtMaterial
         let ringct_material = RingCtMaterial {
             inputs: vec![mlsag_material],
-            outputs: vec![Output {
-                public_key: BlsHelper::blsttc_to_blstrs_public_key(&output_sk_once.public_key()),
-                amount: Self::GENESIS_AMOUNT,
-            }],
+            outputs: vec![Output::new(
+                output_sk_once.public_key(),
+                Self::GENESIS_AMOUNT,
+            )],
         };
 
         // Voila!
