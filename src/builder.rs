@@ -6,19 +6,18 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
+use blst_ringct::ringct::{Amount, RingCtMaterial, RingCtTransaction};
 pub use blst_ringct::{DecoyInput, MlsagMaterial, Output, RevealedCommitment, TrueInput};
 use blstrs::group::Curve;
-use blsttc::{SecretKey, SignatureShare};
+use blsttc::{PublicKey, SecretKey, SignatureShare};
 use bulletproofs::PedersenGens;
 use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, IndexedSignatureShare,
-    KeyImage, KeyManager, OwnerOnce, PublicKeyBlst, PublicKeyBlstMappable, ReissueRequest,
-    ReissueShare, Result, SecretKeyBlst, SpentProof, SpentProofContent, SpentProofShare,
-    TransactionVerifier,
+    AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, IndexedSignatureShare, KeyImage,
+    KeyManager, OwnerOnce, PublicKeyBlstMappable, ReissueRequest, ReissueShare, Result, SpentProof,
+    SpentProofContent, SpentProofShare, TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
@@ -120,18 +119,15 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// add an input given a SecretKeyBlst, AmountSecrets, and list of decoys
+    /// add an input given a SecretKey, AmountSecrets, and list of decoys
     pub fn add_input_by_secrets(
         mut self,
-        secret_key: SecretKeyBlst,
+        secret_key: SecretKey,
         amount_secrets: AmountSecrets,
         decoy_inputs: Vec<DecoyInput>,
         rng: &mut impl RngCore,
     ) -> Self {
-        let true_input = TrueInput {
-            secret_key,
-            revealed_commitment: amount_secrets.into(),
-        };
+        let true_input = TrueInput::new(secret_key, amount_secrets.into());
 
         self.ringct_material
             .inputs
@@ -139,10 +135,10 @@ impl TransactionBuilder {
         self
     }
 
-    /// add an input given a list of (SecretKeyBlst, AmountSecrets, and list of decoys)
+    /// add an input given a list of (SecretKey, AmountSecrets, and list of decoys)
     pub fn add_inputs_by_secrets(
         mut self,
-        secrets: Vec<(SecretKeyBlst, AmountSecrets, Vec<DecoyInput>)>,
+        secrets: Vec<(SecretKey, AmountSecrets, Vec<DecoyInput>)>,
         rng: &mut impl RngCore,
     ) -> Self {
         for (secret_key, amount_secrets, decoy_inputs) in secrets.into_iter() {
@@ -168,8 +164,16 @@ impl TransactionBuilder {
     }
 
     /// get a list of input owners
-    pub fn input_owners(&self) -> Vec<PublicKeyBlst> {
-        self.ringct_material.public_keys()
+    pub fn input_owners(&self) -> Vec<PublicKey> {
+        self.ringct_material
+            .public_keys()
+            .iter()
+            .map(|pk| {
+                let pkg1: blsttc::G1Affine = *pk;
+                let pk: PublicKey = pkg1.into();
+                pk
+            })
+            .collect()
     }
 
     /// get sum of input amounts
@@ -485,7 +489,7 @@ pub mod mock {
         pub fn gen_mint_nodes(
             mut self,
             num_nodes: usize,
-            rng: &mut impl rand::RngCore,
+            rng: &mut impl rand8::RngCore,
         ) -> Result<Self> {
             let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
             self = self.gen_mint_nodes_with_sks(num_nodes, &sks);
@@ -508,7 +512,7 @@ pub mod mock {
         pub fn gen_spentbook_nodes(
             mut self,
             num_nodes: usize,
-            rng: &mut impl rand::RngCore,
+            rng: &mut impl rand8::RngCore,
         ) -> Result<Self> {
             let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
             self = self.gen_spentbook_nodes_with_sks(num_nodes, &sks);
@@ -648,7 +652,6 @@ pub mod mock {
         pub fn init_genesis(
             num_mint_nodes: usize,
             num_spentbook_nodes: usize,
-            rng: &mut impl rand::RngCore,
             rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
         ) -> Result<(
             Vec<MintNode<SimpleKeyManager>>,
@@ -658,8 +661,8 @@ pub mod mock {
             AmountSecrets,
         )> {
             Self::default()
-                .gen_mint_nodes(num_mint_nodes, rng)?
-                .gen_spentbook_nodes(num_spentbook_nodes, rng)?
+                .gen_mint_nodes(num_mint_nodes, rng8)?
+                .gen_spentbook_nodes(num_spentbook_nodes, rng8)?
                 .build(rng8)
         }
 
@@ -669,7 +672,6 @@ pub mod mock {
         /// the spentbook node uses a different randomly generated SecretKeySet
         #[allow(clippy::type_complexity)]
         pub fn init_genesis_single(
-            rng: &mut impl rand::RngCore,
             rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
         ) -> Result<(
             MintNode<SimpleKeyManager>,
@@ -680,8 +682,8 @@ pub mod mock {
         )> {
             let (mint_nodes, spentbook_nodes, genesis_dbc, genesis_material, amount_secrets) =
                 Self::default()
-                    .gen_mint_nodes(1, rng)?
-                    .gen_spentbook_nodes(1, rng)?
+                    .gen_mint_nodes(1, rng8)?
+                    .gen_spentbook_nodes(1, rng8)?
                     .build(rng8)?;
 
             // Note: these unwraps are safe because the above call returned Ok.

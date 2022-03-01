@@ -6,6 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::{BlindingFactor, Error};
 use blst_ringct::RevealedCommitment;
 use blsttc::{
     Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
@@ -15,7 +16,8 @@ use rand_core::RngCore;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 
-use crate::{Amount, BlindingFactor, Error, SecretKeyBlst};
+// we re-export this.
+pub use blst_ringct::ringct::Amount;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -43,7 +45,7 @@ impl AmountSecrets {
     }
 
     /// blinding factor getter
-    pub fn blinding_factor(&self) -> SecretKeyBlst {
+    pub fn blinding_factor(&self) -> BlindingFactor {
         self.0.blinding
     }
 
