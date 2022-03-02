@@ -692,10 +692,10 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
 
     println!("\n\nPreparing RingCtTransaction...\n\n");
 
-    let (reissue_tx, dbc_builder, ringct_material) = tx_builder.build(&mut rng8)?;
+    let (rr_builder, dbc_builder, ringct_material) = tx_builder.build(&mut rng8)?;
 
     Ok(RingCtTransactionRevealed {
-        inner: reissue_tx.transaction,
+        inner: rr_builder.transaction,
         revealed_commitments: dbc_builder.revealed_commitments,
         ringct_material,
         output_owner_map: dbc_builder.output_owner_map,
