@@ -13,8 +13,6 @@ use sn_dbc::{
     SpentBookNodeMock,
 };
 
-use blst_ringct::Output;
-
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand8::SeedableRng as SeedableRng8;
 
@@ -37,13 +35,10 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
             vec![], // never any decoys for genesis
             &mut rng8,
         )
-        .add_outputs((0..N_OUTPUTS).into_iter().map(|_| {
+        .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
-            (
-                Output::new(owner_once.as_owner().public_key(), 1),
-                owner_once,
-            )
+            (1, owner_once)
         }))
         .build(&mut rng8)
         .unwrap();
@@ -79,13 +74,10 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
             vec![], // never any decoy inputs for genesis
             &mut rng8,
         )
-        .add_outputs((0..N_OUTPUTS).into_iter().map(|_| {
+        .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
-            (
-                Output::new(owner_once.as_owner().public_key(), 1),
-                owner_once,
-            )
+            (1, owner_once)
         }))
         .build(&mut rng8)
         .unwrap();
@@ -117,13 +109,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                 .collect(),
             &mut rng8,
         )
-        .add_output(
-            Output::new(
-                output_owner_once.as_owner().public_key(),
-                N_OUTPUTS as Amount,
-            ),
-            output_owner_once,
-        )
+        .add_output_by_amount(N_OUTPUTS as Amount, output_owner_once)
         .build(&mut rng8)
         .unwrap();
 
@@ -156,12 +142,9 @@ fn generate_dbc_of_value(
             vec![], // never any decoys for genesis
             rng8,
         )
-        .add_outputs(output_amounts.into_iter().map(|amount| {
+        .add_outputs_by_amount(output_amounts.into_iter().map(|amount| {
             let owner_once = OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng8), rng8);
-            (
-                Output::new(owner_once.as_owner().public_key(), amount),
-                owner_once,
-            )
+            (amount, owner_once)
         }))
         .build(rng8)?;
 

@@ -24,9 +24,8 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, GenesisBuilderMock, MintNode, Output, OutputOwnerMap, Owner,
-    OwnerOnce, ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SpentBookNodeMock,
-    TransactionBuilder,
+    Amount, Dbc, DbcBuilder, GenesisBuilderMock, MintNode, OutputOwnerMap, Owner, OwnerOnce,
+    ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SpentBookNodeMock, TransactionBuilder,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::iter::FromIterator;
@@ -678,10 +677,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
 
         let owner_once = OwnerOnce::from_owner_base(owner_base, &mut rng8);
 
-        tx_builder = tx_builder.add_output(
-            Output::new(owner_once.as_owner().public_key(), amount),
-            owner_once,
-        );
+        tx_builder = tx_builder.add_output_by_amount(amount, owner_once);
 
         i += 1;
     }
@@ -817,10 +813,7 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
 
-            tx_builder = tx_builder.add_output(
-                Output::new(owner_once.as_owner().public_key(), amount),
-                owner_once,
-            );
+            tx_builder = tx_builder.add_output_by_amount(amount, owner_once);
         }
 
         let (mut rr_builder, mut dbc_builder, _material) = tx_builder.build(&mut rng8)?;

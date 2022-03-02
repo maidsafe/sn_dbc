@@ -163,6 +163,26 @@ impl TransactionBuilder {
         self
     }
 
+    /// add an output by providing Amount and OwnerOnce
+    pub fn add_output_by_amount(mut self, amount: Amount, owner: OwnerOnce) -> Self {
+        let pk = owner.as_owner().public_key();
+        let output = Output::new(pk, amount);
+        self.output_owner_map.insert(pk, owner);
+        self.ringct_material.outputs.push(output);
+        self
+    }
+
+    /// add an output by providing iter of (Amount, OwnerOnce)
+    pub fn add_outputs_by_amount(
+        mut self,
+        outputs: impl IntoIterator<Item = (Amount, OwnerOnce)>,
+    ) -> Self {
+        for (amount, owner) in outputs.into_iter() {
+            self = self.add_output_by_amount(amount, owner);
+        }
+        self
+    }
+
     /// get a list of input owners
     pub fn input_owners(&self) -> Vec<PublicKey> {
         self.ringct_material
