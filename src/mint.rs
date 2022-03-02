@@ -472,7 +472,7 @@ mod tests {
                     let idx = reissue_tx2
                         .mlsags
                         .iter()
-                        .position(|i| i.key_image == *key.as_ref())
+                        .position(|i| Into::<KeyImage>::into(i.key_image) == key)
                         .unwrap();
                     assert!(invalid_spent_proofs.contains(&idx));
                 }

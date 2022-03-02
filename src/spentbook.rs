@@ -9,13 +9,14 @@
 use blst_ringct::ringct::{OutputProof, RingCtTransaction};
 use blst_ringct::DecoyInput;
 use blstrs::group::Curve;
+use blsttc::PublicKey;
 use std::collections::{BTreeMap, HashMap};
 
 use rand8::prelude::IteratorRandom;
 
 use crate::{
-    Commitment, GenesisMaterial, Hash, KeyImage, KeyManager, PublicKeyBlstMappable, Result,
-    SimpleKeyManager, SpentProofContent, SpentProofShare,
+    Commitment, GenesisMaterial, Hash, KeyImage, KeyManager, Result, SimpleKeyManager,
+    SpentProofContent, SpentProofShare,
 };
 
 /// This is a mock SpentBook used for our test cases. A proper implementation
@@ -46,7 +47,7 @@ pub struct SpentBookNodeMock {
 
     pub transactions: HashMap<Hash, RingCtTransaction>,
     pub key_images: BTreeMap<KeyImage, Hash>,
-    pub outputs: BTreeMap<PublicKeyBlstMappable, OutputProof>,
+    pub outputs: BTreeMap<PublicKey, OutputProof>,
 
     pub genesis: (KeyImage, Commitment), // genesis input (keyimage, public_commitment)
 }
@@ -133,10 +134,7 @@ impl SpentBookNodeMock {
                         let output_proofs: Vec<&OutputProof> = mlsag
                             .public_keys()
                             .iter()
-                            .flat_map(|pk| {
-                                let pkbm: PublicKeyBlstMappable = (*pk).into();
-                                self.outputs.get(&pkbm)
-                            })
+                            .flat_map(|pk| self.outputs.get(&(*pk).into()))
                             .collect();
 
                         if output_proofs.len() != mlsag.public_keys().len() {
@@ -188,8 +186,8 @@ impl SpentBookNodeMock {
 
             // Add public_key:output_proof to public_key index.
             for output in existing_tx.outputs.iter() {
-                let pkbm: PublicKeyBlstMappable = (*output.public_key()).into();
-                self.outputs.entry(pkbm).or_insert_with(|| output.clone());
+                let pk = PublicKey::from(*output.public_key());
+                self.outputs.entry(pk).or_insert_with(|| output.clone());
             }
 
             let sp_content = SpentProofContent {
@@ -224,7 +222,7 @@ impl SpentBookNodeMock {
         //       with KeyImage to dedup.
         // note: Once we refactor to avoid Tx duplication, this
         //       map can go away.
-        let outputs_unique: BTreeMap<PublicKeyBlstMappable, OutputProof> = self
+        let outputs_unique: BTreeMap<PublicKey, OutputProof> = self
             .transactions
             .values()
             .flat_map(|tx| {
