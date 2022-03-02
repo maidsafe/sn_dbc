@@ -170,14 +170,14 @@ impl SpentProof {
         bytes
     }
 
-    /// validate this SpentProof
+    /// verify this SpentProof
     ///
     /// checks that the input transaction hash matches the tx_hash that was
-    /// signed by the spentbook and validates that spentbook signature is
+    /// signed by the spentbook and verifies that spentbook signature is
     /// valid for this SpentProof.
     ///
     /// note that the verifier must already hold (trust) the spentbook's public key.
-    pub fn validate<K: KeyManager>(&self, tx_hash: Hash, verifier: &K) -> Result<()> {
+    pub fn verify<K: KeyManager>(&self, tx_hash: Hash, verifier: &K) -> Result<()> {
         // verify input tx_hash matches our tx_hash which was signed by spentbook.
         if tx_hash != self.content.transaction_hash {
             return Err(Error::InvalidTransactionHash);

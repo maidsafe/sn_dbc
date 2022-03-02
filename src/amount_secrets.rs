@@ -13,7 +13,6 @@ use blsttc::{
 };
 use rand_core::RngCore;
 use std::collections::BTreeMap;
-use std::convert::Into;
 use std::convert::TryFrom;
 
 use crate::{Amount, BlindingFactor, Error, SecretKeyBlst};
@@ -123,19 +122,17 @@ impl From<(Amount, BlindingFactor)> for AmountSecrets {
     }
 }
 
-#[allow(clippy::from_over_into)]
-impl Into<RevealedCommitment> for AmountSecrets {
-    /// convert AmountSecrets into the inner RevealedCommitment
-    fn into(self) -> RevealedCommitment {
-        self.0
+impl From<AmountSecrets> for RevealedCommitment {
+    /// convert AmountSecrets into RevealedCommitment
+    fn from(a: AmountSecrets) -> RevealedCommitment {
+        a.0
     }
 }
 
-#[allow(clippy::from_over_into)]
-impl Into<Amount> for AmountSecrets {
+impl From<AmountSecrets> for Amount {
     /// convert AmountSecrets into an Amount
-    fn into(self) -> Amount {
-        self.0.value()
+    fn from(a: AmountSecrets) -> Amount {
+        a.0.value()
     }
 }
 

@@ -121,14 +121,14 @@ fn main() -> Result<()> {
                     // "reissue_prepared" => reissue_prepared_cli(&mut mintinfo),
                     "reissue" => reissue_cli(&mut mintinfo),
                     "reissue_auto" => reissue_auto_cli(&mut mintinfo),
-                    "validate" => validate(&mintinfo),
+                    "verify" => verify(&mintinfo),
                     "newkey" => newkey(),
                     "newkeys" => newkeys(),
                     "decode" => decode_input(),
                     "quit" | "exit" => break,
                     "help" => {
                         println!(
-                            "\nCommands:\n  Mint:    [mintinfo, newmint]\n  Client:  [newkey, newkeys, reissue, reissue_auto, decode, validate]\n  General: [exit, help]\n"
+                            "\nCommands:\n  Mint:    [mintinfo, newmint]\n  Client:  [newkey, newkeys, reissue, reissue_auto, decode, verify]\n  General: [exit, help]\n"
                         );
                         Ok(())
                     }
@@ -541,12 +541,12 @@ __)(_| |(/_ | \|(/_|_\/\/(_)| |<
     );
 }
 
-/// Implements validate command.  Validates signatures and that a
+/// Implements verify command.  Validates signatures and that a
 /// DBC has not been double-spent.  Also checks if spent/unspent.
-fn validate(mintinfo: &MintInfo) -> Result<()> {
+fn verify(mintinfo: &MintInfo) -> Result<()> {
     let dbc_input = readline_prompt_nl("\nInput DBC, or '[c]ancel': ")?;
     let dbc: Dbc = if dbc_input == "c" {
-        println!("\nvalidate cancelled\n");
+        println!("\nVerify cancelled\n");
         return Ok(());
     } else {
         from_be_hex(&dbc_input)?
@@ -557,7 +557,7 @@ fn validate(mintinfo: &MintInfo) -> Result<()> {
         Owner::PublicKey(_pk) => {
             let sk_input = readline_prompt_nl("\nSecret Key, or '[c]ancel': ")?;
             let sk: SecretKey = if dbc_input == "c" {
-                println!("\nvalidate cancelled\n");
+                println!("\nVerify cancelled\n");
                 return Ok(());
             } else {
                 from_be_hex(&sk_input)?
@@ -566,7 +566,7 @@ fn validate(mintinfo: &MintInfo) -> Result<()> {
         }
     };
 
-    match dbc.confirm_valid(&secret_key, mintinfo.mintnode()?.key_manager()) {
+    match dbc.verify(&secret_key, mintinfo.mintnode()?.key_manager()) {
         Ok(_) => match mintinfo.spentbook()?.is_spent(&dbc.key_image(&secret_key)?) {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
@@ -618,7 +618,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
 
     // Get outputs from user
     // note, we upcast to i128 to allow negative value.
-    // This permits unbalanced inputs/outputs to reach sn_dbc layer for validation.
+    // This permits unbalanced inputs/outputs to reach sn_dbc layer for verification.
     let inputs_amount_sum = tx_builder.inputs_amount_sum();
     while inputs_amount_sum as i128 - tx_builder.outputs_amount_sum() as i128 > 0 {
         println!();
