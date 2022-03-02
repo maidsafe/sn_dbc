@@ -20,7 +20,7 @@ mod mint;
 mod owner;
 mod spent_proof;
 mod spentbook;
-mod validation;
+mod verification;
 
 pub use crate::{
     amount_secrets::AmountSecrets,
@@ -42,7 +42,7 @@ pub use crate::{
     owner::{DerivationIndex, Owner, OwnerOnce},
     spent_proof::{SpentProof, SpentProofContent, SpentProofShare},
     spentbook::SpentBookNodeMock,
-    validation::TransactionValidator,
+    verification::TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]

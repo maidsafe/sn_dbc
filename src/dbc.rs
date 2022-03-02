@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{AmountSecrets, KeyImage, Owner, SpentProof, TransactionValidator};
+use crate::{AmountSecrets, KeyImage, Owner, SpentProof, TransactionVerifier};
 use crate::{DbcContent, DerivationIndex, Error, KeyManager, Result};
 use blst_ringct::ringct::{OutputProof, RingCtTransaction};
 use blst_ringct::{RevealedCommitment, TrueInput};
@@ -185,15 +185,15 @@ impl Dbc {
     }
 
     // Check there exists a Transaction with the output containing this Dbc
-    // note: common validation logic is shared by MintNode::reissue() and Dbc::confirm_valid()
+    // note: common verification logic is shared by MintNode::reissue() and Dbc::verify()
     //
-    // note: for spent_proofs to validate, the mint_verifier must have/know the spentbook section's public key.
-    pub fn confirm_valid<K: KeyManager>(
+    // note: for spent_proofs to verify, the mint_verifier must have/know the spentbook section's public key.
+    pub fn verify<K: KeyManager>(
         &self,
         base_sk: &SecretKey,
         mint_verifier: &K,
     ) -> Result<(), Error> {
-        TransactionValidator::validate(
+        TransactionVerifier::verify(
             mint_verifier,
             &self.transaction,
             &self.mint_sigs,
@@ -208,16 +208,16 @@ impl Dbc {
             .iter()
             .any(|o| *o.public_key() == owner)
         {
-            Err(Error::DbcContentNotPresentInTransactionOutput)
-        } else {
-            Ok(())
+            return Err(Error::DbcContentNotPresentInTransactionOutput);
         }
+
+        self.verify_amount_matches_commitment(base_sk)
     }
 
-    /// bearer version of confirm_valid()
+    /// bearer version of verify()
     /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn confirm_valid_bearer<K: KeyManager>(&self, mint_verifier: &K) -> Result<(), Error> {
-        self.confirm_valid(&self.owner_base().secret_key()?, mint_verifier)
+    pub fn verify_bearer<K: KeyManager>(&self, mint_verifier: &K) -> Result<(), Error> {
+        self.verify(&self.owner_base().secret_key()?, mint_verifier)
     }
 
     /// Checks if the provided AmountSecrets matches the amount commitment.
@@ -241,32 +241,15 @@ impl Dbc {
     /// If the merchant were to send the goods without first performing
     /// this check, then they could be stuck with an unspendable Dbc
     /// and no recourse.
-    pub fn confirm_provided_amount_matches_commitment(
-        &self,
-        base_sk: &SecretKey,
-        amount: &AmountSecrets,
-    ) -> Result<()> {
+    pub(crate) fn verify_amount_matches_commitment(&self, base_sk: &SecretKey) -> Result<()> {
+        let rc: RevealedCommitment = self.amount_secrets(base_sk)?.into();
+        let secrets_commitment = rc.commit(&Default::default()).to_affine();
         let tx_commitment = self.my_output_proof(base_sk)?.commitment();
-        let secrets_commitment = RevealedCommitment {
-            value: amount.amount(),
-            blinding: amount.blinding_factor(),
-        }
-        .commit(&Default::default())
-        .to_affine();
 
         match secrets_commitment == tx_commitment {
             true => Ok(()),
             false => Err(Error::AmountCommitmentsDoNotMatch),
         }
-    }
-
-    /// bearer version of confirm_provided_amount_matches_commitment()
-    /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn confirm_provided_amount_matches_commitment_bearer(
-        &self,
-        amount: &AmountSecrets,
-    ) -> Result<()> {
-        self.confirm_provided_amount_matches_commitment(&self.owner_base().secret_key()?, amount)
     }
 
     fn my_output_proof(&self, base_sk: &SecretKey) -> Result<&OutputProof> {
@@ -347,7 +330,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_dbc_without_inputs_is_invalid() -> Result<(), Error> {
+    fn test_dbc_without_inputs_fails_verification() -> Result<(), Error> {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
         let amount = 100;
@@ -386,7 +369,7 @@ pub(crate) mod tests {
         let mint_key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
 
         assert!(matches!(
-            dbc.confirm_valid(&owner_once.owner_base().secret_key()?, &mint_key_manager),
+            dbc.verify(&owner_once.owner_base().secret_key()?, &mint_key_manager),
             Err(Error::RingCt(
                 blst_ringct::Error::TransactionMustHaveAnInput
             ))
@@ -397,7 +380,7 @@ pub(crate) mod tests {
 
     #[allow(clippy::too_many_arguments)]
     #[quickcheck]
-    fn prop_dbc_validation(
+    fn prop_dbc_verification(
         n_inputs: NonZeroTinyInt,     // # of input DBC's
         n_valid_sigs: TinyInt,        // # of valid sigs
         n_wrong_signer_sigs: TinyInt, // # of valid sigs from unrecognized authority
@@ -493,7 +476,7 @@ pub(crate) mod tests {
         let fuzzed_content = DbcContent::from((
             owner_once.owner_base.clone(),
             owner_once.derivation_index,
-            fuzzed_amt_secrets.clone(),
+            fuzzed_amt_secrets,
         ));
 
         let mut fuzzed_mint_sigs: BTreeMap<KeyImage, (PublicKey, Signature)> = BTreeMap::new();
@@ -572,21 +555,15 @@ pub(crate) mod tests {
         };
 
         let key_manager = mint_node.key_manager();
-        let validation_res = dbc.confirm_valid(&owner_once.owner_base().secret_key()?, key_manager);
+        let verification_res = dbc.verify(&owner_once.owner_base().secret_key()?, key_manager);
+
+        let commitments_match = matches!(verification_res, Err(Error::AmountCommitmentsDoNotMatch));
 
         let dbc_owner = dbc
             .owner_once(&owner_once.owner_base().secret_key()?)?
             .public_key_blst();
 
-        // Check if commitment in AmountSecrets matches the commitment in tx OutputProof
-        let commitments_match = dbc
-            .confirm_provided_amount_matches_commitment(
-                &owner_once.owner_base().secret_key()?,
-                &fuzzed_amt_secrets,
-            )
-            .is_ok();
-
-        match validation_res {
+        match verification_res {
             Ok(()) => {
                 assert!(dbc
                     .transaction

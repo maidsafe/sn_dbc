@@ -632,7 +632,7 @@ pub mod mock {
             let reissue_request = rr_builder.build()?;
 
             for mint_node in self.mint_nodes.into_iter() {
-                // note: for our (mock) purposes, all spentbook nodes are validated to
+                // note: for our (mock) purposes, all spentbook nodes are verified to
                 // have the same public key.  (in the same section)
                 let spentbook_node_arbitrary = &self.spentbook_nodes[0];
                 let mint_node = mint_node.trust_spentbook_public_key(

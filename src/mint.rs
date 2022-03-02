@@ -15,7 +15,7 @@
 
 use crate::{
     Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, SpentProof,
-    SpentProofShare, TransactionValidator,
+    SpentProofShare, TransactionVerifier,
 };
 use blst_ringct::ringct::RingCtTransaction;
 use std::collections::{BTreeMap, BTreeSet};
@@ -56,7 +56,7 @@ impl<K: KeyManager> MintNode<K> {
     }
 
     //   TBD: Is this API sufficient, or do we need to accept some kind of proof key chain
-    //        and validate entire chain from a known genesis key?
+    //        and verify entire chain from a known genesis key?
     //
     //        As written, this API is assuming/trusting that our caller is doing something
     //        like that.
@@ -79,7 +79,7 @@ impl<K: KeyManager> MintNode<K> {
     //   4. Wallet calls reissue() for each MintNode, including SpentProof.
     //   5. reissue() checks that (a) signing key is trusted, and (b) signature is valid.
     //
-    //   TBD: step (1) may need additional verification, eg validate a chain of keys
+    //   TBD: step (1) may need additional verification, eg verify a chain of keys
     //        since genesis key.  Or maybe we just trust our caller does that...?
 
     // This API will be called multiple times, once per input dbc, per section.
@@ -117,11 +117,7 @@ impl<K: KeyManager> MintNode<K> {
             spent_proofs,
         } = reissue_req;
 
-        TransactionValidator::validate_without_sigs(
-            self.key_manager(),
-            &transaction,
-            &spent_proofs,
-        )?;
+        TransactionVerifier::verify_without_sigs(self.key_manager(), &transaction, &spent_proofs)?;
 
         let mint_node_signatures = self.sign_transaction(&transaction)?;
 
@@ -179,11 +175,11 @@ mod tests {
         let (mint_node, _spentbook, genesis_dbc, genesis, _amount_secrets) =
             GenesisBuilderMock::init_genesis_single(&mut rng, &mut rng8)?;
 
-        let validation = genesis_dbc.confirm_valid(
+        let verified = genesis_dbc.verify(
             &genesis.owner_once.owner_base().secret_key()?,
             &mint_node.key_manager,
         );
-        assert!(validation.is_ok());
+        assert!(verified.is_ok());
 
         Ok(())
     }
@@ -233,12 +229,12 @@ mod tests {
                 Error::RingCt(
                     blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
-                    // Verify that no outputs were present and we got correct validation error.
+                    // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
                 }
                 Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing) => {
-                    // Verify that no outputs were present and we got correct validation error.
+                    // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
                 }
@@ -272,7 +268,7 @@ mod tests {
             let dbc_amount = amount_secrets.amount();
             assert!(output_amounts.iter().any(|a| *a == dbc_amount));
             assert!(dbc
-                .confirm_valid(
+                .verify(
                     &owner_once.owner_base().secret_key().unwrap(),
                     mint_node.key_manager(),
                 )
@@ -361,7 +357,7 @@ mod tests {
                 Error::RingCt(
                     blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
-                    // Verify that no inputs were present and we got correct validation error.
+                    // Verify that no inputs were present and we got correct verification error.
                     assert!(input_amounts.is_empty());
                     Ok(())
                 }
@@ -541,7 +537,7 @@ mod tests {
                 let output_dbcs = dbc_builder.build()?;
 
                 for (dbc, owner_once, _amount_secrets) in output_dbcs.iter() {
-                    let dbc_confirm_result = dbc.confirm_valid(
+                    let dbc_confirm_result = dbc.verify(
                         &owner_once.owner_base().secret_key()?,
                         &mint_node.key_manager,
                     );
@@ -575,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inputs_are_validated() -> Result<(), Error> {
+    fn test_inputs_are_verified() -> Result<(), Error> {
         let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
         let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
@@ -630,7 +626,7 @@ mod tests {
     /// implementation could produce different values.  The mint never sees the
     /// AmountSecrets and thus cannot detect or prevent this this situation.
     ///
-    /// A correct spentbook implementation must validate the transaction before
+    /// A correct spentbook implementation must verify the transaction before
     /// writing, including checking that commitments match. So the spentbook
     /// will reject a tx with an output using an invalid amount, thereby preventing
     /// the input from becoming burned (unspendable).
@@ -654,7 +650,7 @@ mod tests {
     /// 8. Attempt to reissue again using the correct amount (1000).
     ///    This will fail because b was already marked as spent in the spentbook.
     ///    This demonstrates how an input can become burned if spentbook does
-    ///    not validate tx.
+    ///    not verify tx.
     /// 9. Re-write spentbook log correctly and attempt to reissue using the
     ///    correct amount that was committed to.
     ///      Verify that this reissue succeeds.
@@ -741,13 +737,6 @@ mod tests {
 
         // confirm the secret amount is 2000.
         assert_eq!(fudged_secrets.amount(), output_amount * 2);
-        // confirm the dbc is considered valid using the mint-accessible api.
-        assert!(fudged_output_dbc
-            .confirm_valid(
-                &output_owner.owner_base().secret_key()?,
-                mint_node.key_manager()
-            )
-            .is_ok());
 
         // ----------
         // 4. Check if the amounts match, using the provided API.
@@ -755,12 +744,13 @@ mod tests {
         // ----------
 
         // confirm the mis-match is detectable by the recipient who has the key to access the secrets.
-        assert!(fudged_output_dbc
-            .confirm_provided_amount_matches_commitment(
+        assert!(matches!(
+            fudged_output_dbc.verify(
                 &output_owner.owner_base().secret_key()?,
-                &fudged_secrets
-            )
-            .is_err());
+                mint_node.key_manager()
+            ),
+            Err(Error::AmountCommitmentsDoNotMatch)
+        ));
 
         // confirm that the sum of output secrets does not match the committed amount.
         assert_ne!(
@@ -839,7 +829,7 @@ mod tests {
         // 8. Attempt to reissue again using the correct amount (1000).
         //    This will fail because b was already marked as spent in the spentbook.
         //    This demonstrates how an input can become burned if spentbook does
-        //    not validate tx.
+        //    not verify tx.
         // ----------
 
         // So at this point we have written an invalid Tx to the spentbook associated

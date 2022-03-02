@@ -11,10 +11,10 @@ use blst_ringct::ringct::RingCtTransaction;
 use blsttc::Signature;
 use std::collections::{BTreeMap, BTreeSet};
 
-// Here we are putting transaction validation logic that is common to both
+// Here we are putting transaction verification logic that is common to both
 // MintNode::reissue() and Dbc::confirm_valid().
 //
-// It is best to have the validation logic in one place only!
+// It is best to have the verification logic in one place only!
 //
 // Note also that MintNode is server-side (mint) and Dbc is client-side (wallet).
 // In a future refactor, we intend to break the code into 3 modules:
@@ -24,11 +24,11 @@ use std::collections::{BTreeMap, BTreeSet};
 // Another way to do this would be to create a NewType wrapper for RingCtTransaction.
 // We can discuss if that is better or not.
 
-pub struct TransactionValidator {}
+pub struct TransactionVerifier {}
 
-impl TransactionValidator {
-    // note: for spent_proofs to validate, the mint_verifier must have/know the spentbook section's public key.
-    pub fn validate<K: KeyManager>(
+impl TransactionVerifier {
+    // note: for spent_proofs to verify, the mint_verifier must have/know the spentbook section's public key.
+    pub fn verify<K: KeyManager>(
         mint_verifier: &K,
         transaction: &RingCtTransaction,
         mint_sigs: &BTreeMap<KeyImage, (PublicKey, Signature)>,
@@ -57,19 +57,19 @@ impl TransactionValidator {
                 .map_err(|e| Error::Signing(e.to_string()))?;
         }
 
-        Self::validate_without_sigs_internal(mint_verifier, transaction, tx_hash, spent_proofs)
+        Self::verify_without_sigs_internal(mint_verifier, transaction, tx_hash, spent_proofs)
     }
 
-    pub fn validate_without_sigs<K: KeyManager>(
+    pub fn verify_without_sigs<K: KeyManager>(
         mint_verifier: &K,
         transaction: &RingCtTransaction,
         spent_proofs: &BTreeSet<SpentProof>,
     ) -> Result<(), Error> {
         let tx_hash = Hash::from(transaction.hash());
-        Self::validate_without_sigs_internal(mint_verifier, transaction, tx_hash, spent_proofs)
+        Self::verify_without_sigs_internal(mint_verifier, transaction, tx_hash, spent_proofs)
     }
 
-    fn validate_without_sigs_internal<K: KeyManager>(
+    fn verify_without_sigs_internal<K: KeyManager>(
         mint_verifier: &K,
         transaction: &RingCtTransaction,
         transaction_hash: Hash,
@@ -91,7 +91,7 @@ impl TransactionValidator {
 
         // Verify that each input has a corresponding valid spent proof.
         //
-        // note: for the proofs to validate, our key_manager must have/know
+        // note: for the proofs to verify, our key_manager must have/know
         // the pubkey of the spentbook section that signed the proof.
         // This is a responsibility of our caller, not this crate.
         for spent_proof in spent_proofs.iter() {
@@ -102,7 +102,7 @@ impl TransactionValidator {
             {
                 return Err(Error::SpentProofInputMismatch);
             }
-            spent_proof.validate(transaction_hash, mint_verifier)?;
+            spent_proof.verify(transaction_hash, mint_verifier)?;
         }
 
         // We must get the spent_proofs into the same order as mlsags
