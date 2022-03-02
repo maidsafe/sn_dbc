@@ -305,14 +305,7 @@ pub(crate) mod tests {
 
         let (mut rr_builder, dbc_builder, _material) = crate::TransactionBuilder::default()
             .add_input_by_secrets(dbc_owner, amount_secrets, decoy_inputs, rng8)
-            .add_outputs(divide(amount, n_ways).zip(output_owners.into_iter()).map(
-                |(amount, owner_once)| {
-                    (
-                        Output::new(owner_once.as_owner().public_key(), amount),
-                        owner_once,
-                    )
-                },
-            ))
+            .add_outputs_by_amount(divide(amount, n_ways).zip(output_owners.into_iter()))
             .build(rng8)?;
 
         for (key_image, tx) in rr_builder.inputs() {
@@ -433,10 +426,7 @@ pub(crate) mod tests {
 
         let (mut rr_builder, dbc_builder, _material) = crate::TransactionBuilder::default()
             .add_inputs_dbc(inputs, &mut rng8)?
-            .add_output(
-                Output::new(owner_once.as_owner().public_key(), amount),
-                owner_once.clone(),
-            )
+            .add_output_by_amount(amount, owner_once.clone())
             .build(&mut rng8)?;
 
         let reissue_tx = rr_builder.transaction.clone();
@@ -650,12 +640,10 @@ pub(crate) mod tests {
                 vec![], // never any decoys for genesis
                 rng8,
             )
-            .add_outputs(output_amounts.into_iter().map(|amount| {
-                let owner_once =
-                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng8), rng8);
+            .add_outputs_by_amount(output_amounts.into_iter().map(|amount| {
                 (
-                    Output::new(owner_once.as_owner().public_key(), amount),
-                    owner_once,
+                    amount,
+                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng8), rng8),
                 )
             }))
             .build(rng8)?;

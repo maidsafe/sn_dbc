@@ -167,7 +167,7 @@ impl<K: KeyManager> MintNode<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use blst_ringct::{DecoyInput, Output};
+    use blst_ringct::DecoyInput;
     use blsttc::{SecretKey, SecretKeySet};
     use quickcheck_macros::quickcheck;
     use rand_core::SeedableRng as SeedableRngCore;
@@ -225,12 +225,12 @@ mod tests {
                 vec![], // genesis is only input, so no decoys.
                 &mut rng8,
             )?
-            .add_outputs(output_amounts.iter().enumerate().map(|(idx, a)| {
-                (
-                    crate::Output::new(owners[idx].as_owner().public_key(), *a),
-                    owners[idx].clone(),
-                )
-            }))
+            .add_outputs_by_amount(
+                output_amounts
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, a)| (*a, owners[idx].clone())),
+            )
             .build(&mut rng8)?;
 
         // We make this a closure because it is used for checking both spentbook
@@ -347,13 +347,10 @@ mod tests {
                 vec![], // genesis is only input, so no decoys.
                 &mut rng8,
             )?
-            .add_outputs(input_amounts.iter().copied().map(|amount| {
+            .add_outputs_by_amount(input_amounts.iter().copied().map(|amount| {
                 let owner_once =
                     OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
-                (
-                    crate::Output::new(owner_once.as_owner().public_key(), amount),
-                    owner_once,
-                )
+                (amount, owner_once)
             }))
             .build(&mut rng8)?;
 
@@ -414,23 +411,14 @@ mod tests {
             })
             .collect();
 
-        let outputs: Vec<(Output, OwnerOnce)> = output_amounts
-            .iter()
-            .zip(owners)
-            .map(|(amount, owner_once)| {
-                (
-                    crate::Output::new(owner_once.as_owner().public_key(), *amount),
-                    owner_once,
-                )
-            })
-            .collect();
+        let outputs = output_amounts.clone().into_iter().zip(owners);
 
         let (mut rr2_builder, mut dbc_builder, _material) = crate::TransactionBuilder::default()
             .add_inputs_dbc(inputs_dbcs.clone(), &mut rng8)?
-            .add_outputs(outputs.clone())
+            .add_outputs_by_amount(outputs.clone())
             .build(&mut rng8)?;
 
-        let dbc_output_amounts: Vec<Amount> = outputs.iter().map(|(o, _)| o.amount).collect();
+        let dbc_output_amounts: Vec<Amount> = outputs.map(|(amt, _)| amt).collect();
         let output_total_amount: Amount = dbc_output_amounts.iter().sum();
 
         assert_eq!(inputs_dbcs.len(), rr2_builder.transaction.mlsags.len());
@@ -588,10 +576,7 @@ mod tests {
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
 
         let (_rr_builder, dbc_builder, ..) = crate::TransactionBuilder::default()
-            .add_output(
-                Output::new(output1_owner.as_owner().public_key(), 100),
-                output1_owner.clone(),
-            )
+            .add_output_by_amount(100, output1_owner.clone())
             .build(&mut rng8)?;
 
         let amount_secrets = AmountSecrets::from(dbc_builder.revealed_commitments[0]);
@@ -603,10 +588,7 @@ mod tests {
 
         let (fraud_rr_builder, ..) = crate::TransactionBuilder::default()
             .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng8)
-            .add_output(
-                Output::new(output2_owner.as_owner().public_key(), 100),
-                output2_owner,
-            )
+            .add_output_by_amount(100, output2_owner)
             .build(&mut rng8)?;
 
         let fraud_rr = fraud_rr_builder.build()?;
@@ -682,10 +664,7 @@ mod tests {
                 vec![], // genesis is only input, so no decoys.
                 &mut rng8,
             )?
-            .add_output(
-                Output::new(output_owner.as_owner().public_key(), output_amount),
-                output_owner.clone(),
-            )
+            .add_output_by_amount(output_amount, output_owner.clone())
             .build(&mut rng8)?;
 
         for (key_image, tx) in rr_builder.inputs() {
@@ -771,13 +750,7 @@ mod tests {
                 decoy_inputs.clone(),
                 &mut rng8,
             )?
-            .add_output(
-                Output::new(
-                    output_owner.as_owner().public_key(),
-                    fudged_secrets.amount(),
-                ),
-                output_owner.clone(),
-            )
+            .add_output_by_amount(fudged_secrets.amount(), output_owner.clone())
             .build(&mut rng8)?;
 
         // ----------
@@ -842,10 +815,7 @@ mod tests {
                 decoy_inputs,
                 &mut rng8,
             )
-            .add_output(
-                Output::new(output_owner.as_owner().public_key(), true_secrets.amount()),
-                output_owner,
-            )
+            .add_output_by_amount(true_secrets.amount(), output_owner)
             .build(&mut rng8)?;
 
         let tx_true = rr_builder_true.transaction.clone();
