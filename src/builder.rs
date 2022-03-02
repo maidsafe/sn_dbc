@@ -16,14 +16,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::{
     AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, IndexedSignatureShare, KeyImage,
-    KeyManager, OwnerOnce, PublicKeyBlstMappable, ReissueRequest, ReissueShare, Result, SpentProof,
-    SpentProofContent, SpentProofShare, TransactionVerifier,
+    KeyManager, OwnerOnce, ReissueRequest, ReissueShare, Result, SpentProof, SpentProofContent,
+    SpentProofShare, TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub type OutputOwnerMap = BTreeMap<PublicKeyBlstMappable, OwnerOnce>;
+pub type OutputOwnerMap = BTreeMap<PublicKey, OwnerOnce>;
 
 /// A builder to create a RingCt transaction from
 /// inputs and outputs.

@@ -131,7 +131,7 @@ impl TransactionVerifier {
             if !transaction
                 .mlsags
                 .iter()
-                .any(|m| m.key_image == *spent_proof.key_image().as_ref())
+                .any(|m| Into::<KeyImage>::into(m.key_image) == *spent_proof.key_image())
             {
                 return Err(Error::SpentProofInputMismatch);
             }
@@ -147,7 +147,7 @@ impl TransactionVerifier {
                 transaction
                     .mlsags
                     .iter()
-                    .position(|m| m.key_image == *s.key_image().as_ref())
+                    .position(|m| Into::<KeyImage>::into(m.key_image) == *s.key_image())
                     .map(|idx| (idx, s))
             })
             .collect();

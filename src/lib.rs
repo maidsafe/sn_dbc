@@ -24,7 +24,7 @@ mod verification;
 
 pub use crate::{
     amount_secrets::{Amount, AmountSecrets},
-    blst::{BlindingFactor, Commitment, KeyImage, PublicKeyBlstMappable},
+    blst::{BlindingFactor, Commitment, KeyImage},
     builder::mock::GenesisBuilderMock,
     builder::{DbcBuilder, Output, OutputOwnerMap, ReissueRequestBuilder, TransactionBuilder},
     dbc::Dbc,

@@ -540,10 +540,13 @@ pub(crate) mod tests {
             }
         }
 
+        use rand8::distributions::{Distribution, Standard};
+
         // Valid mint signatures for inputs not present in the transaction
         for _ in 0..n_extra_input_sigs.coerce() {
+            let secret_key: SecretKey = Standard.sample(&mut rng8);
             fuzzed_mint_sigs.insert(
-                KeyImage::random(&mut rng8),
+                secret_key.public_key(),
                 (
                     mint_node.key_manager().public_key_set()?.public_key(),
                     mint_sig.clone(),
