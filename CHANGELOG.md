@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.14.0](https://github.com/maidsafe/sn_dbc/compare/v2.13.1...v2.14.0) (2022-03-03)
+
+
+### Features
+
+* verify (always) Amount matches Commitment ([d38c5de](https://github.com/maidsafe/sn_dbc/commit/d38c5de725dd39b44cc37f3c72f03b9eede8338e))
+
 ### [2.13.1](https://github.com/maidsafe/sn_dbc/compare/v2.13.0...v2.13.1) (2022-03-02)
 
 ## [2.13.0](https://github.com/maidsafe/sn_dbc/compare/v2.12.2...v2.13.0) (2022-02-23)
