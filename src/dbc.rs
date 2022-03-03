@@ -184,17 +184,19 @@ impl Dbc {
         hash
     }
 
-    // Check there exists a Transaction with the output containing this Dbc
-    // note: common verification logic is shared by MintNode::reissue() and Dbc::verify()
-    //
-    // note: for spent_proofs to verify, the mint_verifier must have/know the spentbook section's public key.
-    pub fn verify<K: KeyManager>(
-        &self,
-        base_sk: &SecretKey,
-        mint_verifier: &K,
-    ) -> Result<(), Error> {
+    /// Verifies that this Dbc is valid.
+    ///
+    /// important: this does not check if the Dbc has been spent.
+    /// For that, one must query the SpentBook.
+    ///
+    /// note: common verification logic is shared by MintNode::reissue(),
+    /// DbcBuilder::build() and Dbc::verify()
+    ///
+    /// see TransactionVerifier::verify() for a description of
+    /// verifier requirements.
+    pub fn verify<K: KeyManager>(&self, base_sk: &SecretKey, verifier: &K) -> Result<(), Error> {
         TransactionVerifier::verify(
-            mint_verifier,
+            verifier,
             &self.transaction,
             &self.mint_sigs,
             &self.spent_proofs,
@@ -423,7 +425,7 @@ pub(crate) mod tests {
         let split_reissue_share = mint_node.reissue(reissue_request)?;
 
         dbc_builder = dbc_builder.add_reissue_share(split_reissue_share);
-        let output_dbcs = dbc_builder.build()?;
+        let output_dbcs = dbc_builder.build(mint_node.key_manager())?;
 
         // The outputs become inputs for next reissue.
         let inputs: Vec<(Dbc, SecretKey, Vec<DecoyInput>)> = output_dbcs
@@ -675,7 +677,7 @@ pub(crate) mod tests {
         let reissue_share = mint_node.reissue(rr)?;
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
 
-        let mut iter = dbc_builder.build()?.into_iter();
+        let mut iter = dbc_builder.build(mint_node.key_manager())?.into_iter();
         let (starting_dbc, ..) = iter.next().unwrap();
         let (change_dbc, ..) = iter.next().unwrap();
 

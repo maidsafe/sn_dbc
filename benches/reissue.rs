@@ -108,7 +108,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let reissue_share = mintnode.reissue(rr).unwrap();
 
     dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-    let dbcs = dbc_builder.build().unwrap();
+    let dbcs = dbc_builder.build(mintnode.key_manager()).unwrap();
 
     let output_owner_once =
         OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
@@ -187,7 +187,11 @@ fn generate_dbc_of_value(
 
     let reissue_share = mint_node.reissue(rr)?;
     dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-    let (starting_dbc, ..) = dbc_builder.build()?.into_iter().next().unwrap();
+    let (starting_dbc, ..) = dbc_builder
+        .build(mint_node.key_manager())?
+        .into_iter()
+        .next()
+        .unwrap();
 
     Ok((mint_node, spentbook_node, starting_dbc))
 }

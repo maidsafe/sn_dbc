@@ -843,7 +843,7 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
         for mint_node in mintinfo.mintnodes.iter() {
             dbc_builder = dbc_builder.add_reissue_share(mint_node.reissue(rr.clone())?);
         }
-        let outputs = dbc_builder.build()?;
+        let outputs = dbc_builder.build(mintinfo.mintnodes[0].key_manager())?;
         let output_dbcs: Vec<Dbc> = outputs.into_iter().map(|(dbc, ..)| dbc).collect();
 
         for dbc in input_dbcs.iter() {
@@ -895,7 +895,7 @@ fn reissue(mintinfo: &mut MintInfo, reissue_request: ReissueRequestRevealed) -> 
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
     }
 
-    let output_dbcs = dbc_builder.build()?;
+    let output_dbcs = dbc_builder.build(mintinfo.mintnodes[0].key_manager())?;
 
     // for each output, construct Dbc and display
     for (dbc, _owner_once, _amount_secrets) in output_dbcs.iter() {

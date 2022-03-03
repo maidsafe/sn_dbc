@@ -27,9 +27,20 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct TransactionVerifier {}
 
 impl TransactionVerifier {
-    // note: for spent_proofs to verify, the mint_verifier must have/know the spentbook section's public key.
+    /// Verifies a transaction including mint signatures and spent proofs.
+    ///
+    /// This function relies/assumes that the caller (wallet/client) obtains
+    /// the mint's and spentbook's public keys (held by KeyManager) in a
+    /// trustless/verified way.  ie, the caller should not simply obtain keys
+    /// from a MintNode directly, but must somehow verify that the MintNode is
+    /// a valid authority.
+    ///
+    /// note: for spent_proofs to verify, the verifier must have/know the
+    ///       public key of each spentbook section that recorded a tx input as spent.
+    /// note: for mint_sigs to verify, the verifier must have/know the
+    ///       public key of the mint section that performed the reissue and signed tx.
     pub fn verify<K: KeyManager>(
-        mint_verifier: &K,
+        verifier: &K,
         transaction: &RingCtTransaction,
         mint_sigs: &BTreeMap<KeyImage, (PublicKey, Signature)>,
         spent_proofs: &BTreeSet<SpentProof>,
@@ -42,6 +53,10 @@ impl TransactionVerifier {
 
         let tx_hash = Hash::from(transaction.hash());
 
+        // todo: optimization.  avoid duplicate validations
+        // when multiple inputs share the same mint_key+mint_sig
+        // (because they were outputs of a single tx)
+
         // Verify that each input has a corresponding valid mint signature.
         for (key_image, (mint_key, mint_sig)) in mint_sigs.iter() {
             if !transaction
@@ -52,25 +67,35 @@ impl TransactionVerifier {
                 return Err(Error::UnknownInput);
             }
 
-            mint_verifier
+            verifier
                 .verify(&tx_hash, mint_key, mint_sig)
                 .map_err(|e| Error::Signing(e.to_string()))?;
         }
 
-        Self::verify_without_sigs_internal(mint_verifier, transaction, tx_hash, spent_proofs)
+        Self::verify_without_sigs_internal(verifier, transaction, tx_hash, spent_proofs)
     }
 
+    /// Verifies a transaction including including spent proofs and excluding mint signatures.
+    ///
+    /// This function relies/assumes that the caller (wallet/client) obtains
+    /// spentbook's public keys (held by KeyManager) in a
+    /// trustless/verified way.  ie, the caller should not simply obtain keys
+    /// from a SpentBookNode directly, but must somehow verify that the
+    /// SpentBookNode is a valid authority.
+    ///
+    /// note: for spent_proofs to verify, the verifier must have/know the
+    ///       public key of each spentbook section that recorded a tx input as spent.
     pub fn verify_without_sigs<K: KeyManager>(
-        mint_verifier: &K,
+        verifier: &K,
         transaction: &RingCtTransaction,
         spent_proofs: &BTreeSet<SpentProof>,
     ) -> Result<(), Error> {
         let tx_hash = Hash::from(transaction.hash());
-        Self::verify_without_sigs_internal(mint_verifier, transaction, tx_hash, spent_proofs)
+        Self::verify_without_sigs_internal(verifier, transaction, tx_hash, spent_proofs)
     }
 
     fn verify_without_sigs_internal<K: KeyManager>(
-        mint_verifier: &K,
+        verifier: &K,
         transaction: &RingCtTransaction,
         transaction_hash: Hash,
         spent_proofs: &BTreeSet<SpentProof>,
@@ -102,7 +127,7 @@ impl TransactionVerifier {
             {
                 return Err(Error::SpentProofInputMismatch);
             }
-            spent_proof.verify(transaction_hash, mint_verifier)?;
+            spent_proof.verify(transaction_hash, verifier)?;
         }
 
         // We must get the spent_proofs into the same order as mlsags
