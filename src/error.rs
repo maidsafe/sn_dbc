@@ -54,26 +54,11 @@ pub enum Error {
     #[error("The number of SpentProof does not match the number of input MlsagSignature")]
     SpentProofInputMismatch,
 
-    #[error("The PublicKeySet differs between ReissueRequest entries")]
-    ReissueRequestPublicKeySetMismatch,
-
-    #[error("The Public Commitments differ between ReissueRequest entries")]
-    ReissueRequestPublicCommitmentMismatch,
-
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
     ReissueRequestMissingSpentProofShare(KeyImage),
 
     #[error("The PublicKeySet differs between ReissueShare entries")]
     ReissueSharePublicKeySetMismatch,
-
-    #[error("The MintNodeSignature count in ReissueShare differs from input count in ReissueTransaction")]
-    ReissueShareMintNodeSignaturesLenMismatch,
-
-    #[error("MintNodeSignature not found for an input in ReissueTransaction")]
-    ReissueShareMintNodeSignatureNotFoundForInput,
-
-    #[error("No reissue shares")]
-    NoReissueShares,
 
     #[error("Decryption failed")]
     DecryptionBySecretKeyFailed,

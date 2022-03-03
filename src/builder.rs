@@ -272,22 +272,6 @@ impl ReissueRequestBuilder {
                     .next()
                     .ok_or(Error::ReissueRequestMissingSpentProofShare(*key_image))?;
 
-                if shares
-                    .iter()
-                    .map(SpentProofShare::spentbook_pks)
-                    .any(|pks| pks != any_share.spentbook_pks())
-                {
-                    return Err(Error::ReissueRequestPublicKeySetMismatch);
-                }
-
-                if shares
-                    .iter()
-                    .map(|s| s.public_commitments())
-                    .any(|pc| pc != any_share.public_commitments())
-                {
-                    return Err(Error::ReissueRequestPublicCommitmentMismatch);
-                }
-
                 let spentbook_pub_key = any_share.spentbook_pks().public_key();
                 let spentbook_sig = any_share.spentbook_pks.combine_signatures(
                     shares
@@ -359,10 +343,6 @@ impl DbcBuilder {
 
     /// Build the output DBCs
     pub fn build(self) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
-        if self.reissue_shares.is_empty() {
-            return Err(Error::NoReissueShares);
-        }
-
         let mut mint_sig_shares: Vec<NodeSignature> = Default::default();
         let mut pk_set: HashSet<PublicKeySet> = Default::default();
 
@@ -383,22 +363,6 @@ impl DbcBuilder {
 
             // add pubkeyset to HashSet, so we can verify there is only one distinct PubKeySet
             pk_set = &pk_set | &pub_key_sets; // union the sets together.
-
-            // Verify that mint sig count matches input count.
-            if rs.mint_node_signatures.len() != rs.transaction.mlsags.len() {
-                return Err(Error::ReissueShareMintNodeSignaturesLenMismatch);
-            }
-
-            // Verify that each input has a NodeSignature
-            for mlsag in rs.transaction.mlsags.iter() {
-                if rs
-                    .mint_node_signatures
-                    .keys()
-                    .all(|k| *k != mlsag.key_image.into())
-                {
-                    return Err(Error::ReissueShareMintNodeSignatureNotFoundForInput);
-                }
-            }
         }
 
         // verify that PublicKeySet for all Dbc in all ReissueShare match.
