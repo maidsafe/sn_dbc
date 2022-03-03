@@ -15,9 +15,9 @@ use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, KeyImage, NodeSignature,
-    OwnerOnce, PublicKeyBlst, PublicKeyBlstMappable, ReissueRequest, ReissueShare, Result,
-    SecretKeyBlst, SpentProof, SpentProofContent, SpentProofShare,
+    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, KeyImage, KeyManager,
+    NodeSignature, OwnerOnce, PublicKeyBlst, PublicKeyBlstMappable, ReissueRequest, ReissueShare,
+    Result, SecretKeyBlst, SpentProof, SpentProofContent, SpentProofShare, TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
@@ -342,7 +342,16 @@ impl DbcBuilder {
     }
 
     /// Build the output DBCs
-    pub fn build(self) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
+    ///
+    /// This function relies/assumes that the caller (wallet/client) obtains
+    /// the mint's and spentbook's public keys (held by KeyManager) in a
+    /// trustless/verified way.  ie, the caller should not simply obtain keys
+    /// from a MintNode directly, but must somehow verify that the MintNode is
+    /// a valid authority.
+    pub fn build<K: KeyManager>(
+        self,
+        mint_verifier: &K,
+    ) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
         let mut mint_sig_shares: Vec<NodeSignature> = Default::default();
         let mut pk_set: HashSet<PublicKeySet> = Default::default();
 
@@ -388,6 +397,22 @@ impl DbcBuilder {
         // Combine signatures from all the mint nodes to obtain Mint's Signature.
         let mint_sig = mint_public_key_set.combine_signatures(mint_sig_shares_ref)?;
 
+        // note: all output Dbcs share the same mint_sigs
+        let mint_sigs = transaction
+            .mlsags
+            .iter()
+            .map(|mlsag| {
+                (
+                    mlsag.key_image.into(),
+                    (mint_public_key_set.public_key(), mint_sig.clone()),
+                )
+            })
+            .collect();
+
+        // verify the Tx, along with mint sigs and spent proofs.
+        // note that we do this just once for entire Tx, not once per output Dbc.
+        TransactionVerifier::verify(mint_verifier, transaction, &mint_sigs, spent_proofs)?;
+
         let pc_gens = PedersenGens::default();
         let output_commitments: Vec<(Commitment, RevealedCommitment)> = self
             .revealed_commitments
@@ -425,16 +450,7 @@ impl DbcBuilder {
                         amount_secrets_list[0].clone(),
                     )),
                     transaction: transaction.clone(),
-                    mint_sigs: transaction
-                        .mlsags
-                        .iter()
-                        .map(|mlsag| {
-                            (
-                                mlsag.key_image.into(),
-                                (mint_public_key_set.public_key(), mint_sig.clone()),
-                            )
-                        })
-                        .collect(),
+                    mint_sigs: mint_sigs.clone(),
                     spent_proofs: spent_proofs.clone(),
                 };
                 (dbc, owner_once.clone(), amount_secrets_list[0].clone())
@@ -611,8 +627,15 @@ pub mod mock {
                 mint_nodes.push(mint_node);
             }
 
-            let (genesis_dbc, _owner_once, amount_secrets) =
-                dbc_builder.build()?.into_iter().next().unwrap();
+            // note: for our (mock) purposes, all mint nodes are verified to
+            // have the same public key.  (in the same section)
+            let mint_node_arbitrary = &mint_nodes[0];
+
+            let (genesis_dbc, _owner_once, amount_secrets) = dbc_builder
+                .build(mint_node_arbitrary.key_manager())?
+                .into_iter()
+                .next()
+                .unwrap();
             Ok((
                 mint_nodes,
                 self.spentbook_nodes,

@@ -262,7 +262,7 @@ mod tests {
 
         // Aggregate ReissueShare to build output DBCs
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-        let output_dbcs = dbc_builder.build()?;
+        let output_dbcs = dbc_builder.build(mint_node.key_manager())?;
 
         for (dbc, owner_once, amount_secrets) in output_dbcs.iter() {
             let dbc_amount = amount_secrets.amount();
@@ -387,7 +387,7 @@ mod tests {
 
         // Aggregate ReissueShare to build output DBCs
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-        let output_dbcs = dbc_builder.build()?;
+        let output_dbcs = dbc_builder.build(mint_node.key_manager())?;
 
         // The outputs become inputs for next reissue.
         let inputs_dbcs: Vec<(Dbc, SecretKey, Vec<DecoyInput>)> = output_dbcs
@@ -534,7 +534,7 @@ mod tests {
 
                 // Aggregate ReissueShare to build output DBCs
                 dbc_builder = dbc_builder.add_reissue_share(rs);
-                let output_dbcs = dbc_builder.build()?;
+                let output_dbcs = dbc_builder.build(mint_node.key_manager())?;
 
                 for (dbc, owner_once, _amount_secrets) in output_dbcs.iter() {
                     let dbc_confirm_result = dbc.verify(
@@ -703,7 +703,7 @@ mod tests {
 
         // Aggregate ReissueShare to build output DBCs
         dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-        let output_dbcs = dbc_builder.build()?;
+        let output_dbcs = dbc_builder.build(mint_node.key_manager())?;
         let (b_dbc, ..) = &output_dbcs[0];
 
         // ----------
