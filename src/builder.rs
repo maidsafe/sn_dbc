@@ -343,14 +343,14 @@ impl DbcBuilder {
 
     /// Build the output DBCs
     ///
-    /// This function relies/assumes that the caller (wallet/client) obtains
-    /// the mint's and spentbook's public keys (held by KeyManager) in a
-    /// trustless/verified way.  ie, the caller should not simply obtain keys
-    /// from a MintNode directly, but must somehow verify that the MintNode is
-    /// a valid authority.
+    /// note: common tx verification logic is shared by MintNode::reissue(),
+    /// DbcBuilder::build() and Dbc::verify()
+    ///
+    /// see TransactionVerifier::verify() for a description of
+    /// verifier requirements.
     pub fn build<K: KeyManager>(
         self,
-        mint_verifier: &K,
+        verifier: &K,
     ) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
         let mut mint_sig_shares: Vec<NodeSignature> = Default::default();
         let mut pk_set: HashSet<PublicKeySet> = Default::default();
@@ -411,7 +411,7 @@ impl DbcBuilder {
 
         // verify the Tx, along with mint sigs and spent proofs.
         // note that we do this just once for entire Tx, not once per output Dbc.
-        TransactionVerifier::verify(mint_verifier, transaction, &mint_sigs, spent_proofs)?;
+        TransactionVerifier::verify(verifier, transaction, &mint_sigs, spent_proofs)?;
 
         let pc_gens = PedersenGens::default();
         let output_commitments: Vec<(Commitment, RevealedCommitment)> = self

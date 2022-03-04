@@ -51,28 +51,36 @@ impl TransactionVerifier {
             return Err(Error::MissingSignatureForInput);
         }
 
-        let tx_hash = Hash::from(transaction.hash());
-
-        // todo: optimization.  avoid duplicate validations
-        // when multiple inputs share the same mint_key+mint_sig
-        // (because they were outputs of a single tx)
-
-        // Verify that each input has a corresponding valid mint signature.
-        for (key_image, (mint_key, mint_sig)) in mint_sigs.iter() {
-            if !transaction
-                .mlsags
-                .iter()
-                .any(|m| m.key_image == *key_image.as_ref())
-            {
+        // Verify that we received a mint pk/sig for each tx input.
+        for mlsag in transaction.mlsags.iter() {
+            if mint_sigs.get(&mlsag.key_image.into()).is_none() {
                 return Err(Error::UnknownInput);
             }
+        }
 
+        // Obtain unique list of pk/sig, to avoid duplicate verify() calls when
+        // 2 or more inputs to our tx (a) were outputs of the same source tx (b).
+        let mint_sigs_unique: BTreeMap<Vec<u8>, (&PublicKey, &Signature)> = mint_sigs
+            .iter()
+            .map(|(_k, (pk, s))| (Self::pk_sig_bytes(pk, s), (pk, s)))
+            .collect();
+
+        // Verify that each unique mint signature is valid.
+        let tx_hash = Hash::from(transaction.hash());
+        for (_, (mint_key, mint_sig)) in mint_sigs_unique.iter() {
             verifier
                 .verify(&tx_hash, mint_key, mint_sig)
                 .map_err(|e| Error::Signing(e.to_string()))?;
         }
 
         Self::verify_without_sigs_internal(verifier, transaction, tx_hash, spent_proofs)
+    }
+
+    fn pk_sig_bytes(pk: &PublicKey, sig: &Signature) -> Vec<u8> {
+        let mut bytes: Vec<u8> = Default::default();
+        bytes.extend(&pk.to_bytes());
+        bytes.extend(&sig.to_bytes());
+        bytes
     }
 
     /// Verifies a transaction including including spent proofs and excluding mint signatures.
