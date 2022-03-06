@@ -24,9 +24,6 @@ pub enum Error {
     #[error("An error occured when signing {0}")]
     Signing(String),
 
-    #[error("This input has a signature, but it doesn't appear in the transaction")]
-    UnknownInput,
-
     #[error("Failed signature check.")]
     FailedSignature,
 
@@ -35,6 +32,9 @@ pub enum Error {
 
     #[error("At least one transaction input is missing a signature.")]
     MissingSignatureForInput,
+
+    #[error("The number of mint signatures does not match the number of transaction inputs.")]
+    MintSignatureInputMismatch,
 
     #[error("Invalid SpentProof Signature for {0:?}")]
     InvalidSpentProofSignature(KeyImage),

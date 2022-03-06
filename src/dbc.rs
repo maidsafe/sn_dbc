@@ -268,8 +268,6 @@ impl Dbc {
 pub(crate) mod tests {
     use super::*;
 
-    use std::iter::FromIterator;
-
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt};
@@ -442,7 +440,7 @@ pub(crate) mod tests {
         let owner_once =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng8);
 
-        let (mut rr_builder, _dbc_builder, _material) = crate::TransactionBuilder::default()
+        let (mut rr_builder, dbc_builder, _material) = crate::TransactionBuilder::default()
             .add_inputs_dbc(inputs, &mut rng8)?
             .add_output(
                 Output {
@@ -471,8 +469,25 @@ pub(crate) mod tests {
             .combine_signatures(vec![mint_sig_share.threshold_crypto()])
             .unwrap();
 
-        let fuzzed_amt_secrets =
-            AmountSecrets::from_amount(amount + extra_output_amount.coerce::<Amount>(), &mut rng8);
+        // We must obtain the RevealedCommitment for our output in order to
+        // know the correct blinding factor when creating fuzzed_amt_secrets.
+        let output = reissue_tx.outputs.get(0).unwrap();
+        let pc_gens = bulletproofs::PedersenGens::default();
+        let output_commitments: Vec<(crate::Commitment, RevealedCommitment)> = dbc_builder
+            .revealed_commitments
+            .iter()
+            .map(|r| (r.commit(&pc_gens).to_affine(), *r))
+            .collect();
+        let amount_secrets_list: Vec<AmountSecrets> = output_commitments
+            .iter()
+            .filter(|(c, _)| *c == output.commitment())
+            .map(|(_, r)| AmountSecrets::from(*r))
+            .collect();
+
+        let fuzzed_amt_secrets = AmountSecrets::from((
+            amount + extra_output_amount.coerce::<Amount>(),
+            amount_secrets_list[0].blinding_factor(),
+        ));
         let dbc_amount = fuzzed_amt_secrets.amount();
 
         let fuzzed_content = DbcContent::from((
@@ -559,8 +574,6 @@ pub(crate) mod tests {
         let key_manager = mint_node.key_manager();
         let verification_res = dbc.verify(&owner_once.owner_base().secret_key()?, key_manager);
 
-        let commitments_match = matches!(verification_res, Err(Error::AmountCommitmentsDoNotMatch));
-
         let dbc_owner = dbc
             .owner_once(&owner_once.owner_base().secret_key()?)?
             .public_key_blst();
@@ -578,28 +591,18 @@ pub(crate) mod tests {
                 assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
                 assert_eq!(n_wrong_msg_sigs.coerce::<u8>(), 0);
 
-                // note: reissue can succeed even though amount_secrets_cipher amount does not
-                // match tx commited amount.
-                assert!(dbc_amount == amount || !commitments_match);
-                assert!(extra_output_amount.coerce::<u8>() == 0 || !commitments_match);
+                assert_eq!(dbc_amount, amount);
+                assert_eq!(extra_output_amount.coerce::<u8>(), 0);
             }
             Err(Error::MissingSignatureForInput) => {
                 assert!(n_valid_sigs.coerce::<u8>() < n_inputs.coerce::<u8>());
             }
+            Err(Error::MintSignatureInputMismatch) => {
+                assert_ne!(dbc.mint_sigs.len(), n_inputs.coerce::<usize>());
+            }
             Err(Error::SpentProofInputMismatch) => {
                 // todo: fuzz spent proofs.
                 assert!(dbc.spent_proofs.len() < dbc.transaction.mlsags.len());
-            }
-            Err(Error::UnknownInput) => {
-                assert!(n_extra_input_sigs.coerce::<u8>() > 0);
-                assert_ne!(
-                    Vec::from_iter(dbc.mint_sigs.keys().cloned()),
-                    dbc.transaction
-                        .mlsags
-                        .iter()
-                        .map(|m| m.key_image.into())
-                        .collect::<Vec<KeyImage>>()
-                );
             }
             Err(Error::DbcContentNotPresentInTransactionOutput) => {
                 assert!(!dbc
@@ -630,6 +633,10 @@ pub(crate) mod tests {
                     .mint_sigs
                     .values()
                     .any(|(pk, _)| key_manager.verify_known_key(pk).is_err()));
+            }
+            Err(Error::AmountCommitmentsDoNotMatch) => {
+                assert_ne!(amount, dbc_amount);
+                assert_ne!(extra_output_amount, TinyInt(0));
             }
             res => panic!("Unexpected verification result {:?}", res),
         }
