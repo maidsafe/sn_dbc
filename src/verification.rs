@@ -47,14 +47,14 @@ impl TransactionVerifier {
     ) -> Result<(), Error> {
         // Do quick checks first to reduce potential DOS vectors.
 
-        if mint_sigs.len() < transaction.mlsags.len() {
-            return Err(Error::MissingSignatureForInput);
+        if mint_sigs.len() != transaction.mlsags.len() {
+            return Err(Error::MintSignatureInputMismatch);
         }
 
         // Verify that we received a mint pk/sig for each tx input.
         for mlsag in transaction.mlsags.iter() {
             if mint_sigs.get(&mlsag.key_image.into()).is_none() {
-                return Err(Error::UnknownInput);
+                return Err(Error::MissingSignatureForInput);
             }
         }
 
