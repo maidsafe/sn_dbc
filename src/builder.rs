@@ -188,11 +188,7 @@ impl TransactionBuilder {
         self.ringct_material
             .public_keys()
             .iter()
-            .map(|pk| {
-                let pkg1: blsttc::G1Affine = *pk;
-                let pk: PublicKey = pkg1.into();
-                pk
-            })
+            .map(|pk| (*pk).into())
             .collect()
     }
 
