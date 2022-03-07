@@ -18,7 +18,7 @@ use blsttc::serde_impl::SerdeSecret;
 use blsttc::{PublicKey, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare};
 use rand::seq::IteratorRandom;
 use rand::Rng;
-use rand8::SeedableRng;
+use rand::SeedableRng;
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -196,7 +196,7 @@ fn mk_new_random_mint(threshold: usize) -> Result<MintInfo> {
 
 /// creates a new mint from an existing SecretKeySet that was seeded by poly.
 fn mk_new_mint(sks: SecretKeySet, poly: Poly) -> Result<MintInfo> {
-    let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
+    let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
     // make as many spentbook nodes as mintnodes. (for now)
     let num_mint_nodes = sks.threshold() + 1;
@@ -206,7 +206,7 @@ fn mk_new_mint(sks: SecretKeySet, poly: Poly) -> Result<MintInfo> {
         GenesisBuilderMock::default()
             .gen_mint_nodes_with_sks(num_mint_nodes, &sks)
             .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
-            .build(&mut rng8)?;
+            .build(&mut rng)?;
 
     let reissue_auto = ReissueAuto::from(vec![genesis_dbc.clone()]);
 
@@ -578,7 +578,7 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
 
 /// Implements prepare_tx command.
 fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
-    let mut rng8 = rand8::thread_rng();
+    let mut rng = rand::thread_rng();
     let mut tx_builder: TransactionBuilder = Default::default();
 
     // Get DBC inputs from user
@@ -608,8 +608,8 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
             }
         };
 
-        let decoy_inputs = mintinfo.spentbook()?.random_decoys(STD_DECOYS, &mut rng8);
-        tx_builder = tx_builder.add_input_dbc(&dbc, &base_secret_key, decoy_inputs, &mut rng8)?;
+        let decoy_inputs = mintinfo.spentbook()?.random_decoys(STD_DECOYS, &mut rng);
+        tx_builder = tx_builder.add_input_dbc(&dbc, &base_secret_key, decoy_inputs, &mut rng)?;
     }
 
     let mut i = 0u32;
@@ -666,7 +666,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
                             Some(Owner::from(public_key))
                         }
                     },
-                    "r" => Some(Owner::from_random_secret_key(&mut rng8)),
+                    "r" => Some(Owner::from_random_secret_key(&mut rng)),
                     "c" => return Err(anyhow!("Cancelled")),
                     _ => None,
                 };
@@ -675,7 +675,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
             }
         };
 
-        let owner_once = OwnerOnce::from_owner_base(owner_base, &mut rng8);
+        let owner_once = OwnerOnce::from_owner_base(owner_base, &mut rng);
 
         tx_builder = tx_builder.add_output_by_amount(amount, owner_once);
 
@@ -684,7 +684,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
 
     println!("\n\nPreparing RingCtTransaction...\n\n");
 
-    let (rr_builder, dbc_builder, ringct_material) = tx_builder.build(&mut rng8)?;
+    let (rr_builder, dbc_builder, ringct_material) = tx_builder.build(&mut rng)?;
 
     Ok(RingCtTransactionRevealed {
         inner: rr_builder.transaction,
@@ -774,14 +774,13 @@ impl From<Vec<Dbc>> for ReissueAuto {
 
 fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
     let mut rng = rand::thread_rng();
-    let mut rng8 = rand8::thread_rng();
 
     let num_reissues: usize =
         readline_prompt_nl_default("\nHow many reissues to perform [10]: ", "10")?.parse()?;
 
     for _i in 1..=num_reissues {
         let max_inputs = std::cmp::min(mintinfo.reissue_auto.unspent_dbcs.len(), 10);
-        let num_inputs = rng.gen_range(1, max_inputs + 1);
+        let num_inputs = rng.gen_range(1..max_inputs + 1);
 
         // subset of unspent_dbcs become the inputs for next reissue.
         let input_dbcs: Vec<Dbc> = mintinfo
@@ -797,9 +796,9 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
 
         for dbc in input_dbcs.iter() {
             let base_sk = dbc.owner_base().secret_key()?;
-            let decoy_inputs = mintinfo.spentbook()?.random_decoys(STD_DECOYS, &mut rng8);
+            let decoy_inputs = mintinfo.spentbook()?.random_decoys(STD_DECOYS, &mut rng);
 
-            tx_builder = tx_builder.add_input_dbc(dbc, &base_sk, decoy_inputs, &mut rng8)?;
+            tx_builder = tx_builder.add_input_dbc(dbc, &base_sk, decoy_inputs, &mut rng)?;
         }
 
         let inputs_sum = tx_builder.inputs_amount_sum();
@@ -808,15 +807,15 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             // randomize output amount
             let diff = inputs_sum - tx_builder.outputs_amount_sum();
             let range_max = if diff == Amount::MAX { diff } else { diff + 1 };
-            let amount = rng.gen_range(0, range_max);
+            let amount = rng.gen_range(0..range_max);
 
             let owner_once =
-                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
+                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
             tx_builder = tx_builder.add_output_by_amount(amount, owner_once);
         }
 
-        let (mut rr_builder, mut dbc_builder, _material) = tx_builder.build(&mut rng8)?;
+        let (mut rr_builder, mut dbc_builder, _material) = tx_builder.build(&mut rng)?;
 
         for (key_image, tx) in rr_builder.inputs() {
             for spentbook_node in mintinfo.spentbook_nodes.iter_mut() {
@@ -895,7 +894,7 @@ fn reissue(mintinfo: &mut MintInfo, reissue_request: ReissueRequestRevealed) -> 
 
 /// Makes a new random SecretKeySet
 fn mk_secret_key_set(threshold: usize) -> Result<(Poly, SecretKeySet)> {
-    let mut rng = rand8::thread_rng();
+    let mut rng = rand::thread_rng();
     let poly = Poly::try_random(threshold, &mut rng).map_err(|e| anyhow!(e))?;
     Ok((poly.clone(), SecretKeySet::from(poly)))
 }

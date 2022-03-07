@@ -505,7 +505,7 @@ pub mod mock {
         pub fn gen_mint_nodes(
             mut self,
             num_nodes: usize,
-            rng: &mut impl rand8::RngCore,
+            rng: &mut impl rand::RngCore,
         ) -> Result<Self> {
             let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
             self = self.gen_mint_nodes_with_sks(num_nodes, &sks);
@@ -528,7 +528,7 @@ pub mod mock {
         pub fn gen_spentbook_nodes(
             mut self,
             num_nodes: usize,
-            rng: &mut impl rand8::RngCore,
+            rng: &mut impl rand::RngCore,
         ) -> Result<Self> {
             let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
             self = self.gen_spentbook_nodes_with_sks(num_nodes, &sks);
@@ -597,7 +597,7 @@ pub mod mock {
         #[allow(clippy::type_complexity)]
         pub fn build(
             mut self,
-            rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
+            rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
         ) -> Result<(
             Vec<MintNode<SimpleKeyManager>>,
             Vec<SpentBookNodeMock>,
@@ -616,7 +616,7 @@ pub mod mock {
                     genesis_material.ringct_material.outputs[0].clone(),
                     genesis_material.owner_once.clone(),
                 )
-                .build(rng8)?;
+                .build(rng)?;
 
             for (key_image, tx) in rr_builder.inputs() {
                 for spentbook_node in self.spentbook_nodes.iter_mut() {
@@ -668,7 +668,7 @@ pub mod mock {
         pub fn init_genesis(
             num_mint_nodes: usize,
             num_spentbook_nodes: usize,
-            rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
+            rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
         ) -> Result<(
             Vec<MintNode<SimpleKeyManager>>,
             Vec<SpentBookNodeMock>,
@@ -677,9 +677,9 @@ pub mod mock {
             AmountSecrets,
         )> {
             Self::default()
-                .gen_mint_nodes(num_mint_nodes, rng8)?
-                .gen_spentbook_nodes(num_spentbook_nodes, rng8)?
-                .build(rng8)
+                .gen_mint_nodes(num_mint_nodes, rng)?
+                .gen_spentbook_nodes(num_spentbook_nodes, rng)?
+                .build(rng)
         }
 
         /// builds and returns a single mintnode, single spentbook,
@@ -688,7 +688,7 @@ pub mod mock {
         /// the spentbook node uses a different randomly generated SecretKeySet
         #[allow(clippy::type_complexity)]
         pub fn init_genesis_single(
-            rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
+            rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
         ) -> Result<(
             MintNode<SimpleKeyManager>,
             SpentBookNodeMock,
@@ -698,9 +698,9 @@ pub mod mock {
         )> {
             let (mint_nodes, spentbook_nodes, genesis_dbc, genesis_material, amount_secrets) =
                 Self::default()
-                    .gen_mint_nodes(1, rng8)?
-                    .gen_spentbook_nodes(1, rng8)?
-                    .build(rng8)?;
+                    .gen_mint_nodes(1, rng)?
+                    .gen_spentbook_nodes(1, rng)?
+                    .build(rng)?;
 
             // Note: these unwraps are safe because the above call returned Ok.
             // We could (stylistically) avoid the unwrap eg mint_nodes[0].clone()

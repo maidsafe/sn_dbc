@@ -14,12 +14,12 @@ use sn_dbc::{
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rand8::SeedableRng as SeedableRng8;
+use rand::SeedableRng as SeedableRng8;
 
 const N_OUTPUTS: u32 = 100;
 
 fn bench_reissue_1_to_100(c: &mut Criterion) {
-    let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
+    let mut rng8 = rand::rngs::StdRng::from_seed([0u8; 32]);
 
     let (mintnode, mut spentbook, starting_dbc) =
         generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng8).unwrap();
@@ -57,7 +57,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 }
 
 fn bench_reissue_100_to_1(c: &mut Criterion) {
-    let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
+    let mut rng8 = rand::rngs::StdRng::from_seed([0u8; 32]);
     let num_decoys = 0;
 
     let (mintnode, mut spentbook, starting_dbc) =
@@ -128,7 +128,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
 fn generate_dbc_of_value(
     amount: Amount,
-    rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
+    rng8: &mut (impl rand::RngCore + rand_core::CryptoRng),
 ) -> Result<(MintNode<SimpleKeyManager>, SpentBookNodeMock, Dbc)> {
     let (mint_node, mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
         GenesisBuilderMock::init_genesis_single(rng8)?;
