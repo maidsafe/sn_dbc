@@ -17,7 +17,7 @@ ringct-serde = [ "blst_ringct/serde" ]
 [dependencies]
 thiserror = "1.0.24"
 quickcheck_macros = "1"
-rand = "0.7.1"
+rand = "0.8.0"
 # blsttc = "3.3.0"
 blsttc = {git = "https://github.com/dan-da/blsttc", branch = "sn_dbc_integration"}
 hex = "0.4.3"
@@ -40,10 +40,6 @@ xor_name = {git = "https://github.com/iancoleman/xor_name", branch = "remove_osr
   git = "https://github.com/davidrusu/blst-bulletproofs.git"
   branch = "bls12-381-curve"
 
-  [dependencies.rand8]
-  package = "rand"
-  version = "0.8.0"
-
   [dependencies.bls_dkg]
   git = "https://github.com/dan-da/bls_dkg.git"
   branch = "sn_dbc_integration"
@@ -61,7 +57,7 @@ xor_name = {git = "https://github.com/iancoleman/xor_name", branch = "remove_osr
 
 [dev-dependencies]
 anyhow = "1.0.40"
-rand = "0.7.1"
+rand = "0.8.0"
 rustyline = "8.0.0"
 bincode = "1.3.3"
 criterion = "0.3.5"

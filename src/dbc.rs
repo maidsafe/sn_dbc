@@ -297,16 +297,16 @@ pub(crate) mod tests {
         n_ways: u8,
         output_owners: Vec<OwnerOnce>,
         spentbook: &mut SpentBookNodeMock,
-        rng8: &mut (impl RngCore + rand_core::CryptoRng),
+        rng: &mut (impl RngCore + rand_core::CryptoRng),
     ) -> Result<(ReissueRequest, DbcBuilder)> {
         let amount = amount_secrets.amount();
 
-        let decoy_inputs = spentbook.random_decoys(STD_NUM_DECOYS, rng8);
+        let decoy_inputs = spentbook.random_decoys(STD_NUM_DECOYS, rng);
 
         let (mut rr_builder, dbc_builder, _material) = crate::TransactionBuilder::default()
-            .add_input_by_secrets(dbc_owner, amount_secrets, decoy_inputs, rng8)
+            .add_input_by_secrets(dbc_owner, amount_secrets, decoy_inputs, rng)
             .add_outputs_by_amount(divide(amount, n_ways).zip(output_owners.into_iter()))
-            .build(rng8)?;
+            .build(rng)?;
 
         for (key_image, tx) in rr_builder.inputs() {
             rr_builder = rr_builder.add_spent_proof_share(spentbook.log_spent(key_image, tx)?);
@@ -318,11 +318,11 @@ pub(crate) mod tests {
 
     #[test]
     fn test_dbc_without_inputs_fails_verification() -> Result<(), Error> {
-        let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
+        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
         let amount = 100;
 
         let owner_once =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
         let ringct_material = RingCtMaterial {
             inputs: vec![],
@@ -330,7 +330,7 @@ pub(crate) mod tests {
         };
 
         let (transaction, revealed_commitments) = ringct_material
-            .sign(&mut rng8)
+            .sign(&mut rng)
             .expect("Failed to sign transaction");
 
         assert_eq!(revealed_commitments.len(), 1);
@@ -348,7 +348,7 @@ pub(crate) mod tests {
             spent_proofs: Default::default(),
         };
 
-        let id = crate::bls_dkg_id(&mut rng8);
+        let id = crate::bls_dkg_id(&mut rng);
         let mint_key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
 
         assert!(matches!(
@@ -371,7 +371,7 @@ pub(crate) mod tests {
         n_extra_input_sigs: TinyInt,  // # of sigs for inputs not part of the transaction
         extra_output_amount: TinyInt, // Artifically increase output dbc value
     ) -> Result<(), Error> {
-        let mut rng8 = rand8::rngs::StdRng::from_seed([0u8; 32]);
+        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
         let amount = 100;
 
@@ -383,12 +383,10 @@ pub(crate) mod tests {
         // we add extra_output_amount to amount, which would otherwise
         // cause an integer overflow.
         let (mint_node, mut spentbook, _genesis_dbc, starting_dbc, _change_dbc) =
-            generate_dbc_of_value(amount, &mut rng8)?;
+            generate_dbc_of_value(amount, &mut rng)?;
 
         let input_owners: Vec<OwnerOnce> = (0..n_inputs.coerce())
-            .map(|_| {
-                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8)
-            })
+            .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng))
             .collect();
 
         let (reissue_request, mut dbc_builder) = prepare_even_split(
@@ -397,7 +395,7 @@ pub(crate) mod tests {
             n_inputs.coerce(),
             input_owners,
             &mut spentbook,
-            &mut rng8,
+            &mut rng,
         )?;
 
         let sp = reissue_request.spent_proofs.iter().next().unwrap();
@@ -416,18 +414,18 @@ pub(crate) mod tests {
                 (
                     dbc,
                     owner_once.owner_base().secret_key().unwrap(),
-                    spentbook.random_decoys(STD_NUM_DECOYS, &mut rng8),
+                    spentbook.random_decoys(STD_NUM_DECOYS, &mut rng),
                 )
             })
             .collect();
 
         let owner_once =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
         let (mut rr_builder, dbc_builder, _material) = crate::TransactionBuilder::default()
-            .add_inputs_dbc(inputs, &mut rng8)?
+            .add_inputs_dbc(inputs, &mut rng)?
             .add_output_by_amount(amount, owner_once.clone())
-            .build(&mut rng8)?;
+            .build(&mut rng)?;
 
         let reissue_tx = rr_builder.transaction.clone();
         for (key_image, tx) in rr_builder.inputs() {
@@ -494,7 +492,7 @@ pub(crate) mod tests {
         // Invalid mint signatures BUT signing correct message
         for _ in 0..n_wrong_signer_sigs.coerce() {
             if let Some(input) = repeating_inputs.next() {
-                let id = crate::bls_dkg_id(&mut rng8);
+                let id = crate::bls_dkg_id(&mut rng);
                 let key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
                 let trans_sig_share = key_manager
                     .sign(&Hash::from(reissue_share.transaction.hash()))
@@ -530,11 +528,11 @@ pub(crate) mod tests {
             }
         }
 
-        use rand8::distributions::{Distribution, Standard};
+        use rand::distributions::{Distribution, Standard};
 
         // Valid mint signatures for inputs not present in the transaction
         for _ in 0..n_extra_input_sigs.coerce() {
-            let secret_key: SecretKey = Standard.sample(&mut rng8);
+            let secret_key: SecretKey = Standard.sample(&mut rng);
             fuzzed_mint_sigs.insert(
                 secret_key.public_key(),
                 (
@@ -626,10 +624,10 @@ pub(crate) mod tests {
 
     pub(crate) fn generate_dbc_of_value(
         amount: Amount,
-        rng8: &mut (impl rand8::RngCore + rand_core::CryptoRng),
+        rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
     ) -> Result<(MintNode<SimpleKeyManager>, SpentBookNodeMock, Dbc, Dbc, Dbc)> {
         let (mint_node, mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(rng8)?;
+            GenesisBuilderMock::init_genesis_single(rng)?;
 
         let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
 
@@ -638,15 +636,15 @@ pub(crate) mod tests {
                 genesis_dbc.owner_once_bearer()?.secret_key()?,
                 genesis_dbc.amount_secrets_bearer()?,
                 vec![], // never any decoys for genesis
-                rng8,
+                rng,
             )
             .add_outputs_by_amount(output_amounts.into_iter().map(|amount| {
                 (
                     amount,
-                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng8), rng8),
+                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng), rng),
                 )
             }))
-            .build(rng8)?;
+            .build(rng)?;
 
         // Build ReissuRequest
         for (key_image, tx) in rr_builder.inputs() {

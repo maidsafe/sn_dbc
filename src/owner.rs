@@ -13,8 +13,8 @@ use std::fmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use rand8::distributions::Standard;
-use rand8::Rng;
+use rand::distributions::Standard;
+use rand::Rng;
 
 pub type DerivationIndex = [u8; 32];
 
@@ -123,7 +123,7 @@ impl Owner {
     }
 
     /// create Owner from a randomly generated SecretKey
-    pub fn from_random_secret_key(rng: &mut impl rand8::RngCore) -> Self {
+    pub fn from_random_secret_key(rng: &mut impl rand::RngCore) -> Self {
         let sk: SecretKey = rng.sample(Standard);
         Self::from(sk)
     }
@@ -158,7 +158,7 @@ impl OwnerOnce {
     }
 
     /// create OwnerOnce from a base Owner
-    pub fn from_owner_base(owner_base: Owner, rng: &mut impl rand8::RngCore) -> Self {
+    pub fn from_owner_base(owner_base: Owner, rng: &mut impl rand::RngCore) -> Self {
         Self {
             owner_base,
             derivation_index: Self::random_derivation_index(rng),
@@ -166,7 +166,7 @@ impl OwnerOnce {
     }
 
     // generates a random derivation index
-    pub(crate) fn random_derivation_index(rng: &mut impl rand8::RngCore) -> [u8; 32] {
+    pub(crate) fn random_derivation_index(rng: &mut impl rand::RngCore) -> [u8; 32] {
         let mut bytes = [0u8; 32];
         rng.fill_bytes(&mut bytes);
         bytes

@@ -12,7 +12,7 @@ use blstrs::group::Curve;
 use blsttc::PublicKey;
 use std::collections::{BTreeMap, HashMap};
 
-use rand8::prelude::IteratorRandom;
+use rand::prelude::IteratorRandom;
 
 use crate::{
     Commitment, GenesisMaterial, Hash, KeyImage, KeyManager, Result, SimpleKeyManager,
@@ -215,7 +215,7 @@ impl SpentBookNodeMock {
     pub fn random_decoys(
         &self,
         target_num: usize,
-        rng: &mut impl rand8::RngCore,
+        rng: &mut impl rand::RngCore,
     ) -> Vec<DecoyInput> {
         // Get a unique list of all OutputProof
         // note: Tx are duplicated in Spentbook. We use a BTreeMap

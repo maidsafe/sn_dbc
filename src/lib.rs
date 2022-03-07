@@ -78,7 +78,7 @@ impl AsRef<[u8]> for Hash {
 }
 
 #[cfg(feature = "dkg")]
-use rand8::RngCore;
+use rand::RngCore;
 
 #[cfg(feature = "dkg")]
 pub fn bls_dkg_id(rng: &mut impl RngCore) -> bls_dkg::outcome::Outcome {
