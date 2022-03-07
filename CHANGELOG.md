@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [2.14.1](https://github.com/maidsafe/sn_dbc/compare/v2.14.0...v2.14.1) (2022-03-07)
+
+
+### Bug Fixes
+
+* avoid unnecessary sig verifications ([d6f9036](https://github.com/maidsafe/sn_dbc/commit/d6f90366f4181a7f4ba329fe51f06ea32e293316))
+* make prop_dbc_validation pass ([e0d3453](https://github.com/maidsafe/sn_dbc/commit/e0d345342760b184d11e972bfb556e72dff82de4))
+* verify Tx in DbcBuilder::build() ([6db3a00](https://github.com/maidsafe/sn_dbc/commit/6db3a00edc992237058d6fe00804cd907dd4997b))
+
 ## [2.14.0](https://github.com/maidsafe/sn_dbc/compare/v2.13.1...v2.14.0) (2022-03-03)
 
 
