@@ -50,9 +50,17 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
     let rr = rr_builder.build().unwrap();
 
     c.bench_function(&format!("reissue split 1 to {}", N_OUTPUTS), |b| {
+        let guard = pprof::ProfilerGuard::new(100).unwrap();
+
         b.iter(|| {
             mintnode.reissue(black_box(rr.clone())).unwrap();
-        })
+        });
+
+        if let Ok(report) = guard.report().build() {
+            let file =
+                std::fs::File::create(&format!("reissue_split_1_to_{}.svg", N_OUTPUTS)).unwrap();
+            report.flamegraph(file).unwrap();
+        };
     });
 }
 
@@ -120,9 +128,17 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let merge_rr = merge_rr_builder.build().unwrap();
 
     c.bench_function(&format!("reissue merge {} to 1", N_OUTPUTS), |b| {
+        let guard = pprof::ProfilerGuard::new(100).unwrap();
+
         b.iter(|| {
             mintnode.reissue(black_box(merge_rr.clone())).unwrap();
-        })
+        });
+
+        if let Ok(report) = guard.report().build() {
+            let file =
+                std::fs::File::create(&format!("reissue_merge_{}_to_1.svg", N_OUTPUTS)).unwrap();
+            report.flamegraph(file).unwrap();
+        };
     });
 }
 
