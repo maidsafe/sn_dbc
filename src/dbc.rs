@@ -462,11 +462,9 @@ pub(crate) mod tests {
 
         assert_eq!(reissue_tx.hash(), reissue_share.transaction.hash());
 
-        let (mint_key_set, mint_sig_share) =
-            &reissue_share.mint_node_signatures.values().next().unwrap();
-
-        let mint_sig = mint_key_set
-            .combine_signatures(vec![mint_sig_share.threshold_crypto()])
+        let mint_sig = reissue_share
+            .mint_public_key_set
+            .combine_signatures(vec![reissue_share.mint_signature_share.threshold_crypto()])
             .unwrap();
 
         // We must obtain the RevealedCommitment for our output in order to
@@ -501,10 +499,11 @@ pub(crate) mod tests {
         let mint_pk = mint_node.key_manager().public_key_set()?.public_key();
         fuzzed_mint_sigs.extend(
             reissue_share
-                .mint_node_signatures
-                .into_keys()
+                .transaction
+                .mlsags
+                .iter()
                 .take(n_valid_sigs.coerce())
-                .map(|in_owner| (in_owner, (mint_pk, mint_sig.clone()))),
+                .map(|m| (m.key_image.into(), (mint_pk, mint_sig.clone()))),
         );
 
         let mut repeating_inputs = reissue_tx

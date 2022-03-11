@@ -14,17 +14,14 @@
 // Outputs <= input value
 
 use crate::{
-    Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result, SpentProof,
-    SpentProofShare, TransactionVerifier,
+    Error, Hash, IndexedSignatureShare, KeyImage, KeyManager, PublicKey, PublicKeySet, Result,
+    SpentProof, SpentProofShare, TransactionVerifier,
 };
 use blst_ringct::ringct::RingCtTransaction;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-
-pub type MintNodeSignature = (PublicKeySet, NodeSignature);
-pub type MintNodeSignatures = BTreeMap<KeyImage, MintNodeSignature>;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
@@ -38,7 +35,25 @@ pub struct ReissueRequest {
 pub struct ReissueShare {
     pub transaction: RingCtTransaction,
     pub spent_proofs: BTreeSet<SpentProof>,
-    pub mint_node_signatures: MintNodeSignatures,
+    pub mint_public_key_set: PublicKeySet,
+    pub mint_signature_share: IndexedSignatureShare,
+}
+
+impl ReissueShare {
+    /// Returns bytes of all fields that should be the same
+    /// across mint nodes.
+    ///
+    /// The mint_signature_share field is excluded because each node
+    /// will have a different signature share.
+    pub fn to_common_bytes(&self) -> Vec<u8> {
+        let mut bytes = self.transaction.to_bytes();
+        for sp in self.spent_proofs.iter() {
+            bytes.extend(&sp.to_bytes());
+        }
+        // public key set
+        bytes.extend(&self.mint_public_key_set.to_bytes());
+        bytes
+    }
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -119,33 +134,33 @@ impl<K: KeyManager> MintNode<K> {
 
         TransactionVerifier::verify_without_sigs(self.key_manager(), &transaction, &spent_proofs)?;
 
-        let mint_node_signatures = self.sign_transaction(&transaction)?;
+        let (mint_public_key_set, mint_signature_share) = self.sign_transaction(&transaction)?;
 
         let reissue_share = ReissueShare {
             transaction,
             spent_proofs,
-            mint_node_signatures,
+            mint_public_key_set,
+            mint_signature_share,
         };
 
         Ok(reissue_share)
     }
 
-    fn sign_transaction(&self, transaction: &RingCtTransaction) -> Result<MintNodeSignatures> {
-        let sig = self
+    fn sign_transaction(
+        &self,
+        transaction: &RingCtTransaction,
+    ) -> Result<(PublicKeySet, IndexedSignatureShare)> {
+        let node_signature = self
             .key_manager
             .sign(&Hash::from(transaction.hash()))
             .map_err(|e| Error::Signing(e.to_string()))?;
 
-        let pks = self
+        let public_key_set = self
             .key_manager
             .public_key_set()
             .map_err(|e| Error::Signing(e.to_string()))?;
 
-        Ok(transaction
-            .mlsags
-            .iter()
-            .map(|m| (m.key_image.into(), (pks.clone(), sig.clone())))
-            .collect())
+        Ok((public_key_set, node_signature))
     }
 }
 
@@ -496,7 +511,7 @@ mod tests {
                             public_commitments: spent_proof_share.public_commitments().clone(),
                         },
                         spentbook_pks: spent_proof_share.spentbook_pks,
-                        spentbook_sig_share: NodeSignature::new(
+                        spentbook_sig_share: IndexedSignatureShare::new(
                             0,
                             SecretKeySet::random(1, &mut rng)
                                 .secret_key_share(1)

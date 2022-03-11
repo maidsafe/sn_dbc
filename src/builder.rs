@@ -9,15 +9,16 @@
 use blst_ringct::ringct::{RingCtMaterial, RingCtTransaction};
 pub use blst_ringct::{DecoyInput, MlsagMaterial, Output, RevealedCommitment, TrueInput};
 use blstrs::group::Curve;
-use blsttc::{PublicKeySet, SecretKey, SignatureShare};
+use blsttc::{SecretKey, SignatureShare};
 use bulletproofs::PedersenGens;
 use rand_core::RngCore;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::{
-    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, KeyImage, KeyManager,
-    NodeSignature, OwnerOnce, PublicKeyBlst, PublicKeyBlstMappable, ReissueRequest, ReissueShare,
-    Result, SecretKeyBlst, SpentProof, SpentProofContent, SpentProofShare, TransactionVerifier,
+    Amount, AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, IndexedSignatureShare,
+    KeyImage, KeyManager, OwnerOnce, PublicKeyBlst, PublicKeyBlstMappable, ReissueRequest,
+    ReissueShare, Result, SecretKeyBlst, SpentProof, SpentProofContent, SpentProofShare,
+    TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
@@ -277,7 +278,7 @@ impl ReissueRequestBuilder {
                     shares
                         .iter()
                         .map(SpentProofShare::spentbook_sig_share)
-                        .map(NodeSignature::threshold_crypto),
+                        .map(IndexedSignatureShare::threshold_crypto),
                 )?;
 
                 let public_commitments: Vec<Commitment> = any_share.public_commitments().clone();
@@ -352,47 +353,42 @@ impl DbcBuilder {
         self,
         verifier: &K,
     ) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
-        let mut mint_sig_shares: Vec<NodeSignature> = Default::default();
-        let mut pk_set: HashSet<PublicKeySet> = Default::default();
+        let mut mint_sig_shares: Vec<IndexedSignatureShare> = Default::default();
+
+        // This is a map of ReissueShare that must all be exactly the same
+        // *except* for the SignatureShare.
+        let mut rs_map: HashMap<Vec<u8>, &ReissueShare> = Default::default();
 
         for rs in self.reissue_shares.iter() {
-            // Make a list of NodeSignature (sigshare from each Mint Node)
-            let mut node_shares: Vec<NodeSignature> = rs
-                .mint_node_signatures
-                .iter()
-                .map(|e| e.1 .1.clone())
-                .collect();
-            mint_sig_shares.append(&mut node_shares);
+            // Make a list of IndexedSignatureShare (sigshare from each Mint Node)
+            mint_sig_shares.push(rs.mint_signature_share.clone());
 
-            let pub_key_sets: HashSet<PublicKeySet> = rs
-                .mint_node_signatures
-                .iter()
-                .map(|e| e.1 .0.clone())
-                .collect();
-
-            // add pubkeyset to HashSet, so we can verify there is only one distinct PubKeySet
-            pk_set = &pk_set | &pub_key_sets; // union the sets together.
+            rs_map.insert(rs.to_common_bytes(), rs);
         }
 
-        // verify that PublicKeySet for all Dbc in all ReissueShare match.
-        if pk_set.len() != 1 {
-            return Err(Error::ReissueSharePublicKeySetMismatch);
+        if rs_map.len() != 1 {
+            return Err(Error::ReissueShareMismatch);
         }
-        let mint_public_key_set = match pk_set.iter().next() {
-            Some(pks) => pks,
-            None => return Err(Error::ReissueSharePublicKeySetMismatch),
+        // note: rs will be the last-inserted ReissueShare.
+        let rs = match rs_map.values().into_iter().next() {
+            Some(rs) => rs,
+            None => return Err(Error::ReissueShareMismatch),
         };
 
-        // Transform Vec<NodeSignature> to Vec<u64, &SignatureShare>
+        // note: we use only the fields that have been verified to be
+        // the same across mint nodes.
+        let ReissueShare {
+            transaction,
+            spent_proofs,
+            mint_public_key_set,
+            ..
+        } = rs;
+
+        // Transform Vec<IndexedSignatureShare> to Vec<u64, &SignatureShare>
         let mint_sig_shares_ref: Vec<(u64, &SignatureShare)> = mint_sig_shares
             .iter()
             .map(|e| e.threshold_crypto())
             .collect();
-
-        // Note: we can just use the first item because we already verified that
-        // all the ReissueShare match
-        let transaction = &self.reissue_shares[0].transaction;
-        let spent_proofs = &self.reissue_shares[0].spent_proofs;
 
         // Combine signatures from all the mint nodes to obtain Mint's Signature.
         let mint_sig = mint_public_key_set.combine_signatures(mint_sig_shares_ref)?;
