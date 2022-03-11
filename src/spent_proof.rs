@@ -7,8 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    Commitment, Error, Hash, KeyImage, KeyManager, NodeSignature, PublicKey, PublicKeySet, Result,
-    Signature,
+    Commitment, Error, Hash, IndexedSignatureShare, KeyImage, KeyManager, PublicKey, PublicKeySet,
+    Result, Signature,
 };
 
 use std::cmp::Ordering;
@@ -71,7 +71,7 @@ pub struct SpentProofShare {
 
     /// The Spentbook who notarized that this DBC was spent.
     pub spentbook_pks: PublicKeySet,
-    pub spentbook_sig_share: NodeSignature,
+    pub spentbook_sig_share: IndexedSignatureShare,
 }
 
 // impl manually to avoid clippy complaint about Hash conflict.
@@ -109,7 +109,7 @@ impl SpentProofShare {
     }
 
     /// get spentbook's signature share
-    pub fn spentbook_sig_share(&self) -> &NodeSignature {
+    pub fn spentbook_sig_share(&self) -> &IndexedSignatureShare {
         &self.spentbook_sig_share
     }
 

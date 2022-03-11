@@ -35,10 +35,10 @@ pub use crate::{
     error::{Error, Result},
     genesis::GenesisMaterial,
     key_manager::{
-        KeyManager, NodeSignature, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
+        IndexedSignatureShare, KeyManager, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
         SimpleSigner,
     },
-    mint::{MintNode, MintNodeSignatures, ReissueRequest, ReissueShare},
+    mint::{MintNode, ReissueRequest, ReissueShare},
     owner::{DerivationIndex, Owner, OwnerOnce},
     spent_proof::{SpentProof, SpentProofContent, SpentProofShare},
     spentbook::SpentBookNodeMock,

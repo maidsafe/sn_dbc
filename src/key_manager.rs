@@ -16,23 +16,26 @@ use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct NodeSignature {
+pub struct IndexedSignatureShare {
     index: u64,
-    sig: SignatureShare,
+    signature_share: SignatureShare,
 }
 
-impl NodeSignature {
-    pub fn new(index: u64, sig: SignatureShare) -> Self {
-        Self { index, sig }
+impl IndexedSignatureShare {
+    pub fn new(index: u64, signature_share: SignatureShare) -> Self {
+        Self {
+            index,
+            signature_share,
+        }
     }
 
     pub fn threshold_crypto(&self) -> (u64, &SignatureShare) {
-        (self.index, &self.sig)
+        (self.index, &self.signature_share)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = self.index.to_le_bytes().to_vec();
-        bytes.extend(&self.sig.to_bytes());
+        bytes.extend(&self.signature_share.to_bytes());
         bytes
     }
 }
@@ -40,9 +43,12 @@ impl NodeSignature {
 pub trait KeyManager {
     type Error: std::error::Error;
     fn add_known_key(&mut self, key: PublicKey) -> Result<(), Self::Error>;
-    fn sign_with_child_key(&self, idx: &[u8], tx_hash: &Hash)
-        -> Result<NodeSignature, Self::Error>;
-    fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature, Self::Error>;
+    fn sign_with_child_key(
+        &self,
+        idx: &[u8],
+        tx_hash: &Hash,
+    ) -> Result<IndexedSignatureShare, Self::Error>;
+    fn sign(&self, msg_hash: &Hash) -> Result<IndexedSignatureShare, Self::Error>;
     fn public_key_set(&self) -> Result<PublicKeySet, Self::Error>;
     fn verify(
         &self,
@@ -127,16 +133,16 @@ impl KeyManager for SimpleKeyManager {
         Ok(self.signer.public_key_set())
     }
 
-    fn sign_with_child_key(&self, index: &[u8], tx_hash: &Hash) -> Result<NodeSignature> {
+    fn sign_with_child_key(&self, index: &[u8], tx_hash: &Hash) -> Result<IndexedSignatureShare> {
         let child_signer = self.signer.derive_child(index);
-        Ok(NodeSignature::new(
+        Ok(IndexedSignatureShare::new(
             child_signer.index(),
             child_signer.sign(tx_hash),
         ))
     }
 
-    fn sign(&self, msg_hash: &Hash) -> Result<NodeSignature> {
-        Ok(NodeSignature::new(
+    fn sign(&self, msg_hash: &Hash) -> Result<IndexedSignatureShare> {
+        Ok(IndexedSignatureShare::new(
             self.signer.index(),
             self.signer.sign(msg_hash),
         ))

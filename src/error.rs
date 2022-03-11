@@ -57,8 +57,8 @@ pub enum Error {
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
     ReissueRequestMissingSpentProofShare(KeyImage),
 
-    #[error("The PublicKeySet differs between ReissueShare entries")]
-    ReissueSharePublicKeySetMismatch,
+    #[error("ReissueShare do not match")]
+    ReissueShareMismatch,
 
     #[error("Decryption failed")]
     DecryptionBySecretKeyFailed,
