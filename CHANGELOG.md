@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [2.14.2](https://github.com/maidsafe/sn_dbc/compare/v2.14.1...v2.14.2) (2022-03-14)
+
+
+### Bug Fixes
+
+* verify that ReissueShare match ([6f1eb89](https://github.com/maidsafe/sn_dbc/commit/6f1eb89c5ffd911a1d1e97350ec1349b622b069a))
+
 ### [2.14.1](https://github.com/maidsafe/sn_dbc/compare/v2.14.0...v2.14.1) (2022-03-07)
 
 
