@@ -9,8 +9,8 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
 use sn_dbc::{
-    Amount, Dbc, GenesisBuilderMock, MintNode, Owner, OwnerOnce, Result, SimpleKeyManager,
-    SpentBookNodeMock,
+    Amount, Dbc, GenesisBuilderMock, Owner, OwnerOnce, Result, SpentBookNodeMock,
+    TransactionVerifier,
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -21,10 +21,10 @@ const N_OUTPUTS: u32 = 100;
 fn bench_reissue_1_to_100(c: &mut Criterion) {
     let mut rng8 = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-    let (mintnode, mut spentbook, starting_dbc) =
+    let (mut spentbook, starting_dbc) =
         generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng8).unwrap();
 
-    let (mut rr_builder, ..) = sn_dbc::TransactionBuilder::default()
+    let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
             starting_dbc
                 .owner_once_bearer()
@@ -43,35 +43,35 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .build(&mut rng8)
         .unwrap();
 
-    for (key_image, tx) in rr_builder.inputs() {
+    for (key_image, tx) in dbc_builder.inputs() {
         let spent_proof_share = spentbook.log_spent(key_image, tx).unwrap();
-        rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
+        dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
     }
-    let rr = rr_builder.build().unwrap();
 
+    let spent_proofs = dbc_builder.spent_proofs().unwrap();
+    let tx = &dbc_builder.transaction;
+
+    let guard = pprof::ProfilerGuard::new(100).unwrap();
     c.bench_function(&format!("reissue split 1 to {}", N_OUTPUTS), |b| {
-        let guard = pprof::ProfilerGuard::new(100).unwrap();
-
         b.iter(|| {
-            mintnode.reissue(black_box(rr.clone())).unwrap();
+            TransactionVerifier::verify(&spentbook.key_manager, black_box(tx), &spent_proofs)
+                .unwrap();
         });
-
-        if let Ok(report) = guard.report().build() {
-            let file =
-                std::fs::File::create(&format!("reissue_split_1_to_{}.svg", N_OUTPUTS)).unwrap();
-            report.flamegraph(file).unwrap();
-        };
     });
+    if let Ok(report) = guard.report().build() {
+        let file = std::fs::File::create(&format!("reissue_split_1_to_{}.svg", N_OUTPUTS)).unwrap();
+        report.flamegraph(file).unwrap();
+    };
 }
 
 fn bench_reissue_100_to_1(c: &mut Criterion) {
     let mut rng8 = rand::rngs::StdRng::from_seed([0u8; 32]);
     let num_decoys = 0;
 
-    let (mintnode, mut spentbook, starting_dbc) =
+    let (mut spentbook_node, starting_dbc) =
         generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng8).unwrap();
 
-    let (mut rr_builder, mut dbc_builder, ..) = sn_dbc::TransactionBuilder::default()
+    let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
             starting_dbc
                 .owner_once_bearer()
@@ -90,28 +90,23 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build(&mut rng8)
         .unwrap();
 
-    for (key_image, tx) in rr_builder.inputs() {
-        let spent_proof_share = spentbook.log_spent(key_image, tx).unwrap();
-        rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
+    for (key_image, tx) in dbc_builder.inputs() {
+        let spent_proof_share = spentbook_node.log_spent(key_image, tx).unwrap();
+        dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
     }
-    let rr = rr_builder.build().unwrap();
-
-    let reissue_share = mintnode.reissue(rr).unwrap();
-
-    dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-    let dbcs = dbc_builder.build(mintnode.key_manager()).unwrap();
+    let dbcs = dbc_builder.build(&spentbook_node.key_manager).unwrap();
 
     let output_owner_once =
         OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng8), &mut rng8);
 
-    let (mut merge_rr_builder, ..) = sn_dbc::TransactionBuilder::default()
+    let mut merge_dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_inputs_by_secrets(
             dbcs.into_iter()
                 .map(|(_dbc, owner_once, amount_secrets)| {
                     (
                         owner_once.as_owner().secret_key().unwrap(),
                         amount_secrets,
-                        spentbook.random_decoys(num_decoys, &mut rng8),
+                        spentbook_node.random_decoys(num_decoys, &mut rng8),
                     )
                 })
                 .collect(),
@@ -121,37 +116,37 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build(&mut rng8)
         .unwrap();
 
-    for (key_image, tx) in merge_rr_builder.inputs() {
-        let spent_proof_share = spentbook.log_spent(key_image, tx).unwrap();
-        merge_rr_builder = merge_rr_builder.add_spent_proof_share(spent_proof_share);
+    for (key_image, tx) in merge_dbc_builder.inputs() {
+        let spent_proof_share = spentbook_node.log_spent(key_image, tx).unwrap();
+        merge_dbc_builder = merge_dbc_builder.add_spent_proof_share(spent_proof_share);
     }
-    let merge_rr = merge_rr_builder.build().unwrap();
 
+    let spent_proofs = merge_dbc_builder.spent_proofs().unwrap();
+    let tx = &merge_dbc_builder.transaction;
+
+    let guard = pprof::ProfilerGuard::new(100).unwrap();
     c.bench_function(&format!("reissue merge {} to 1", N_OUTPUTS), |b| {
-        let guard = pprof::ProfilerGuard::new(100).unwrap();
-
         b.iter(|| {
-            mintnode.reissue(black_box(merge_rr.clone())).unwrap();
+            TransactionVerifier::verify(&spentbook_node.key_manager, black_box(tx), &spent_proofs)
+                .unwrap();
         });
-
-        if let Ok(report) = guard.report().build() {
-            let file =
-                std::fs::File::create(&format!("reissue_merge_{}_to_1.svg", N_OUTPUTS)).unwrap();
-            report.flamegraph(file).unwrap();
-        };
     });
+    if let Ok(report) = guard.report().build() {
+        let file = std::fs::File::create(&format!("reissue_merge_{}_to_1.svg", N_OUTPUTS)).unwrap();
+        report.flamegraph(file).unwrap();
+    };
 }
 
 fn generate_dbc_of_value(
     amount: Amount,
     rng8: &mut (impl rand::RngCore + rand_core::CryptoRng),
-) -> Result<(MintNode<SimpleKeyManager>, SpentBookNodeMock, Dbc)> {
-    let (mint_node, mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
+) -> Result<(SpentBookNodeMock, Dbc)> {
+    let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
         GenesisBuilderMock::init_genesis_single(rng8)?;
 
     let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
 
-    let (mut rr_builder, mut dbc_builder, _material) = sn_dbc::TransactionBuilder::default()
+    let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
             genesis_dbc.owner_once_bearer()?.secret_key()?,
             genesis_dbc.amount_secrets_bearer()?,
@@ -164,22 +159,18 @@ fn generate_dbc_of_value(
         }))
         .build(rng8)?;
 
-    // Build ReissuRequest
-    for (key_image, tx) in rr_builder.inputs() {
+    for (key_image, tx) in dbc_builder.inputs() {
         let spent_proof_share = spentbook_node.log_spent(key_image, tx)?;
-        rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
+        dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
     }
-    let rr = rr_builder.build()?;
 
-    let reissue_share = mint_node.reissue(rr)?;
-    dbc_builder = dbc_builder.add_reissue_share(reissue_share);
     let (starting_dbc, ..) = dbc_builder
-        .build(mint_node.key_manager())?
+        .build(&spentbook_node.key_manager)?
         .into_iter()
         .next()
         .unwrap();
 
-    Ok((mint_node, spentbook_node, starting_dbc))
+    Ok((spentbook_node, starting_dbc))
 }
 
 criterion_group! {

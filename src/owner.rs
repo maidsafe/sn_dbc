@@ -30,10 +30,10 @@ pub type DerivationIndex = [u8; 32];
 ///
 /// The base Owner public key is given out to other people
 /// in order to receive payments from them. It is never
-/// seen by the Mint or SpentBook.
+/// seen by the SpentBook.
 ///
 /// The one-time-use Owner public key is not normally given
-/// to 3rd parties. It is used by Mint and SpentBook exactly
+/// to 3rd parties. It is used by SpentBook exactly
 /// once, when spending the associated Dbc.
 ///
 /// See OwnerOnce which relates the two.

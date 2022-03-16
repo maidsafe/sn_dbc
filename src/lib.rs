@@ -26,7 +26,7 @@ pub use crate::{
     amount_secrets::{Amount, AmountSecrets},
     blst::{BlindingFactor, Commitment, KeyImage},
     builder::mock::GenesisBuilderMock,
-    builder::{DbcBuilder, Output, OutputOwnerMap, ReissueRequestBuilder, TransactionBuilder},
+    builder::{DbcBuilder, Output, OutputOwnerMap, TransactionBuilder},
     dbc::Dbc,
     dbc_content::DbcContent,
     error::{Error, Result},
@@ -35,7 +35,6 @@ pub use crate::{
         IndexedSignatureShare, KeyManager, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
         SimpleSigner,
     },
-    mint::{MintNode, ReissueRequest, ReissueShare},
     owner::{DerivationIndex, Owner, OwnerOnce},
     spent_proof::{SpentProof, SpentProofContent, SpentProofShare},
     spentbook::SpentBookNodeMock,
@@ -64,7 +63,6 @@ impl From<[u8; 32]> for Hash {
 }
 
 // Display Hash value as hex in Debug output.  consolidates 36 lines to 3 for pretty output
-// and the hex value is the same as sn_dbc_mint display of DBC IDs.
 impl fmt::Debug for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Hash").field(&hex::encode(self.0)).finish()
