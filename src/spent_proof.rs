@@ -189,7 +189,7 @@ impl SpentProof {
                 &self.spentbook_pub_key,
                 &self.spentbook_sig,
             )
-            .map_err(|_| Error::InvalidSpentProofSignature(*self.key_image()))?;
+            .map_err(|e| Error::InvalidSpentProofSignature(*self.key_image(), e.to_string()))?;
         Ok(())
     }
 }

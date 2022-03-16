@@ -21,23 +21,14 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[non_exhaustive]
 /// Node error variants.
 pub enum Error {
-    #[error("An error occured when signing {0}")]
-    Signing(String),
-
     #[error("Failed signature check.")]
     FailedSignature,
 
     #[error("Unrecognised authority.")]
     UnrecognisedAuthority,
 
-    #[error("At least one transaction input is missing a signature.")]
-    MissingSignatureForInput,
-
-    #[error("The number of mint signatures does not match the number of transaction inputs.")]
-    MintSignatureInputMismatch,
-
-    #[error("Invalid SpentProof Signature for {0:?}")]
-    InvalidSpentProofSignature(KeyImage),
+    #[error("Invalid SpentProof Signature for {0:?}.  Error: {1}")]
+    InvalidSpentProofSignature(KeyImage, String),
 
     #[error("Transaction hash does not match the transaction signed by spentbook")]
     InvalidTransactionHash,
@@ -52,13 +43,13 @@ pub enum Error {
     PublicKeyNotUniqueAcrossOutputs,
 
     #[error("The number of SpentProof does not match the number of input MlsagSignature")]
-    SpentProofInputMismatch,
+    SpentProofInputLenMismatch,
+
+    #[error("A SpentProof KeyImage does not match an MlsagSignature KeyImage")]
+    SpentProofInputKeyImageMismatch,
 
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
-    ReissueRequestMissingSpentProofShare(KeyImage),
-
-    #[error("ReissueShare do not match")]
-    ReissueShareMismatch,
+    MissingSpentProofShare(KeyImage),
 
     #[error("Decryption failed")]
     DecryptionBySecretKeyFailed,

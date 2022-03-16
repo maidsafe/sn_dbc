@@ -9,15 +9,15 @@
 use blst_ringct::ringct::{Amount, RingCtMaterial, RingCtTransaction};
 pub use blst_ringct::{DecoyInput, MlsagMaterial, Output, RevealedCommitment, TrueInput};
 use blstrs::group::Curve;
-use blsttc::{PublicKey, SecretKey, SignatureShare};
+use blsttc::{PublicKey, SecretKey};
 use bulletproofs::PedersenGens;
 use rand_core::RngCore;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
     AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, IndexedSignatureShare, KeyImage,
-    KeyManager, OwnerOnce, ReissueRequest, ReissueShare, Result, SpentProof, SpentProofContent,
-    SpentProofShare, TransactionVerifier,
+    KeyManager, OwnerOnce, Result, SpentProof, SpentProofContent, SpentProofShare,
+    TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
@@ -217,38 +217,57 @@ impl TransactionBuilder {
     }
 
     /// build a RingCtTransaction and associated secrets
-    pub fn build(
-        self,
-        rng: impl RngCore + rand_core::CryptoRng,
-    ) -> Result<(ReissueRequestBuilder, DbcBuilder, RingCtMaterial)> {
+    pub fn build(self, rng: impl RngCore + rand_core::CryptoRng) -> Result<DbcBuilder> {
         let result: Result<(RingCtTransaction, Vec<RevealedCommitment>)> =
             self.ringct_material.sign(rng).map_err(|e| e.into());
         let (transaction, revealed_commitments) = result?;
 
-        Ok((
-            ReissueRequestBuilder::new(transaction),
-            DbcBuilder::new(revealed_commitments, self.output_owner_map),
+        Ok(DbcBuilder::new(
+            transaction,
+            revealed_commitments,
+            self.output_owner_map,
             self.ringct_material,
         ))
     }
 }
 
-/// Builds a ReissueRequest from a RingCtTransaction and
-/// any number of (input) DBC spent proof shares.
+/// A Builder for aggregating SpentProofs and generating the final Dbc outputs.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug)]
-pub struct ReissueRequestBuilder {
+#[derive(Debug, Clone)]
+pub struct DbcBuilder {
     pub transaction: RingCtTransaction,
+    pub revealed_commitments: Vec<RevealedCommitment>,
+    pub output_owner_map: OutputOwnerMap,
+    pub ringct_material: RingCtMaterial,
+
     pub spent_proof_shares: BTreeMap<KeyImage, HashSet<SpentProofShare>>,
 }
 
-impl ReissueRequestBuilder {
-    /// Create a new ReissueRequestBuilder from a RingCtTransaction
-    pub fn new(transaction: RingCtTransaction) -> Self {
+impl DbcBuilder {
+    /// Create a new DbcBuilder
+    pub fn new(
+        transaction: RingCtTransaction,
+        revealed_commitments: Vec<RevealedCommitment>,
+        output_owner_map: OutputOwnerMap,
+        ringct_material: RingCtMaterial,
+    ) -> Self {
         Self {
             transaction,
+            revealed_commitments,
+            output_owner_map,
             spent_proof_shares: Default::default(),
+            ringct_material,
         }
+    }
+
+    /// returns Vec of key_image and tx intended for use as inputs
+    /// to Spendbook::log_spent().
+    pub fn inputs(&self) -> Vec<(KeyImage, RingCtTransaction)> {
+        self.transaction
+            .mlsags
+            .iter()
+            .map(|mlsag| (mlsag.key_image.into(), self.transaction.clone()))
+            .collect()
     }
 
     /// Add a SpentProofShare for the given input index
@@ -272,18 +291,70 @@ impl ReissueRequestBuilder {
         self
     }
 
-    /// returns Vec of key_image and tx intended for use as inputs
-    /// to Spendbook::log_spent().
-    pub fn inputs(&self) -> Vec<(KeyImage, RingCtTransaction)> {
-        self.transaction
-            .mlsags
+    /// Build the output DBCs
+    ///
+    /// see TransactionVerifier::verify() for a description of
+    /// verifier requirements.
+    pub fn build<K: KeyManager>(
+        self,
+        verifier: &K,
+    ) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
+        let spent_proofs = self.spent_proofs()?;
+
+        // verify the Tx, along with spent proofs.
+        // note that we do this just once for entire Tx, not once per output Dbc.
+        TransactionVerifier::verify(verifier, &self.transaction, &spent_proofs)?;
+
+        let pc_gens = PedersenGens::default();
+        let output_commitments: Vec<(Commitment, RevealedCommitment)> = self
+            .revealed_commitments
             .iter()
-            .map(|mlsag| (mlsag.key_image.into(), self.transaction.clone()))
-            .collect()
+            .map(|r| (r.commit(&pc_gens).to_affine(), *r))
+            .collect();
+
+        let owner_once_list: Vec<&OwnerOnce> = self
+            .transaction
+            .outputs
+            .iter()
+            .map(|output| {
+                self.output_owner_map
+                    .get(&(*output.public_key()).into())
+                    .ok_or(Error::PublicKeyNotFound)
+            })
+            .collect::<Result<_>>()?;
+
+        // Form the final output DBCs
+        let output_dbcs: Vec<(Dbc, OwnerOnce, AmountSecrets)> = self
+            .transaction
+            .outputs
+            .iter()
+            .zip(owner_once_list)
+            .map(|(output, owner_once)| {
+                let amount_secrets_list: Vec<AmountSecrets> = output_commitments
+                    .iter()
+                    .filter(|(c, _)| *c == output.commitment())
+                    .map(|(_, r)| AmountSecrets::from(*r))
+                    .collect();
+                assert_eq!(amount_secrets_list.len(), 1);
+
+                let dbc = Dbc {
+                    content: DbcContent::from((
+                        owner_once.owner_base.clone(),
+                        owner_once.derivation_index,
+                        amount_secrets_list[0].clone(),
+                    )),
+                    transaction: self.transaction.clone(),
+                    spent_proofs: spent_proofs.clone(),
+                };
+                (dbc, owner_once.clone(), amount_secrets_list[0].clone())
+            })
+            .collect();
+
+        Ok(output_dbcs)
     }
 
-    /// build a ReissueRequest
-    pub fn build(self) -> Result<ReissueRequest> {
+    /// build spent proofs from shares.
+    pub fn spent_proofs(&self) -> Result<BTreeSet<SpentProof>> {
         let spent_proofs: BTreeSet<SpentProof> = self
             .spent_proof_shares
             .iter()
@@ -291,7 +362,7 @@ impl ReissueRequestBuilder {
                 let any_share = shares
                     .iter()
                     .next()
-                    .ok_or(Error::ReissueRequestMissingSpentProofShare(*key_image))?;
+                    .ok_or(Error::MissingSpentProofShare(*key_image))?;
 
                 let spentbook_pub_key = any_share.spentbook_pks().public_key();
                 let spentbook_sig = any_share.spentbook_pks.combine_signatures(
@@ -317,163 +388,7 @@ impl ReissueRequestBuilder {
             })
             .collect::<Result<_>>()?;
 
-        let rr = ReissueRequest {
-            transaction: self.transaction,
-            spent_proofs,
-        };
-        Ok(rr)
-    }
-}
-
-/// A Builder for aggregating ReissueShare (Mint::reissue() results)
-/// from multiple mint nodes and combining signatures to
-/// generate the final Dbc outputs.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug)]
-pub struct DbcBuilder {
-    pub revealed_commitments: Vec<RevealedCommitment>,
-    pub output_owner_map: OutputOwnerMap,
-
-    pub reissue_shares: Vec<ReissueShare>,
-}
-
-impl DbcBuilder {
-    /// Create a new DbcBuilder
-    pub fn new(
-        revealed_commitments: Vec<RevealedCommitment>,
-        output_owner_map: OutputOwnerMap,
-    ) -> Self {
-        Self {
-            revealed_commitments,
-            output_owner_map,
-            reissue_shares: Default::default(),
-        }
-    }
-
-    /// Add a ReissueShare from Mint::reissue()
-    pub fn add_reissue_share(mut self, reissue_share: ReissueShare) -> Self {
-        self.reissue_shares.push(reissue_share);
-        self
-    }
-
-    /// Add multiple ReissueShare from Mint::reissue()
-    pub fn add_reissue_shares(mut self, shares: impl IntoIterator<Item = ReissueShare>) -> Self {
-        self.reissue_shares.extend(shares);
-        self
-    }
-
-    /// Build the output DBCs
-    ///
-    /// note: common tx verification logic is shared by MintNode::reissue(),
-    /// DbcBuilder::build() and Dbc::verify()
-    ///
-    /// see TransactionVerifier::verify() for a description of
-    /// verifier requirements.
-    pub fn build<K: KeyManager>(
-        self,
-        verifier: &K,
-    ) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
-        let mut mint_sig_shares: Vec<IndexedSignatureShare> = Default::default();
-
-        // This is a map of ReissueShare that must all be exactly the same
-        // *except* for the SignatureShare.
-        let mut rs_map: HashMap<Vec<u8>, &ReissueShare> = Default::default();
-
-        for rs in self.reissue_shares.iter() {
-            // Make a list of IndexedSignatureShare (sigshare from each Mint Node)
-            mint_sig_shares.push(rs.mint_signature_share.clone());
-
-            rs_map.insert(rs.to_common_bytes(), rs);
-        }
-
-        if rs_map.len() != 1 {
-            return Err(Error::ReissueShareMismatch);
-        }
-        // note: rs will be the last-inserted ReissueShare.
-        let rs = match rs_map.values().into_iter().next() {
-            Some(rs) => rs,
-            None => return Err(Error::ReissueShareMismatch),
-        };
-
-        // note: we use only the fields that have been verified to be
-        // the same across mint nodes.
-        let ReissueShare {
-            transaction,
-            spent_proofs,
-            mint_public_key_set,
-            ..
-        } = rs;
-
-        // Transform Vec<IndexedSignatureShare> to Vec<u64, &SignatureShare>
-        let mint_sig_shares_ref: Vec<(u64, &SignatureShare)> = mint_sig_shares
-            .iter()
-            .map(|e| e.threshold_crypto())
-            .collect();
-
-        // Combine signatures from all the mint nodes to obtain Mint's Signature.
-        let mint_sig = mint_public_key_set.combine_signatures(mint_sig_shares_ref)?;
-
-        // note: all output Dbcs share the same mint_sigs
-        let mint_sigs = transaction
-            .mlsags
-            .iter()
-            .map(|mlsag| {
-                (
-                    mlsag.key_image.into(),
-                    (mint_public_key_set.public_key(), mint_sig.clone()),
-                )
-            })
-            .collect();
-
-        // verify the Tx, along with mint sigs and spent proofs.
-        // note that we do this just once for entire Tx, not once per output Dbc.
-        TransactionVerifier::verify(verifier, transaction, &mint_sigs, spent_proofs)?;
-
-        let pc_gens = PedersenGens::default();
-        let output_commitments: Vec<(Commitment, RevealedCommitment)> = self
-            .revealed_commitments
-            .iter()
-            .map(|r| (r.commit(&pc_gens).to_affine(), *r))
-            .collect();
-
-        let owner_once_list: Vec<&OwnerOnce> = transaction
-            .outputs
-            .iter()
-            .map(|output| {
-                self.output_owner_map
-                    .get(&(*output.public_key()).into())
-                    .ok_or(Error::PublicKeyNotFound)
-            })
-            .collect::<Result<_>>()?;
-
-        // Form the final output DBCs, with Mint's Signature for each.
-        let output_dbcs: Vec<(Dbc, OwnerOnce, AmountSecrets)> = transaction
-            .outputs
-            .iter()
-            .zip(owner_once_list)
-            .map(|(output, owner_once)| {
-                let amount_secrets_list: Vec<AmountSecrets> = output_commitments
-                    .iter()
-                    .filter(|(c, _)| *c == output.commitment())
-                    .map(|(_, r)| AmountSecrets::from(*r))
-                    .collect();
-                assert_eq!(amount_secrets_list.len(), 1);
-
-                let dbc = Dbc {
-                    content: DbcContent::from((
-                        owner_once.owner_base.clone(),
-                        owner_once.derivation_index,
-                        amount_secrets_list[0].clone(),
-                    )),
-                    transaction: transaction.clone(),
-                    mint_sigs: mint_sigs.clone(),
-                    spent_proofs: spent_proofs.clone(),
-                };
-                (dbc, owner_once.clone(), amount_secrets_list[0].clone())
-            })
-            .collect();
-
-        Ok(output_dbcs)
+        Ok(spent_proofs)
     }
 }
 
@@ -482,48 +397,23 @@ impl DbcBuilder {
 // SpentBookNodeMock, SimpleKeyManager, SimpleSigner, GenesisBuilderMock
 pub mod mock {
     use crate::{
-        Amount, AmountSecrets, Dbc, GenesisMaterial, KeyManager, MintNode, Result,
-        SimpleKeyManager, SimpleSigner, SpentBookNodeMock, TransactionBuilder,
+        Amount, AmountSecrets, Dbc, GenesisMaterial, KeyManager, Result, SimpleKeyManager,
+        SimpleSigner, SpentBookNodeMock, TransactionBuilder,
     };
     use blsttc::SecretKeySet;
 
-    /// A builder for initializing a set of N mintnodes, a set
-    /// of Y spentbooks, and generating a genesis dbc with amount Z.
+    /// A builder for initializing a set of N spentbooks and generating a
+    /// genesis dbc with amount Z.
     ///
-    /// In SafeNetwork terms, the set of MintNodes represents a single
-    /// Mint section (a) and the set of SpentBooksNodes represents a
-    /// single Spentbook section (b).
+    /// In SafeNetwork terms, the set of SpentBooksNodes represents a
+    /// single Spentbook section.
     #[derive(Default)]
     pub struct GenesisBuilderMock {
         pub genesis_amount: Amount,
-        pub mint_nodes: Vec<MintNode<SimpleKeyManager>>,
         pub spentbook_nodes: Vec<SpentBookNodeMock>,
     }
 
     impl GenesisBuilderMock {
-        /// generates a list of mint nodes sharing a random SecretKeySet and adds to the builder.
-        pub fn gen_mint_nodes(
-            mut self,
-            num_nodes: usize,
-            rng: &mut impl rand::RngCore,
-        ) -> Result<Self> {
-            let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
-            self = self.gen_mint_nodes_with_sks(num_nodes, &sks);
-            Ok(self)
-        }
-
-        /// generates a list of mint nodes sharing a provided SecretKeySet and adds to the builder.
-        pub fn gen_mint_nodes_with_sks(mut self, num_nodes: usize, sks: &SecretKeySet) -> Self {
-            for i in 0..num_nodes {
-                self.mint_nodes
-                    .push(MintNode::new(SimpleKeyManager::from(SimpleSigner::new(
-                        sks.public_keys().clone(),
-                        (i as u64, sks.secret_key_share(i).clone()),
-                    ))));
-            }
-            self
-        }
-
         /// generates a list of spentbook nodes sharing a random SecretKeySet and adds to the builder.
         pub fn gen_spentbook_nodes(
             mut self,
@@ -553,24 +443,6 @@ pub mod mock {
             self
         }
 
-        /// adds an existing mint node to the builder.
-        /// All mint nodes must share the same public key
-        pub fn add_mint_node(mut self, mint_node: MintNode<SimpleKeyManager>) -> Self {
-            if !self.mint_nodes.is_empty() {
-                // we only support a single mock mint section.  pubkeys must match.
-                assert_eq!(
-                    mint_node.key_manager.public_key_set().unwrap().public_key(),
-                    self.mint_nodes[0]
-                        .key_manager
-                        .public_key_set()
-                        .unwrap()
-                        .public_key()
-                );
-            }
-            self.mint_nodes.push(mint_node);
-            self
-        }
-
         /// adds an existing spentbook node to the builder.
         /// All spentbook nodes must share the same public key
         pub fn add_spentbook_node(mut self, spentbook_node: SpentBookNodeMock) -> Self {
@@ -593,24 +465,16 @@ pub mod mock {
             self
         }
 
-        /// builds and returns mintnodes, spentbooks, genesis_dbc_shares, and genesis dbc
+        /// builds and returns spentbooks, genesis_dbc_shares, and genesis dbc
         #[allow(clippy::type_complexity)]
         pub fn build(
             mut self,
             rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
-        ) -> Result<(
-            Vec<MintNode<SimpleKeyManager>>,
-            Vec<SpentBookNodeMock>,
-            Dbc,
-            GenesisMaterial,
-            AmountSecrets,
-        )> {
-            let mut mint_nodes: Vec<MintNode<SimpleKeyManager>> = Default::default();
-
+        ) -> Result<(Vec<SpentBookNodeMock>, Dbc, GenesisMaterial, AmountSecrets)> {
             // note: rng is necessary for RingCtMaterial::sign().
 
             let genesis_material = GenesisMaterial::default();
-            let (mut rr_builder, mut dbc_builder, _ringct_material) = TransactionBuilder::default()
+            let mut dbc_builder = TransactionBuilder::default()
                 .add_input(genesis_material.ringct_material.inputs[0].clone())
                 .add_output(
                     genesis_material.ringct_material.outputs[0].clone(),
@@ -618,42 +482,23 @@ pub mod mock {
                 )
                 .build(rng)?;
 
-            for (key_image, tx) in rr_builder.inputs() {
+            for (key_image, tx) in dbc_builder.inputs() {
                 for spentbook_node in self.spentbook_nodes.iter_mut() {
-                    rr_builder = rr_builder
+                    dbc_builder = dbc_builder
                         .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?);
                 }
             }
 
-            let reissue_request = rr_builder.build()?;
-
-            for mint_node in self.mint_nodes.into_iter() {
-                // note: for our (mock) purposes, all spentbook nodes are verified to
-                // have the same public key.  (in the same section)
-                let spentbook_node_arbitrary = &self.spentbook_nodes[0];
-                let mint_node = mint_node.trust_spentbook_public_key(
-                    spentbook_node_arbitrary
-                        .key_manager
-                        .public_key_set()?
-                        .public_key(),
-                )?;
-
-                dbc_builder =
-                    dbc_builder.add_reissue_share(mint_node.reissue(reissue_request.clone())?);
-                mint_nodes.push(mint_node);
-            }
-
-            // note: for our (mock) purposes, all mint nodes are verified to
+            // note: for our (mock) purposes, all spentbook nodes are verified to
             // have the same public key.  (in the same section)
-            let mint_node_arbitrary = &mint_nodes[0];
+            let spentbook_node_arbitrary = &self.spentbook_nodes[0];
 
             let (genesis_dbc, _owner_once, amount_secrets) = dbc_builder
-                .build(mint_node_arbitrary.key_manager())?
+                .build(&spentbook_node_arbitrary.key_manager)?
                 .into_iter()
                 .next()
                 .unwrap();
             Ok((
-                mint_nodes,
                 self.spentbook_nodes,
                 genesis_dbc,
                 genesis_material,
@@ -661,54 +506,34 @@ pub mod mock {
             ))
         }
 
-        /// builds and returns mintnodes, spentbooks, genesis_dbc_shares, and genesis dbc
-        /// the mintnodes use a shared randomly generated SecretKeySet and
-        /// the spentbook nodes use a different randomly generated SecretKeySet
+        /// builds and returns spentbooks, genesis_dbc_shares, and genesis dbc
+        /// the spentbook nodes use a shared randomly generated SecretKeySet
         #[allow(clippy::type_complexity)]
         pub fn init_genesis(
-            num_mint_nodes: usize,
             num_spentbook_nodes: usize,
             rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
-        ) -> Result<(
-            Vec<MintNode<SimpleKeyManager>>,
-            Vec<SpentBookNodeMock>,
-            Dbc,
-            GenesisMaterial,
-            AmountSecrets,
-        )> {
+        ) -> Result<(Vec<SpentBookNodeMock>, Dbc, GenesisMaterial, AmountSecrets)> {
             Self::default()
-                .gen_mint_nodes(num_mint_nodes, rng)?
                 .gen_spentbook_nodes(num_spentbook_nodes, rng)?
                 .build(rng)
         }
 
-        /// builds and returns a single mintnode, single spentbook,
-        /// single genesis_dbc_shares, and genesis dbc
-        /// the mintnode uses a randomly generated SecretKeySet and
-        /// the spentbook node uses a different randomly generated SecretKeySet
+        /// builds and returns a single spentbook, single genesis_dbc_shares,
+        /// and genesis dbc.
+        /// the spentbook node uses a shared randomly generated SecretKeySet
         #[allow(clippy::type_complexity)]
         pub fn init_genesis_single(
             rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
-        ) -> Result<(
-            MintNode<SimpleKeyManager>,
-            SpentBookNodeMock,
-            Dbc,
-            GenesisMaterial,
-            AmountSecrets,
-        )> {
-            let (mint_nodes, spentbook_nodes, genesis_dbc, genesis_material, amount_secrets) =
-                Self::default()
-                    .gen_mint_nodes(1, rng)?
-                    .gen_spentbook_nodes(1, rng)?
-                    .build(rng)?;
+        ) -> Result<(SpentBookNodeMock, Dbc, GenesisMaterial, AmountSecrets)> {
+            let (spentbook_nodes, genesis_dbc, genesis_material, amount_secrets) =
+                Self::default().gen_spentbook_nodes(1, rng)?.build(rng)?;
 
             // Note: these unwraps are safe because the above call returned Ok.
-            // We could (stylistically) avoid the unwrap eg mint_nodes[0].clone()
-            // but this is more expensive and it would panic anyway if mint_nodes is empty.
+            // We could (stylistically) avoid the unwrap eg spentbook_nodes[0].clone()
+            // but this is more expensive and it would panic anyway if spentbook_nodes is empty.
             // For library code we would go further, but this is a Mock for testing,
             // so not worth making a never-used Error variant.
             Ok((
-                mint_nodes.into_iter().next().unwrap(),
                 spentbook_nodes.into_iter().next().unwrap(),
                 genesis_dbc,
                 genesis_material,

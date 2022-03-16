@@ -29,7 +29,7 @@ pub struct DbcContent {
     /// holding the SecretKey, ie the Dbc recipient that generated the PublicKey.
     ///
     /// This key is only a client/wallet concept. It is NOT actually used in the transaction
-    /// and never seen by the Mint or Spentbook.
+    /// and never seen by the Spentbook.
     ///
     /// The "real" key used in the transaction is derived from this key using a random
     /// derivation index, which is stored (encrypted) in owner_derivation_cipher.

@@ -24,8 +24,8 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use serde::{Deserialize, Serialize};
 use sn_dbc::{
-    Amount, Dbc, DbcBuilder, GenesisBuilderMock, MintNode, OutputOwnerMap, Owner, OwnerOnce,
-    ReissueRequest, ReissueRequestBuilder, SimpleKeyManager, SpentBookNodeMock, TransactionBuilder,
+    Amount, Dbc, DbcBuilder, GenesisBuilderMock, OutputOwnerMap, Owner, OwnerOnce,
+    SpentBookNodeMock, TransactionBuilder,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::iter::FromIterator;
@@ -41,7 +41,6 @@ const STD_DECOYS: usize = 3; // how many decoys to use (when available in spentb
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
 struct MintInfo {
-    mintnodes: Vec<MintNode<SimpleKeyManager>>,
     spentbook_nodes: Vec<SpentBookNodeMock>,
     genesis: Dbc,
     secret_key_set: SecretKeySet,
@@ -50,13 +49,6 @@ struct MintInfo {
 }
 
 impl MintInfo {
-    // returns the first mint node.
-    fn mintnode(&self) -> Result<&MintNode<SimpleKeyManager>> {
-        self.mintnodes
-            .get(0)
-            .ok_or_else(|| anyhow!("Mint not yet created"))
-    }
-
     // returns the first spentbook node.
     fn spentbook(&self) -> Result<&SpentBookNodeMock> {
         self.spentbook_nodes
@@ -71,14 +63,6 @@ struct RingCtTransactionRevealed {
     inner: RingCtTransaction,
     revealed_commitments: Vec<RevealedCommitment>,
     ringct_material: RingCtMaterial,
-    output_owner_map: OutputOwnerMap,
-}
-
-/// A ReissueRequest with pubkey set for all the input and output Dbcs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ReissueRequestRevealed {
-    inner: ReissueRequest,
-    revealed_commitments: Vec<RevealedCommitment>,
     output_owner_map: OutputOwnerMap,
 }
 
@@ -198,21 +182,16 @@ fn mk_new_random_mint(threshold: usize) -> Result<MintInfo> {
 fn mk_new_mint(sks: SecretKeySet, poly: Poly) -> Result<MintInfo> {
     let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
 
-    // make as many spentbook nodes as mintnodes. (for now)
-    let num_mint_nodes = sks.threshold() + 1;
-    let num_spentbook_nodes = num_mint_nodes;
+    let num_spentbook_nodes = sks.threshold() + 1;
 
-    let (mint_nodes, spentbook_nodes, genesis_dbc, _genesis, _amount_secrets) =
-        GenesisBuilderMock::default()
-            .gen_mint_nodes_with_sks(num_mint_nodes, &sks)
-            .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
-            .build(&mut rng)?;
+    let (spentbook_nodes, genesis_dbc, _genesis, _amount_secrets) = GenesisBuilderMock::default()
+        .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
+        .build(&mut rng)?;
 
     let reissue_auto = ReissueAuto::from(vec![genesis_dbc.clone()]);
 
     // Bob's your uncle.
     Ok(MintInfo {
-        mintnodes: mint_nodes,
         spentbook_nodes,
         genesis: genesis_dbc,
         secret_key_set: sks,
@@ -320,9 +299,12 @@ fn newkeys() -> Result<()> {
 fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     println!();
 
-    println!("Number of Mint Nodes: {}\n", mintinfo.mintnodes.len());
+    println!(
+        "Number of Spentbook Nodes: {}\n",
+        mintinfo.spentbook_nodes.len()
+    );
 
-    println!("-- Mint Keys --\n");
+    println!("-- Spentbook Keys --\n");
     println!("SecretKeySet (Poly): {}\n", to_be_hex(&mintinfo.poly)?);
 
     println!(
@@ -446,7 +428,9 @@ fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>)
 
 /// handles decode command.  
 fn decode_input() -> Result<()> {
-    let t = readline_prompt("\n[d: DBC, rt: RingCtTransaction, rr: ReissueRequest, pks: PublicKeySet, sks: SecretKeySet]\nType: ")?;
+    let t = readline_prompt(
+        "\n[d: DBC, rt: RingCtTransaction, pks: PublicKeySet, sks: SecretKeySet]\nType: ",
+    )?;
     let input = readline_prompt_nl("\nPaste Data: ")?;
     let bytes = decode(input)?;
 
@@ -513,10 +497,6 @@ fn decode_input() -> Result<()> {
             "\n\n-- RingCtTransaction --\n\n{:#?}",
             from_be_bytes::<RingCtTransactionRevealed>(&bytes)?
         ),
-        "rr" => println!(
-            "\n\n-- ReissueRequest --\n\n{:#?}",
-            from_be_bytes::<ReissueRequestRevealed>(&bytes)?
-        ),
         _ => println!("Unknown type!"),
     }
     println!();
@@ -565,7 +545,7 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
         }
     };
 
-    match dbc.verify(&secret_key, mintinfo.mintnode()?.key_manager()) {
+    match dbc.verify(&secret_key, &mintinfo.spentbook()?.key_manager) {
         Ok(_) => match mintinfo.spentbook()?.is_spent(&dbc.key_image(&secret_key)?) {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
@@ -577,7 +557,7 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
 }
 
 /// Implements prepare_tx command.
-fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
+fn prepare_tx(mintinfo: &MintInfo) -> Result<DbcBuilder> {
     let mut rng = rand::thread_rng();
     let mut tx_builder: TransactionBuilder = Default::default();
 
@@ -684,80 +664,21 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<RingCtTransactionRevealed> {
 
     println!("\n\nPreparing RingCtTransaction...\n\n");
 
-    let (rr_builder, dbc_builder, ringct_material) = tx_builder.build(&mut rng)?;
+    let dbc_builder = tx_builder.build(&mut rng)?;
 
-    Ok(RingCtTransactionRevealed {
-        inner: rr_builder.transaction,
-        revealed_commitments: dbc_builder.revealed_commitments,
-        ringct_material,
-        output_owner_map: dbc_builder.output_owner_map,
-    })
+    Ok(dbc_builder)
 }
 
-// Not necessary until multisig Dbc owner is supported
-#[allow(dead_code)]
-fn prepare_tx_cli(mintinfo: &MintInfo) -> Result<()> {
-    let transaction = prepare_tx(mintinfo)?;
-
-    println!("\n-- RingCtTransaction --");
-    println!("{}", to_be_hex(&transaction)?);
-    println!("-- End RingCtTransaction --\n");
-
-    Ok(())
-}
-
-/// Implements prepare_reissue command.
-fn prepare_reissue(
-    mintinfo: &mut MintInfo,
-    tx: RingCtTransactionRevealed,
-) -> Result<ReissueRequestRevealed> {
-    let mut rr_builder = ReissueRequestBuilder::new(tx.inner.clone());
-    for mlsag in tx.inner.mlsags.iter() {
+fn write_to_spentbook(mintinfo: &mut MintInfo, mut dbc_builder: DbcBuilder) -> Result<DbcBuilder> {
+    println!("\nWriting to Spentbook...\n\n");
+    for (key_image, tx) in dbc_builder.inputs() {
         for (sp_idx, sb_node) in mintinfo.spentbook_nodes.iter_mut().enumerate() {
-            println!("logging input {:?}, spentbook {}", mlsag.key_image, sp_idx);
-            let spent_proof_share = sb_node.log_spent(mlsag.key_image.into(), tx.inner.clone())?;
-            rr_builder = rr_builder.add_spent_proof_share(spent_proof_share);
+            println!("logging input {:?}, spentbook {}", key_image, sp_idx);
+            dbc_builder =
+                dbc_builder.add_spent_proof_share(sb_node.log_spent(key_image, tx.clone())?);
         }
     }
-
-    println!("\n\nThank-you.   Preparing ReissueRequest...\n\n");
-    let rr = rr_builder.build()?;
-
-    let reissue_request = ReissueRequestRevealed {
-        inner: rr,
-        revealed_commitments: tx.revealed_commitments,
-        output_owner_map: tx.output_owner_map,
-    };
-
-    Ok(reissue_request)
-}
-
-/// Implements prepare_reissue command.
-// Not necessary until multisig Dbc owner is supported
-#[allow(dead_code)]
-fn prepare_reissue_cli(mintinfo: &mut MintInfo) -> Result<()> {
-    let tx_input = readline_prompt_nl("\nRingCtTransaction: ")?;
-    let tx: RingCtTransactionRevealed = from_be_hex(&tx_input)?;
-
-    let reissue_request = prepare_reissue(mintinfo, tx)?;
-
-    println!("\n-- ReissueRequest --");
-    println!("{}", to_be_hex(&reissue_request)?);
-    println!("-- End ReissueRequest --\n");
-
-    Ok(())
-}
-
-/// Implements reissue command.
-// Not necessary until multisig Dbc owner is supported
-#[allow(dead_code)]
-fn reissue_prepared_cli(mintinfo: &mut MintInfo) -> Result<()> {
-    let mr_input = readline_prompt_nl("\nReissueRequest: ")?;
-    let reissue_request: ReissueRequestRevealed = from_be_hex(&mr_input)?;
-
-    println!("\n\nThank-you.   Generating DBC(s)...\n\n");
-
-    reissue(mintinfo, reissue_request)
+    Ok(dbc_builder)
 }
 
 struct ReissueAuto {
@@ -815,20 +736,15 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             tx_builder = tx_builder.add_output_by_amount(amount, owner_once);
         }
 
-        let (mut rr_builder, mut dbc_builder, _material) = tx_builder.build(&mut rng)?;
+        let mut dbc_builder = tx_builder.build(&mut rng)?;
 
-        for (key_image, tx) in rr_builder.inputs() {
+        for (key_image, tx) in dbc_builder.inputs() {
             for spentbook_node in mintinfo.spentbook_nodes.iter_mut() {
-                rr_builder = rr_builder
+                dbc_builder = dbc_builder
                     .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?);
             }
         }
-        let rr = rr_builder.build()?;
-
-        for mint_node in mintinfo.mintnodes.iter() {
-            dbc_builder = dbc_builder.add_reissue_share(mint_node.reissue(rr.clone())?);
-        }
-        let outputs = dbc_builder.build(mintinfo.mintnodes[0].key_manager())?;
+        let outputs = dbc_builder.build(&mintinfo.spentbook()?.key_manager)?;
         let output_dbcs: Vec<Dbc> = outputs.into_iter().map(|(dbc, ..)| dbc).collect();
 
         for dbc in input_dbcs.iter() {
@@ -853,34 +769,14 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
 
 /// Implements reissue command.
 fn reissue_cli(mintinfo: &mut MintInfo) -> Result<()> {
-    let tx = prepare_tx(mintinfo)?;
-    let rr = prepare_reissue(mintinfo, tx)?;
-    reissue(mintinfo, rr)
+    let dbc_builder = prepare_tx(mintinfo)?;
+    let dbc_builder = write_to_spentbook(mintinfo, dbc_builder)?;
+    reissue(mintinfo, dbc_builder)
 }
 
 /// Performs reissue
-fn reissue(mintinfo: &mut MintInfo, reissue_request: ReissueRequestRevealed) -> Result<()> {
-    let ReissueRequestRevealed {
-        inner,
-        revealed_commitments,
-        output_owner_map,
-    } = reissue_request;
-    let mut dbc_builder = DbcBuilder::new(revealed_commitments, output_owner_map);
-
-    // Mint is multi-node.  So each mint node must execute Mint::reissue() and
-    // provide its SignatureShare, which the client must then combine together
-    // to form the mint's Signature.  This loop would exec on the client.
-    for (idx, mint) in mintinfo.mintnodes.iter_mut().enumerate() {
-        // here we pretend the client has made a network request to a single mint node
-        // so this mint.reissue() execs on the Mint node and returns data to client.
-        println!("Sending reissue request to mint node {}...", idx);
-        let reissue_share = mint.reissue(inner.clone())?;
-
-        // and now we are back to client code.
-        dbc_builder = dbc_builder.add_reissue_share(reissue_share);
-    }
-
-    let output_dbcs = dbc_builder.build(mintinfo.mintnodes[0].key_manager())?;
+fn reissue(mintinfo: &mut MintInfo, dbc_builder: DbcBuilder) -> Result<()> {
+    let output_dbcs = dbc_builder.build(&mintinfo.spentbook_nodes[0].key_manager)?;
 
     // for each output, construct Dbc and display
     for (dbc, _owner_once, _amount_secrets) in output_dbcs.iter() {
