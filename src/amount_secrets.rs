@@ -7,12 +7,11 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{BlindingFactor, Error};
-use blst_ringct::RevealedCommitment;
+use blst_ringct::{rand::RngCore, RevealedCommitment};
 use blsttc::{
     Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
     SecretKeyShare,
 };
-use rand_core::RngCore;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 

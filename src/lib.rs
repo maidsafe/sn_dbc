@@ -22,11 +22,17 @@ mod spent_proof;
 mod spentbook;
 mod verification;
 
+pub use blst_ringct;
+pub use blsttc;
+
 pub use crate::{
     amount_secrets::{Amount, AmountSecrets},
     blst::{BlindingFactor, Commitment, KeyImage},
     builder::mock::GenesisBuilderMock,
-    builder::{DbcBuilder, Output, OutputOwnerMap, TransactionBuilder},
+    builder::{
+        DbcBuilder, DecoyInput, MlsagMaterial, Output, OutputOwnerMap, RevealedCommitment,
+        RingCtMaterial, RingCtTransaction, TransactionBuilder, TrueInput,
+    },
     dbc::Dbc,
     dbc_content::DbcContent,
     error::{Error, Result},
@@ -75,36 +81,57 @@ impl AsRef<[u8]> for Hash {
     }
 }
 
-#[cfg(feature = "dkg")]
-use rand::RngCore;
+/// This is a helper module to make it a bit easier
+/// and less verbose for API callers to instantiate
+/// an Rng from either blsttc or blst_ringct when
+/// calling sn_dbc methods that require them.
+///
+/// At the present time, both crates use the same
+/// version of the rand crate and hopefully that
+/// always remains true.  However, by always passing
+/// an Rng from the correct module, API callers
+/// can be assured code will still build if they
+/// should ever go out of sync.
+pub mod rng {
 
-#[cfg(feature = "dkg")]
-pub fn bls_dkg_id(rng: &mut impl RngCore) -> bls_dkg::outcome::Outcome {
-    use std::collections::BTreeSet;
-    use std::iter::FromIterator;
+    pub mod blsttc {
+        pub use blsttc::rand;
+        use rand::SeedableRng;
 
-    let mut owner_name = [0u8; 32];
-    rng.fill_bytes(&mut owner_name);
-    let owner_xorname = xor_name::XorName::from_content(&owner_name);
+        pub fn thread_rng() -> rand::rngs::ThreadRng {
+            rand::thread_rng()
+        }
 
-    let threshold = 0;
-    let (mut key_gen, mut proposal) = bls_dkg::KeyGen::initialize(
-        owner_xorname,
-        threshold,
-        BTreeSet::from_iter([owner_xorname]),
-    )
-    .expect("Failed to init key gen");
-
-    while let Some((_xorname, msg)) = proposal.pop() {
-        let response_msgs = key_gen
-            .handle_message(rng, msg)
-            .expect("Error while generating BLS key");
-
-        proposal.extend(response_msgs);
+        pub fn from_seed(
+            seed: <rand::rngs::StdRng as rand::SeedableRng>::Seed,
+        ) -> rand::rngs::StdRng {
+            rand::rngs::StdRng::from_seed(seed)
+        }
     }
 
-    let (_, outcome) = key_gen.generate_keys().unwrap();
-    outcome
+    pub mod ringct {
+        pub use blst_ringct::rand;
+        use rand::SeedableRng;
+
+        pub fn thread_rng() -> rand::rngs::ThreadRng {
+            rand::thread_rng()
+        }
+
+        pub fn from_seed(
+            seed: <rand::rngs::StdRng as rand::SeedableRng>::Seed,
+        ) -> rand::rngs::StdRng {
+            rand::rngs::StdRng::from_seed(seed)
+        }
+    }
+}
+
+#[cfg(test)]
+use blsttc::{rand::RngCore, SecretKeySet, SecretKeyShare};
+
+#[cfg(test)]
+pub fn bls_dkg_id(rng: &mut impl RngCore) -> (PublicKeySet, SecretKeyShare, usize) {
+    let sks = SecretKeySet::random(0, rng);
+    (sks.public_keys(), sks.secret_key_share(0), 0)
 }
 
 pub(crate) fn sha3_256(input: &[u8]) -> [u8; 32] {

@@ -1,9 +1,11 @@
 use crate::{Amount, KeyImage, Owner, OwnerOnce};
-use blst_ringct::mlsag::{MlsagMaterial, TrueInput};
-use blst_ringct::ringct::RingCtMaterial;
-use blst_ringct::{Output, RevealedCommitment};
-use blstrs::group::Curve;
-use blstrs::Scalar;
+use blst_ringct::{
+    blstrs::Scalar,
+    group::Curve,
+    mlsag::{MlsagMaterial, TrueInput},
+    ringct::RingCtMaterial,
+    {Output, RevealedCommitment},
+};
 use blsttc::IntoFr;
 
 /// represents all the inputs required to build the Genesis Dbc.

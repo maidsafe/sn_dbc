@@ -18,10 +18,10 @@
 //! crates consistent.
 
 /// a Commitment
-pub type Commitment = blstrs::G1Affine;
+pub type Commitment = blst_ringct::blstrs::G1Affine;
 
 /// a BlindingFactor
-pub type BlindingFactor = blstrs::Scalar;
+pub type BlindingFactor = blst_ringct::blstrs::Scalar;
 
 /// A KeyImage can be thought of as a specific type
 /// of public key. blsttc::PublicKey is a newtype

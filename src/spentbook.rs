@@ -6,13 +6,14 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blst_ringct::ringct::{OutputProof, RingCtTransaction};
-use blst_ringct::DecoyInput;
-use blstrs::group::Curve;
-use blsttc::PublicKey;
+use blst_ringct::{
+    bulletproofs::PedersenGens,
+    group::Curve,
+    ringct::{OutputProof, RingCtTransaction},
+    DecoyInput,
+};
+use blsttc::{rand::prelude::IteratorRandom, PublicKey};
 use std::collections::{BTreeMap, HashMap};
-
-use rand::prelude::IteratorRandom;
 
 use crate::{
     Commitment, GenesisMaterial, Hash, KeyImage, KeyManager, Result, SimpleKeyManager,
@@ -58,7 +59,7 @@ impl From<SimpleKeyManager> for SpentBookNodeMock {
         let public_commitment = genesis_material.ringct_material.inputs[0]
             .true_input
             .revealed_commitment()
-            .commit(&bulletproofs::PedersenGens::default())
+            .commit(&PedersenGens::default())
             .to_affine();
 
         Self {
@@ -215,7 +216,7 @@ impl SpentBookNodeMock {
     pub fn random_decoys(
         &self,
         target_num: usize,
-        rng: &mut impl rand::RngCore,
+        rng_ct: &mut impl blst_ringct::rand::RngCore,
     ) -> Vec<DecoyInput> {
         // Get a unique list of all OutputProof
         // note: Tx are duplicated in Spentbook. We use a BTreeMap
@@ -239,7 +240,7 @@ impl SpentBookNodeMock {
         };
         outputs_unique
             .into_iter()
-            .choose_multiple(rng, num_choose)
+            .choose_multiple(rng_ct, num_choose)
             .into_iter()
             .map(|(_, o)| DecoyInput {
                 public_key: *o.public_key(),
