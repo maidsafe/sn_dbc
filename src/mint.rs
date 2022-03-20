@@ -13,7 +13,6 @@ mod tests {
     use blst_ringct::DecoyInput;
     use blsttc::{SecretKey, SecretKeySet};
     use quickcheck_macros::quickcheck;
-    use rand_core::SeedableRng as SeedableRngCore;
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
 
@@ -25,10 +24,10 @@ mod tests {
 
     #[test]
     fn issue_genesis() -> Result<(), Error> {
-        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
+        let mut rng_ct = crate::rng::ringct::from_seed([0u8; 32]);
 
         let (spentbook_node, genesis_dbc, genesis, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(&mut rng)?;
+            GenesisBuilderMock::init_genesis_single(&mut rng_ct)?;
 
         let verified = genesis_dbc.verify(
             &genesis.owner_once.owner_base().secret_key()?,
@@ -41,7 +40,8 @@ mod tests {
 
     #[quickcheck]
     fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
-        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
+        let mut rng_ct = crate::rng::ringct::from_seed([0u8; 32]);
+        let mut rng_ttc = crate::rng::ringct::from_seed([1u8; 32]);
 
         let mut output_amounts =
             Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
@@ -52,10 +52,15 @@ mod tests {
         let output_amount = output_amounts.iter().sum();
 
         let (mut spentbook_node, genesis_dbc, _genesis, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(&mut rng)?;
+            GenesisBuilderMock::init_genesis_single(&mut rng_ct)?;
 
         let owners: Vec<OwnerOnce> = (0..output_amounts.len())
-            .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng))
+            .map(|_| {
+                OwnerOnce::from_owner_base(
+                    Owner::from_random_secret_key(&mut rng_ttc),
+                    &mut rng_ttc,
+                )
+            })
             .collect();
 
         let mut dbc_builder = TransactionBuilder::default()
@@ -63,7 +68,7 @@ mod tests {
                 &genesis_dbc,
                 &genesis_dbc.owner_base().secret_key()?,
                 vec![], // genesis is only input, so no decoys.
-                &mut rng,
+                &mut rng_ct,
             )?
             .add_outputs_by_amount(
                 output_amounts
@@ -71,7 +76,7 @@ mod tests {
                     .enumerate()
                     .map(|(idx, a)| (*a, owners[idx].clone())),
             )
-            .build(&mut rng)?;
+            .build(&mut rng_ct)?;
 
         // We make this a closure to keep the spentbook loop readable.
         let check_error = |error: Error| -> Result<()> {
@@ -141,7 +146,8 @@ mod tests {
         // The number of decoy inputs
         num_decoy_inputs: TinyInt,
     ) -> Result<(), Error> {
-        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
+        let mut rng_ct = crate::rng::ringct::from_seed([0u8; 32]);
+        let mut rng_ttc = crate::rng::ringct::from_seed([0u8; 32]);
 
         let mut input_amounts =
             Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<Amount>));
@@ -164,21 +170,23 @@ mod tests {
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
         let (mut spentbook_node, genesis_dbc, _genesis, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(&mut rng)?;
+            GenesisBuilderMock::init_genesis_single(&mut rng_ct)?;
 
         let mut dbc_builder = TransactionBuilder::default()
             .add_input_dbc(
                 &genesis_dbc,
                 &genesis_dbc.owner_base().secret_key()?,
                 vec![], // genesis is only input, so no decoys.
-                &mut rng,
+                &mut rng_ct,
             )?
             .add_outputs_by_amount(input_amounts.iter().copied().map(|amount| {
-                let owner_once =
-                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+                let owner_once = OwnerOnce::from_owner_base(
+                    Owner::from_random_secret_key(&mut rng_ttc),
+                    &mut rng_ttc,
+                );
                 (amount, owner_once)
             }))
-            .build(&mut rng)?;
+            .build(&mut rng_ct)?;
 
         // note: we make this a closure to keep the spentbook loop readable.
         let check_tx_error = |error: Error| -> Result<()> {
@@ -213,21 +221,26 @@ mod tests {
                 (
                     dbc,
                     owner_once.owner_base().secret_key().unwrap(),
-                    spentbook_node.random_decoys(num_decoy_inputs, &mut rng),
+                    spentbook_node.random_decoys(num_decoy_inputs, &mut rng_ct),
                 )
             })
             .collect();
 
         let owners: Vec<OwnerOnce> = (0..=output_amounts.len())
-            .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng))
+            .map(|_| {
+                OwnerOnce::from_owner_base(
+                    Owner::from_random_secret_key(&mut rng_ttc),
+                    &mut rng_ttc,
+                )
+            })
             .collect();
 
         let outputs = output_amounts.clone().into_iter().zip(owners);
 
         let mut dbc_builder = TransactionBuilder::default()
-            .add_inputs_dbc(inputs_dbcs.clone(), &mut rng)?
+            .add_inputs_dbc(inputs_dbcs.clone(), &mut rng_ct)?
             .add_outputs_by_amount(outputs.clone())
-            .build(&mut rng)?;
+            .build(&mut rng_ct)?;
 
         let dbc_output_amounts: Vec<Amount> = outputs.map(|(amt, _)| amt).collect();
         let output_total_amount: Amount = dbc_output_amounts.iter().sum();
@@ -306,7 +319,7 @@ mod tests {
                         spentbook_pks: spent_proof_share.spentbook_pks,
                         spentbook_sig_share: IndexedSignatureShare::new(
                             0,
-                            SecretKeySet::random(1, &mut rng)
+                            SecretKeySet::random(1, &mut rng_ttc)
                                 .secret_key_share(1)
                                 .sign(&[0u8; 32]),
                         ),
@@ -373,29 +386,30 @@ mod tests {
 
     #[test]
     fn test_inputs_are_verified() -> Result<(), Error> {
-        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
+        let mut rng_ct = crate::rng::ringct::from_seed([0u8; 32]);
+        let mut rng_ttc = crate::rng::ringct::from_seed([1u8; 32]);
 
         let (spentbook_node, _genesis_dbc, _genesis, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(&mut rng)?;
+            GenesisBuilderMock::init_genesis_single(&mut rng_ct)?;
 
         let output1_owner =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng_ttc), &mut rng_ttc);
 
         let dbc_builder = TransactionBuilder::default()
             .add_output_by_amount(100, output1_owner.clone())
-            .build(&mut rng)?;
+            .build(&mut rng_ct)?;
 
         let amount_secrets = AmountSecrets::from(dbc_builder.revealed_commitments[0]);
         let secret_key = output1_owner.as_owner().secret_key()?;
         let decoy_inputs = vec![]; // no decoys.
 
         let output2_owner =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng_ttc), &mut rng_ttc);
 
         let fraud_dbc_builder = TransactionBuilder::default()
-            .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng)
+            .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng_ct)
             .add_output_by_amount(100, output2_owner)
-            .build(&mut rng)?;
+            .build(&mut rng_ct)?;
 
         let result = fraud_dbc_builder.build(&spentbook_node.key_manager);
 
@@ -442,12 +456,13 @@ mod tests {
         // ----------
         // 1. produce a standard genesis DBC (a) with value 1000
         // ----------
-        let mut rng = rand::rngs::StdRng::from_seed([0u8; 32]);
+        let mut rng_ct = crate::rng::ringct::from_seed([0u8; 32]);
+        let mut rng_ttc = crate::rng::ringct::from_seed([0u8; 32]);
 
         let output_amount = 1000;
 
         let (mut spentbook, genesis_dbc, starting_dbc, _change_dbc) =
-            crate::dbc::tests::generate_dbc_of_value(output_amount, &mut rng)?;
+            crate::dbc::tests::generate_dbc_of_value(output_amount, &mut rng_ct, &mut rng_ttc)?;
 
         // ----------
         // 2. spend genesis DBC (a) to Dbc (b)  with value 1000.
@@ -457,17 +472,17 @@ mod tests {
         // single new DBC of the same amount.
 
         let output_owner =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng_ttc), &mut rng_ttc);
 
         let mut dbc_builder = TransactionBuilder::default()
             .add_input_dbc(
                 &starting_dbc,
                 &starting_dbc.owner_base().secret_key()?,
                 vec![], // genesis is only input, so no decoys.
-                &mut rng,
+                &mut rng_ct,
             )?
             .add_output_by_amount(output_amount, output_owner.clone())
-            .build(&mut rng)?;
+            .build(&mut rng_ct)?;
 
         for (key_image, tx) in dbc_builder.inputs() {
             dbc_builder =
@@ -539,17 +554,17 @@ mod tests {
         let decoy_inputs = vec![];
 
         let output_owner =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng_ttc), &mut rng_ttc);
 
         let mut dbc_builder_fudged = crate::TransactionBuilder::default()
             .add_input_dbc(
                 &fudged_output_dbc,
                 &fudged_output_dbc.owner_base().secret_key()?,
                 decoy_inputs.clone(),
-                &mut rng,
+                &mut rng_ct,
             )?
             .add_output_by_amount(fudged_secrets.amount(), output_owner.clone())
-            .build(&mut rng)?;
+            .build(&mut rng_ct)?;
 
         // ----------
         // 6. Attempt to write this tx to the spentbook.
@@ -603,10 +618,10 @@ mod tests {
                 fudged_output_dbc.owner_once_bearer()?.secret_key()?,
                 true_secrets.clone(),
                 decoy_inputs,
-                &mut rng,
+                &mut rng_ct,
             )
             .add_output_by_amount(true_secrets.amount(), output_owner)
-            .build(&mut rng)?;
+            .build(&mut rng_ct)?;
 
         let dbc_builder_bad_proof = dbc_builder_true.clone();
         for (key_image, tx) in dbc_builder_bad_proof.inputs() {

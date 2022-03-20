@@ -10,58 +10,21 @@ authors = [ "MaidSafe Developers <dev@maidsafe.net>" ]
 edition = "2018"
 
 [features]
-dkg = [ "bls_dkg" ]
 serdes = [ "serde", "ringct-serde" ]
 ringct-serde = [ "blst_ringct/serde" ]
 
 [dependencies]
 thiserror = "1.0.24"
 quickcheck_macros = "1"
-rand = "0.8.0"
+quickcheck = "1.0.3"
+blsttc = {git = "https://github.com/dan-da/blsttc", branch = "reexport_pr"}
+blst_ringct = {git = "https://github.com/dan-da/blst-ringct", branch = "fix_deps_pr"}
 hex = "0.4.3"
-rand_core = "0.6.3"
-
-  [dependencies.blsttc]
-  git = "https://github.com/dan-da/blsttc"
-  branch = "sn_dbc_integration"
-
-  [dependencies.xor_name]
-  git = "https://github.com/iancoleman/xor_name"
-  branch = "remove_osrng"
-
-  [dependencies.quickcheck]
-  git = "https://github.com/davidrusu/quickcheck.git"
-  branch = "only-build-debug-reprs-on-failure"
-
-  [dependencies.blst_ringct]
-  git = "https://github.com/maidsafe/blst-ringct"
-
-  [dependencies.blstrs]
-  git = "https://github.com/davidrusu/blstrs.git"
-  branch = "bulletproofs-fixes"
-
-  [dependencies.bulletproofs]
-  git = "https://github.com/davidrusu/blst-bulletproofs.git"
-  branch = "bls12-381-curve"
-
-  [dependencies.bls_dkg]
-  git = "https://github.com/dan-da/bls_dkg.git"
-  branch = "sn_dbc_integration"
-  version = "~0.9.1"
-  optional = true
-
-  [dependencies.tiny-keccak]
-  version = "2.0.0"
-  features = [ "sha3" ]
-
-  [dependencies.serde]
-  version = "1.0.133"
-  features = [ "derive", "rc" ]
-  optional = true
+tiny-keccak = {version = "2.0.0", features = [ "sha3" ]}
+serde = {version = "1.0.133", features = [ "derive", "rc" ], optional = true}
 
 [dev-dependencies]
 anyhow = "1.0.40"
-rand = "0.8.0"
 rustyline = "8.0.0"
 bincode = "1.3.3"
 criterion = "0.3.5"
@@ -70,9 +33,9 @@ criterion = "0.3.5"
   version = "0.7.0"
   features = [ "flamegraph" ]
 
-  [dev-dependencies.sn_dbc]
-  path = "."
-  features = [ "dkg", "serdes" ]
+[dev-dependencies.sn_dbc]
+path = "."
+features = [ "serdes" ]
 
 [target."cfg(unix)".dev-dependencies]
 termios = "0.3.3"
@@ -80,7 +43,6 @@ termios = "0.3.3"
 [[bench]]
 name = "reissue"
 harness = false
-required-features = [ "dkg" ]
 
 [[example]]
 name = "mint-repl"

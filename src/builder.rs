@@ -6,12 +6,17 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blst_ringct::ringct::{Amount, RingCtMaterial, RingCtTransaction};
-pub use blst_ringct::{DecoyInput, MlsagMaterial, Output, RevealedCommitment, TrueInput};
-use blstrs::group::Curve;
+use blst_ringct::{
+    bulletproofs::PedersenGens,
+    group::Curve,
+    rand::{CryptoRng, RngCore},
+    ringct::Amount,
+};
+pub use blst_ringct::{
+    ringct::RingCtTransaction, DecoyInput, MlsagMaterial, Output, RevealedCommitment,
+    RingCtMaterial, TrueInput,
+};
 use blsttc::{PublicKey, SecretKey};
-use bulletproofs::PedersenGens;
-use rand_core::RngCore;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
@@ -217,7 +222,7 @@ impl TransactionBuilder {
     }
 
     /// build a RingCtTransaction and associated secrets
-    pub fn build(self, rng: impl RngCore + rand_core::CryptoRng) -> Result<DbcBuilder> {
+    pub fn build(self, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
         let result: Result<(RingCtTransaction, Vec<RevealedCommitment>)> =
             self.ringct_material.sign(rng).map_err(|e| e.into());
         let (transaction, revealed_commitments) = result?;
@@ -397,6 +402,7 @@ impl DbcBuilder {
 // SpentBookNodeMock, SimpleKeyManager, SimpleSigner, GenesisBuilderMock
 pub mod mock {
     use crate::{
+        builder::{CryptoRng, RngCore},
         Amount, AmountSecrets, Dbc, GenesisMaterial, KeyManager, Result, SimpleKeyManager,
         SimpleSigner, SpentBookNodeMock, TransactionBuilder,
     };
@@ -418,7 +424,7 @@ pub mod mock {
         pub fn gen_spentbook_nodes(
             mut self,
             num_nodes: usize,
-            rng: &mut impl rand::RngCore,
+            rng: &mut impl blsttc::rand::RngCore,
         ) -> Result<Self> {
             let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
             self = self.gen_spentbook_nodes_with_sks(num_nodes, &sks);
@@ -469,7 +475,7 @@ pub mod mock {
         #[allow(clippy::type_complexity)]
         pub fn build(
             mut self,
-            rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
+            rng: &mut (impl RngCore + CryptoRng),
         ) -> Result<(Vec<SpentBookNodeMock>, Dbc, GenesisMaterial, AmountSecrets)> {
             // note: rng is necessary for RingCtMaterial::sign().
 
@@ -511,7 +517,7 @@ pub mod mock {
         #[allow(clippy::type_complexity)]
         pub fn init_genesis(
             num_spentbook_nodes: usize,
-            rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
+            rng: &mut (impl RngCore + CryptoRng),
         ) -> Result<(Vec<SpentBookNodeMock>, Dbc, GenesisMaterial, AmountSecrets)> {
             Self::default()
                 .gen_spentbook_nodes(num_spentbook_nodes, rng)?
@@ -523,7 +529,7 @@ pub mod mock {
         /// the spentbook node uses a shared randomly generated SecretKeySet
         #[allow(clippy::type_complexity)]
         pub fn init_genesis_single(
-            rng: &mut (impl rand::RngCore + rand_core::CryptoRng),
+            rng: &mut (impl RngCore + CryptoRng),
         ) -> Result<(SpentBookNodeMock, Dbc, GenesisMaterial, AmountSecrets)> {
             let (spentbook_nodes, genesis_dbc, genesis_material, amount_secrets) =
                 Self::default().gen_spentbook_nodes(1, rng)?.build(rng)?;
