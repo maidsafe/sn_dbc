@@ -15,15 +15,15 @@ ringct-serde = [ "blst_ringct/serde" ]
 
 [dependencies]
 thiserror = "1.0.24"
-quickcheck_macros = "1"
-quickcheck = "1.0.3"
-blsttc = {git = "https://github.com/dan-da/blsttc", branch = "reexport_pr"}
-blst_ringct = {git = "https://github.com/dan-da/blst-ringct", branch = "fix_deps_pr"}
+blsttc = "5.1.2"
+blst_ringct = {git = "https://github.com/maidsafe/blst-ringct"}
 hex = "0.4.3"
 tiny-keccak = {version = "2.0.0", features = [ "sha3" ]}
 serde = {version = "1.0.133", features = [ "derive", "rc" ], optional = true}
 
 [dev-dependencies]
+quickcheck_macros = "1"
+quickcheck = "1.0.3"
 anyhow = "1.0.40"
 rustyline = "8.0.0"
 bincode = "1.3.3"
