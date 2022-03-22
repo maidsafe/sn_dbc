@@ -6,12 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blst_ringct::{
-    bulletproofs::PedersenGens,
-    group::Curve,
-    rand::{CryptoRng, RngCore},
-    ringct::Amount,
-};
+use blst_ringct::{bulletproofs::PedersenGens, group::Curve, ringct::Amount};
 pub use blst_ringct::{
     ringct::RingCtTransaction, DecoyInput, MlsagMaterial, Output, RevealedCommitment,
     RingCtMaterial, TrueInput,
@@ -20,6 +15,7 @@ use blsttc::{PublicKey, SecretKey};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
+    rand::{CryptoRng, RngCore},
     AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, IndexedSignatureShare, KeyImage,
     KeyManager, OwnerOnce, Result, SpentProof, SpentProofContent, SpentProofShare,
     TransactionVerifier,
@@ -424,7 +420,7 @@ pub mod mock {
         pub fn gen_spentbook_nodes(
             mut self,
             num_nodes: usize,
-            rng: &mut impl blsttc::rand::RngCore,
+            rng: &mut impl crate::rand::RngCore,
         ) -> Result<Self> {
             let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
             self = self.gen_spentbook_nodes_with_sks(num_nodes, &sks);

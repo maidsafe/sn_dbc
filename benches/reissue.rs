@@ -9,6 +9,7 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
 use sn_dbc::{
+    rand::{CryptoRng, RngCore},
     rng, Amount, Dbc, GenesisBuilderMock, Owner, OwnerOnce, Result, SpentBookNodeMock,
     TransactionVerifier,
 };
@@ -18,11 +19,10 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 const N_OUTPUTS: u32 = 100;
 
 fn bench_reissue_1_to_100(c: &mut Criterion) {
-    let mut rng_ct = rng::ringct::from_seed([0u8; 32]);
-    let mut rng_ttc = rng::blsttc::from_seed([1u8; 32]);
+    let mut rng = rng::from_seed([0u8; 32]);
 
     let (mut spentbook, starting_dbc) =
-        generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng_ct, &mut rng_ttc).unwrap();
+        generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng).unwrap();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
@@ -33,16 +33,14 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
                 .unwrap(),
             starting_dbc.amount_secrets_bearer().unwrap(),
             vec![], // never any decoys for genesis
-            &mut rng_ct,
+            &mut rng,
         )
         .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
-            let owner_once = OwnerOnce::from_owner_base(
-                Owner::from_random_secret_key(&mut rng_ttc),
-                &mut rng_ttc,
-            );
+            let owner_once =
+                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
             (1, owner_once)
         }))
-        .build(&mut rng_ct)
+        .build(&mut rng)
         .unwrap();
 
     for (key_image, tx) in dbc_builder.inputs() {
@@ -70,12 +68,11 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 }
 
 fn bench_reissue_100_to_1(c: &mut Criterion) {
-    let mut rng_ct = rng::ringct::from_seed([0u8; 32]);
-    let mut rng_ttc = rng::ringct::from_seed([1u8; 32]);
+    let mut rng = rng::from_seed([0u8; 32]);
     let num_decoys = 0;
 
     let (mut spentbook_node, starting_dbc) =
-        generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng_ct, &mut rng_ttc).unwrap();
+        generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng).unwrap();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
@@ -86,16 +83,14 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                 .unwrap(),
             starting_dbc.amount_secrets_bearer().unwrap(),
             vec![], // never any decoy inputs for genesis
-            &mut rng_ct,
+            &mut rng,
         )
         .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
-            let owner_once = OwnerOnce::from_owner_base(
-                Owner::from_random_secret_key(&mut rng_ttc),
-                &mut rng_ttc,
-            );
+            let owner_once =
+                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
             (1, owner_once)
         }))
-        .build(&mut rng_ct)
+        .build(&mut rng)
         .unwrap();
 
     for (key_image, tx) in dbc_builder.inputs() {
@@ -105,7 +100,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let dbcs = dbc_builder.build(&spentbook_node.key_manager).unwrap();
 
     let output_owner_once =
-        OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng_ttc), &mut rng_ttc);
+        OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
     let mut merge_dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_inputs_by_secrets(
@@ -114,14 +109,14 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                     (
                         owner_once.as_owner().secret_key().unwrap(),
                         amount_secrets,
-                        spentbook_node.random_decoys(num_decoys, &mut rng_ct),
+                        spentbook_node.random_decoys(num_decoys, &mut rng),
                     )
                 })
                 .collect(),
-            &mut rng_ct,
+            &mut rng,
         )
         .add_output_by_amount(N_OUTPUTS as Amount, output_owner_once)
-        .build(&mut rng_ct)
+        .build(&mut rng)
         .unwrap();
 
     for (key_image, tx) in merge_dbc_builder.inputs() {
@@ -150,11 +145,10 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
 fn generate_dbc_of_value(
     amount: Amount,
-    rng_ct: &mut (impl rng::ringct::rand::RngCore + rng::ringct::rand::CryptoRng),
-    rng_ttc: &mut (impl rng::blsttc::rand::RngCore + rng::blsttc::rand::CryptoRng),
+    rng: &mut (impl RngCore + CryptoRng),
 ) -> Result<(SpentBookNodeMock, Dbc)> {
     let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
-        GenesisBuilderMock::init_genesis_single(rng_ct)?;
+        GenesisBuilderMock::init_genesis_single(rng)?;
 
     let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
 
@@ -163,14 +157,13 @@ fn generate_dbc_of_value(
             genesis_dbc.owner_once_bearer()?.secret_key()?,
             genesis_dbc.amount_secrets_bearer()?,
             vec![], // never any decoys for genesis
-            rng_ct,
+            rng,
         )
         .add_outputs_by_amount(output_amounts.into_iter().map(|amount| {
-            let owner_once =
-                OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng_ttc), rng_ttc);
+            let owner_once = OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng), rng);
             (amount, owner_once)
         }))
-        .build(rng_ct)?;
+        .build(rng)?;
 
     for (key_image, tx) in dbc_builder.inputs() {
         let spent_proof_share = spentbook_node.log_spent(key_image, tx)?;
