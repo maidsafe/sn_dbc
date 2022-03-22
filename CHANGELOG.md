@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.15.0](https://github.com/maidsafe/sn_dbc/compare/v2.14.2...v2.15.0) (2022-03-22)
+
+
+### Features
+
+* impl add_output(s)_by_amount() methods ([2f5b01d](https://github.com/maidsafe/sn_dbc/commit/2f5b01df486fb8fe00f8267b4c2bd3fa372c1325))
+* integrate blsttc+blstrs ([ae4d0ca](https://github.com/maidsafe/sn_dbc/commit/ae4d0ca711a4cdc2dad266d3e18250d9cb504995))
+* remove mint and related data structures ([5e043c6](https://github.com/maidsafe/sn_dbc/commit/5e043c6f38cd3212741243742ea9d183ad9e5d46))
+
 ### [2.14.2](https://github.com/maidsafe/sn_dbc/compare/v2.14.1...v2.14.2) (2022-03-14)
 
 
