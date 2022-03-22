@@ -22,8 +22,16 @@ mod spent_proof;
 mod spentbook;
 mod verification;
 
+// re-export crates used in our public API
 pub use blst_ringct;
 pub use blsttc;
+// note: both blst_ringct::rand and blsttc::rand are
+// exposed in our public API.  Here, by choosing
+// just one, we are making an implicit promise that
+// the two versions will remain compatible, or that
+// our API will reconcile the difference.  We do
+// this knowingly and pledge to uphold that promise.
+pub use blst_ringct::rand;
 
 pub use crate::{
     amount_secrets::{Amount, AmountSecrets},
@@ -82,51 +90,29 @@ impl AsRef<[u8]> for Hash {
 }
 
 /// This is a helper module to make it a bit easier
-/// and less verbose for API callers to instantiate
-/// an Rng from either blsttc or blst_ringct when
-/// calling sn_dbc methods that require them.
-///
-/// At the present time, both crates use the same
-/// version of the rand crate and hopefully that
-/// always remains true.  However, by always passing
-/// an Rng from the correct module, API callers
-/// can be assured code will still build if they
-/// should ever go out of sync.
+/// and regular for API callers to instantiate
+/// an Rng when calling sn_dbc methods that require
+/// them.
 pub mod rng {
+    use crate::rand::{
+        rngs::{StdRng, ThreadRng},
+        SeedableRng,
+    };
 
-    pub mod blsttc {
-        pub use blsttc::rand;
-        use rand::SeedableRng;
-
-        pub fn thread_rng() -> rand::rngs::ThreadRng {
-            rand::thread_rng()
-        }
-
-        pub fn from_seed(
-            seed: <rand::rngs::StdRng as rand::SeedableRng>::Seed,
-        ) -> rand::rngs::StdRng {
-            rand::rngs::StdRng::from_seed(seed)
-        }
+    pub fn thread_rng() -> ThreadRng {
+        crate::rand::thread_rng()
     }
 
-    pub mod ringct {
-        pub use blst_ringct::rand;
-        use rand::SeedableRng;
-
-        pub fn thread_rng() -> rand::rngs::ThreadRng {
-            rand::thread_rng()
-        }
-
-        pub fn from_seed(
-            seed: <rand::rngs::StdRng as rand::SeedableRng>::Seed,
-        ) -> rand::rngs::StdRng {
-            rand::rngs::StdRng::from_seed(seed)
-        }
+    pub fn from_seed(seed: <StdRng as SeedableRng>::Seed) -> StdRng {
+        StdRng::from_seed(seed)
     }
 }
 
 #[cfg(test)]
-use blsttc::{rand::RngCore, SecretKeySet, SecretKeyShare};
+use {
+    crate::rand::RngCore,
+    blsttc::{SecretKeySet, SecretKeyShare},
+};
 
 #[cfg(test)]
 pub fn bls_dkg_id(rng: &mut impl RngCore) -> (PublicKeySet, SecretKeyShare, usize) {

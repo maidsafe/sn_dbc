@@ -13,7 +13,7 @@ use std::fmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use blsttc::{rand::distributions::Standard, rand::Rng, rand::RngCore};
+use crate::rand::{distributions::Standard, Rng, RngCore};
 
 pub type DerivationIndex = [u8; 32];
 

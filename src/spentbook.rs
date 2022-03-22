@@ -12,10 +12,11 @@ use blst_ringct::{
     ringct::{OutputProof, RingCtTransaction},
     DecoyInput,
 };
-use blsttc::{rand::prelude::IteratorRandom, PublicKey};
+use blsttc::PublicKey;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{
+    rand::{prelude::IteratorRandom, RngCore},
     Commitment, GenesisMaterial, Hash, KeyImage, KeyManager, Result, SimpleKeyManager,
     SpentProofContent, SpentProofShare,
 };
@@ -213,11 +214,7 @@ impl SpentBookNodeMock {
 
     // return a list of DecoyInput built from randomly
     // selected OutputProof, from set of all OutputProof in Spentbook.
-    pub fn random_decoys(
-        &self,
-        target_num: usize,
-        rng_ct: &mut impl blst_ringct::rand::RngCore,
-    ) -> Vec<DecoyInput> {
+    pub fn random_decoys(&self, target_num: usize, rng: &mut impl RngCore) -> Vec<DecoyInput> {
         // Get a unique list of all OutputProof
         // note: Tx are duplicated in Spentbook. We use a BTreeMap
         //       with KeyImage to dedup.
@@ -240,7 +237,7 @@ impl SpentBookNodeMock {
         };
         outputs_unique
             .into_iter()
-            .choose_multiple(rng_ct, num_choose)
+            .choose_multiple(rng, num_choose)
             .into_iter()
             .map(|(_, o)| DecoyInput {
                 public_key: *o.public_key(),
