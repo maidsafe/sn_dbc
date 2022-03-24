@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.16.0](https://github.com/maidsafe/sn_dbc/compare/v2.15.0...v2.16.0) (2022-03-24)
+
+
+### Features
+
+* decouple deps and remove bls_dkg ([48f4b84](https://github.com/maidsafe/sn_dbc/commit/48f4b847cd065e74372dd4cc37af105fc930df92))
+
 ## [2.15.0](https://github.com/maidsafe/sn_dbc/compare/v2.14.2...v2.15.0) (2022-03-22)
 
 
