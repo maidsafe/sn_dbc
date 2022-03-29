@@ -55,6 +55,7 @@ impl TransactionBuilder {
         decoy_inputs: Vec<DecoyInput>,
         rng: &mut impl RngCore,
     ) -> Self {
+        let decoy_inputs = Self::filter_decoys(&true_input, decoy_inputs);
         self.ringct_material
             .inputs
             .push(MlsagMaterial::new(true_input, decoy_inputs, rng));
@@ -129,10 +130,7 @@ impl TransactionBuilder {
         rng: &mut impl RngCore,
     ) -> Self {
         let true_input = TrueInput::new(secret_key, amount_secrets.into());
-
-        self.ringct_material
-            .inputs
-            .push(MlsagMaterial::new(true_input, decoy_inputs, rng));
+        self = self.add_input_by_true_input(true_input, decoy_inputs, rng);
         self
     }
 
@@ -229,6 +227,14 @@ impl TransactionBuilder {
             self.output_owner_map,
             self.ringct_material,
         ))
+    }
+
+    // removes TrueInput from DecoyInputs, if present
+    fn filter_decoys(true_input: &TrueInput, decoy_inputs: Vec<DecoyInput>) -> Vec<DecoyInput> {
+        decoy_inputs
+            .into_iter()
+            .filter(|d| d.public_key() != true_input.public_key().to_affine())
+            .collect()
     }
 }
 
