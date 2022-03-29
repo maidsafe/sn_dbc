@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [2.16.2](https://github.com/maidsafe/sn_dbc/compare/v2.16.1...v2.16.2) (2022-03-29)
+
+
+### Bug Fixes
+
+* filter true input from decoy inputs ([0b7b133](https://github.com/maidsafe/sn_dbc/commit/0b7b133650bce18ca37b6ff6410b41a1a617b6aa))
+
 ### [2.16.1](https://github.com/maidsafe/sn_dbc/compare/v2.16.0...v2.16.1) (2022-03-29)
 
 ## [2.16.0](https://github.com/maidsafe/sn_dbc/compare/v2.15.0...v2.16.0) (2022-03-24)
