@@ -262,9 +262,9 @@ pub(crate) mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt, STD_DECOYS_PER_INPUT, STD_DECOYS_TO_FETCH};
     use crate::{
+        mock,
         rand::{CryptoRng, RngCore},
-        Amount, AmountSecrets, DbcBuilder, GenesisBuilderMock, Hash, Owner, OwnerOnce,
-        SimpleKeyManager, SimpleSigner, SpentBookNodeMock, SpentProofContent,
+        Amount, AmountSecrets, DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent,
     };
     use blst_ringct::{bulletproofs::PedersenGens, ringct::RingCtMaterial, Output};
 
@@ -283,7 +283,7 @@ pub(crate) mod tests {
         amount_secrets: AmountSecrets,
         n_ways: u8,
         output_owners: Vec<OwnerOnce>,
-        spentbook_node: &mut SpentBookNodeMock,
+        spentbook_node: &mut mock::SpentBookNode,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<DbcBuilder> {
         let amount = amount_secrets.amount();
@@ -338,7 +338,7 @@ pub(crate) mod tests {
         };
 
         let id = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
+        let key_manager = mock::KeyManager::from(mock::Signer::from(id));
 
         assert!(matches!(
             dbc.verify(&owner_once.owner_base().secret_key()?, &key_manager),
@@ -475,7 +475,7 @@ pub(crate) mod tests {
         for _ in 0..n_wrong_signer_sigs.coerce() {
             if let Some(spent_proof) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id(&mut rng);
-                let key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
+                let key_manager = mock::KeyManager::from(mock::Signer::from(id));
                 let sig_share = key_manager.sign(&spent_proof.content.hash()).unwrap();
                 let sig = key_manager
                     .public_key_set()?
@@ -620,9 +620,9 @@ pub(crate) mod tests {
     pub(crate) fn generate_dbc_of_value(
         amount: Amount,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(SpentBookNodeMock, Dbc, Dbc, Dbc)> {
+    ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
         let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(rng)?;
+            mock::GenesisBuilder::init_genesis_single(rng)?;
 
         let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
 

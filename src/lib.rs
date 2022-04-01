@@ -19,8 +19,10 @@ mod key_manager;
 mod mint;
 mod owner;
 mod spent_proof;
-mod spentbook;
 mod verification;
+
+#[cfg(feature = "mock")]
+pub mod mock;
 
 // re-export crates used in our public API
 pub use blst_ringct;
@@ -36,7 +38,6 @@ pub use blst_ringct::rand;
 pub use crate::{
     amount_secrets::{Amount, AmountSecrets},
     blst::{BlindingFactor, Commitment, KeyImage},
-    builder::mock::GenesisBuilderMock,
     builder::{
         DbcBuilder, DecoyInput, MlsagMaterial, Output, OutputOwnerMap, RevealedCommitment,
         RingCtMaterial, RingCtTransaction, TransactionBuilder, TrueInput,
@@ -45,13 +46,9 @@ pub use crate::{
     dbc_content::DbcContent,
     error::{Error, Result},
     genesis::GenesisMaterial,
-    key_manager::{
-        IndexedSignatureShare, KeyManager, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
-        SimpleSigner,
-    },
+    key_manager::{IndexedSignatureShare, KeyManager, PublicKey, PublicKeySet, Signature},
     owner::{DerivationIndex, Owner, OwnerOnce},
     spent_proof::{SpentProof, SpentProofContent, SpentProofShare},
-    spentbook::SpentBookNodeMock,
     verification::TransactionVerifier,
 };
 

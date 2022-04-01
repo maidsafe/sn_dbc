@@ -9,9 +9,9 @@
 #![allow(clippy::from_iter_instead_of_collect)]
 
 use sn_dbc::{
+    mock,
     rand::{CryptoRng, RngCore},
-    rng, Amount, Dbc, GenesisBuilderMock, Owner, OwnerOnce, Result, SpentBookNodeMock,
-    TransactionVerifier,
+    rng, Amount, Dbc, Owner, OwnerOnce, Result, TransactionVerifier,
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -139,9 +139,9 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 fn generate_dbc_of_value(
     amount: Amount,
     rng: &mut (impl RngCore + CryptoRng),
-) -> Result<(SpentBookNodeMock, Dbc)> {
+) -> Result<(mock::SpentBookNode, Dbc)> {
     let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
-        GenesisBuilderMock::init_genesis_single(rng)?;
+        mock::GenesisBuilder::init_genesis_single(rng)?;
 
     let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
 

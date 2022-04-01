@@ -12,6 +12,7 @@ edition = "2018"
 [features]
 serdes = [ "serde", "ringct-serde" ]
 ringct-serde = [ "blst_ringct/serde" ]
+mock = []
 
 [dependencies]
 thiserror = "1.0.24"
@@ -40,7 +41,7 @@ criterion = "0.3.5"
 
   [dev-dependencies.sn_dbc]
   path = "."
-  features = [ "serdes" ]
+  features = [ "serdes", "mock" ]
 
 [target."cfg(unix)".dev-dependencies]
 termios = "0.3.3"
