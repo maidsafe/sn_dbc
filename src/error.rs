@@ -80,12 +80,10 @@ pub enum Error {
     #[error("The transaction input has {0:?} public keys but found {1:?} matching outputs in spentbook.")]
     SpentbookRingSizeMismatch(usize, usize),
 
-    #[cfg_attr(feature = "serde", serde(skip))]
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 
     /// blst_ringct error.
-    #[cfg_attr(feature = "serde", serde(skip))]
     #[error("ringct error: {0}")]
     RingCt(#[from] blst_ringct::Error),
 
