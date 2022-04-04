@@ -38,7 +38,8 @@ rustyline = "8.0.0"
 bincode = "1.3.3"
 criterion = "0.3.5"
 
-  [dev-dependencies.pprof]
+# pprof is not building on windows, mac
+[target."cfg(unix)".dev-dependencies.pprof]
   version = "0.7.0"
   features = [ "flamegraph" ]
 
@@ -49,6 +50,8 @@ criterion = "0.3.5"
 [target."cfg(unix)".dev-dependencies]
 termios = "0.3.3"
 
+# pprof is not building on windows, mac
+[target.'cfg(unix)']
 [[bench]]
 name = "reissue"
 harness = false
