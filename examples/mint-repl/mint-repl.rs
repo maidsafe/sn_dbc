@@ -34,7 +34,8 @@ use std::os::unix::{io::AsRawFd, prelude::RawFd};
 #[cfg(unix)]
 use termios::{tcsetattr, Termios, ICANON, TCSADRAIN};
 
-const STD_DECOYS: usize = 3; // how many decoys to use (when available in spentbook)
+const STD_DECOYS_TO_FETCH: usize = 1000; // how many decoys to fetch from spentbook (if available)
+const STD_DECOYS_PER_INPUT: usize = 3; // how many decoys to use per input (when available)
 
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
@@ -556,7 +557,14 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
 
 /// Implements prepare_tx command.
 fn prepare_tx(mintinfo: &MintInfo) -> Result<DbcBuilder> {
-    let mut tx_builder: TransactionBuilder = Default::default();
+    let decoy_inputs = mintinfo
+        .spentbook()?
+        .random_decoys(STD_DECOYS_TO_FETCH, &mut rng::thread_rng());
+
+    let mut tx_builder = TransactionBuilder::default()
+        .set_decoys_per_input(STD_DECOYS_PER_INPUT)
+        .set_require_all_decoys(false)
+        .add_decoy_inputs(decoy_inputs);
 
     // Get DBC inputs from user
     loop {
@@ -585,15 +593,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<DbcBuilder> {
             }
         };
 
-        let decoy_inputs = mintinfo
-            .spentbook()?
-            .random_decoys(STD_DECOYS, &mut rng::thread_rng());
-        tx_builder = tx_builder.add_input_dbc(
-            &dbc,
-            &base_secret_key,
-            decoy_inputs,
-            &mut rng::thread_rng(),
-        )?;
+        tx_builder = tx_builder.add_input_dbc(&dbc, &base_secret_key)?;
     }
 
     let mut i = 0u32;
@@ -717,13 +717,18 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             .map(|(_, d)| (*d).clone())
             .collect();
 
-        let mut tx_builder = TransactionBuilder::default();
+        let decoy_inputs = mintinfo
+            .spentbook()?
+            .random_decoys(STD_DECOYS_TO_FETCH, &mut rng);
+
+        let mut tx_builder = TransactionBuilder::default()
+            .set_decoys_per_input(STD_DECOYS_PER_INPUT)
+            .set_require_all_decoys(false)
+            .add_decoy_inputs(decoy_inputs);
 
         for dbc in input_dbcs.iter() {
             let base_sk = dbc.owner_base().secret_key()?;
-            let decoy_inputs = mintinfo.spentbook()?.random_decoys(STD_DECOYS, &mut rng);
-
-            tx_builder = tx_builder.add_input_dbc(dbc, &base_sk, decoy_inputs, &mut rng)?;
+            tx_builder = tx_builder.add_input_dbc(dbc, &base_sk)?;
         }
 
         let inputs_sum = tx_builder.inputs_amount_sum();

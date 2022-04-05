@@ -260,19 +260,13 @@ pub(crate) mod tests {
 
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::{NonZeroTinyInt, TinyInt};
+    use crate::tests::{NonZeroTinyInt, TinyInt, STD_DECOYS_PER_INPUT, STD_DECOYS_TO_FETCH};
     use crate::{
         rand::{CryptoRng, RngCore},
         Amount, AmountSecrets, DbcBuilder, GenesisBuilderMock, Hash, Owner, OwnerOnce,
         SimpleKeyManager, SimpleSigner, SpentBookNodeMock, SpentProofContent,
     };
-    use blst_ringct::{
-        bulletproofs::PedersenGens,
-        ringct::RingCtMaterial,
-        {DecoyInput, Output},
-    };
-
-    const STD_NUM_DECOYS: usize = 3;
+    use blst_ringct::{bulletproofs::PedersenGens, ringct::RingCtMaterial, Output};
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
         (0..n_ways).into_iter().map(move |i| {
@@ -294,10 +288,13 @@ pub(crate) mod tests {
     ) -> Result<DbcBuilder> {
         let amount = amount_secrets.amount();
 
-        let decoy_inputs = spentbook_node.random_decoys(STD_NUM_DECOYS, rng);
+        let decoy_inputs = spentbook_node.random_decoys(STD_DECOYS_TO_FETCH, rng);
 
         let mut dbc_builder = crate::TransactionBuilder::default()
-            .add_input_by_secrets(dbc_owner, amount_secrets, decoy_inputs, rng)
+            .set_decoys_per_input(STD_DECOYS_PER_INPUT)
+            .set_require_all_decoys(false)
+            .add_decoy_inputs(decoy_inputs)
+            .add_input_by_secrets(dbc_owner, amount_secrets)
             .add_outputs_by_amount(divide(amount, n_ways).zip(output_owners.into_iter()))
             .build(rng)?;
 
@@ -367,6 +364,14 @@ pub(crate) mod tests {
 
         let amount = 100;
 
+        // uncomment to run with specific args.
+        // let n_inputs = NonZeroTinyInt(std::num::NonZeroU8::new(3).unwrap());     // # of input DBC's
+        // let n_valid_sigs = TinyInt(0);        // # of valid sigs
+        // let n_wrong_signer_sigs = TinyInt(0); // # of valid sigs from unrecognized authority
+        // let n_wrong_msg_sigs = TinyInt(0);    // # of sigs from recognized authority signing wrong message
+        // let n_extra_input_sigs = TinyInt(0);  // # of sigs for inputs not part of the transaction
+        // let extra_output_amount = TinyInt(0); // Artifically increase output dbc value
+
         // first we will issue genesis into outputs (100, GENESIS-100).
         // The 100 output will be our starting_dbc.
         //
@@ -403,22 +408,23 @@ pub(crate) mod tests {
             .verify(&sp_first.spentbook_sig, sp_first.content.hash()));
 
         // The outputs become inputs for next tx.
-        let inputs: Vec<(Dbc, SecretKey, Vec<DecoyInput>)> = output_dbcs
+        let inputs: Vec<(Dbc, SecretKey)> = output_dbcs
             .into_iter()
             .map(|(dbc, owner_once, _amount_secrets)| {
-                (
-                    dbc,
-                    owner_once.owner_base().secret_key().unwrap(),
-                    spentbook_node.random_decoys(STD_NUM_DECOYS, &mut rng),
-                )
+                (dbc, owner_once.owner_base().secret_key().unwrap())
             })
             .collect();
 
         let owner_once =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
+        let decoy_inputs = spentbook_node.random_decoys(STD_DECOYS_TO_FETCH, &mut rng);
+
         let mut dbc_builder = crate::TransactionBuilder::default()
-            .add_inputs_dbc(inputs, &mut rng)?
+            .set_decoys_per_input(STD_DECOYS_PER_INPUT)
+            .set_require_all_decoys(false)
+            .add_decoy_inputs(decoy_inputs)
+            .add_inputs_dbc(inputs)?
             .add_output_by_amount(amount, owner_once.clone())
             .build(&mut rng)?;
 
@@ -621,11 +627,10 @@ pub(crate) mod tests {
         let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
 
         let mut dbc_builder = crate::TransactionBuilder::default()
+            .set_require_all_decoys(false)
             .add_input_by_secrets(
                 genesis_dbc.owner_once_bearer()?.secret_key()?,
                 genesis_dbc.amount_secrets_bearer()?,
-                vec![], // never any decoys for genesis
-                rng,
             )
             .add_outputs_by_amount(output_amounts.into_iter().map(|amount| {
                 (

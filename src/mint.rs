@@ -9,8 +9,7 @@
 #[cfg(test)]
 mod tests {
 
-    use crate::tests::{TinyInt, TinyVec};
-    use blst_ringct::DecoyInput;
+    use crate::tests::{TinyInt, TinyVec, STD_DECOYS_TO_FETCH};
     use blsttc::{SecretKey, SecretKeySet};
     use quickcheck_macros::quickcheck;
     use std::collections::BTreeSet;
@@ -58,12 +57,8 @@ mod tests {
             .collect();
 
         let mut dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(
-                &genesis_dbc,
-                &genesis_dbc.owner_base().secret_key()?,
-                vec![], // genesis is only input, so no decoys.
-                &mut rng,
-            )?
+            .set_require_all_decoys(false)
+            .add_input_dbc(&genesis_dbc, &genesis_dbc.owner_base().secret_key()?)?
             .add_outputs_by_amount(
                 output_amounts
                     .iter()
@@ -142,6 +137,11 @@ mod tests {
     ) -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
 
+        // let input_amounts = TinyVec(vec![TinyInt(0)]);
+        // let output_amounts = TinyVec(vec![TinyInt(0)]);
+        // let invalid_spent_proofs = TinyVec(vec![TinyInt(0)]);
+        // let num_decoy_inputs = TinyInt(0);
+
         let mut input_amounts =
             Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<Amount>));
         input_amounts.push(GenesisMaterial::GENESIS_AMOUNT - input_amounts.iter().sum::<Amount>());
@@ -165,13 +165,13 @@ mod tests {
         let (mut spentbook_node, genesis_dbc, _genesis, _amount_secrets) =
             GenesisBuilderMock::init_genesis_single(&mut rng)?;
 
+        let decoy_inputs = spentbook_node.random_decoys(STD_DECOYS_TO_FETCH, &mut rng);
+
         let mut dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(
-                &genesis_dbc,
-                &genesis_dbc.owner_base().secret_key()?,
-                vec![], // genesis is only input, so no decoys.
-                &mut rng,
-            )?
+            .set_decoys_per_input(num_decoy_inputs)
+            .set_require_all_decoys(false)
+            .add_decoy_inputs(decoy_inputs.clone())
+            .add_input_dbc(&genesis_dbc, &genesis_dbc.owner_base().secret_key()?)?
             .add_outputs_by_amount(input_amounts.iter().copied().map(|amount| {
                 let owner_once =
                     OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
@@ -206,14 +206,10 @@ mod tests {
         let output_dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
 
         // The outputs become inputs for next tx.
-        let inputs_dbcs: Vec<(Dbc, SecretKey, Vec<DecoyInput>)> = output_dbcs
+        let inputs_dbcs: Vec<(Dbc, SecretKey)> = output_dbcs
             .into_iter()
             .map(|(dbc, owner_once, _amount_secrets)| {
-                (
-                    dbc,
-                    owner_once.owner_base().secret_key().unwrap(),
-                    spentbook_node.random_decoys(num_decoy_inputs, &mut rng),
-                )
+                (dbc, owner_once.owner_base().secret_key().unwrap())
             })
             .collect();
 
@@ -224,7 +220,10 @@ mod tests {
         let outputs = output_amounts.clone().into_iter().zip(owners);
 
         let mut dbc_builder = TransactionBuilder::default()
-            .add_inputs_dbc(inputs_dbcs.clone(), &mut rng)?
+            .set_decoys_per_input(num_decoy_inputs)
+            .set_require_all_decoys(false)
+            .add_decoy_inputs(decoy_inputs)
+            .add_inputs_dbc(inputs_dbcs.clone())?
             .add_outputs_by_amount(outputs.clone())
             .build(&mut rng)?;
 
@@ -386,13 +385,14 @@ mod tests {
 
         let amount_secrets = AmountSecrets::from(dbc_builder.revealed_commitments[0]);
         let secret_key = output1_owner.as_owner().secret_key()?;
-        let decoy_inputs = vec![]; // no decoys.
 
         let output2_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
+        // note: no decoys
         let fraud_dbc_builder = TransactionBuilder::default()
-            .add_input_by_secrets(secret_key, amount_secrets, decoy_inputs, &mut rng)
+            .set_require_all_decoys(false)
+            .add_input_by_secrets(secret_key, amount_secrets)
             .add_output_by_amount(100, output2_owner)
             .build(&mut rng)?;
 
@@ -459,12 +459,8 @@ mod tests {
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
         let mut dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(
-                &starting_dbc,
-                &starting_dbc.owner_base().secret_key()?,
-                vec![], // genesis is only input, so no decoys.
-                &mut rng,
-            )?
+            .set_require_all_decoys(false)
+            .add_input_dbc(&starting_dbc, &starting_dbc.owner_base().secret_key()?)?
             .add_output_by_amount(output_amount, output_owner.clone())
             .build(&mut rng)?;
 
@@ -535,17 +531,14 @@ mod tests {
         // 5. create a tx with (b_fudged) as input, and Dbc (c) with amount 2000 as output.
         // ----------
 
-        let decoy_inputs = vec![];
-
         let output_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
         let mut dbc_builder_fudged = crate::TransactionBuilder::default()
+            .set_require_all_decoys(false)
             .add_input_dbc(
                 &fudged_output_dbc,
                 &fudged_output_dbc.owner_base().secret_key()?,
-                decoy_inputs.clone(),
-                &mut rng,
             )?
             .add_output_by_amount(fudged_secrets.amount(), output_owner.clone())
             .build(&mut rng)?;
@@ -598,11 +591,10 @@ mod tests {
         // because entries are immutable.
 
         let mut dbc_builder_true = TransactionBuilder::default()
+            .set_require_all_decoys(false)
             .add_input_by_secrets(
                 fudged_output_dbc.owner_once_bearer()?.secret_key()?,
                 true_secrets.clone(),
-                decoy_inputs,
-                &mut rng,
             )
             .add_output_by_amount(true_secrets.amount(), output_owner)
             .build(&mut rng)?;
