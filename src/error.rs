@@ -66,6 +66,9 @@ pub enum Error {
     #[error("Public key not found")]
     PublicKeyNotFound,
 
+    #[error("Insufficient decoys available for all inputs")]
+    InsufficientDecoys,
+
     #[error("Secret key does not match public key")]
     SecretKeyDoesNotMatchPublicKey,
 

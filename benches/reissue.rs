@@ -25,6 +25,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng).unwrap();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
+        .set_require_all_decoys(false) // no decoys!
         .add_input_by_secrets(
             starting_dbc
                 .owner_once_bearer()
@@ -32,8 +33,6 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
                 .secret_key()
                 .unwrap(),
             starting_dbc.amount_secrets_bearer().unwrap(),
-            vec![], // never any decoys for genesis
-            &mut rng,
         )
         .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
             let owner_once =
@@ -69,12 +68,12 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 
 fn bench_reissue_100_to_1(c: &mut Criterion) {
     let mut rng = rng::from_seed([0u8; 32]);
-    let num_decoys = 0;
 
     let (mut spentbook_node, starting_dbc) =
         generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng).unwrap();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
+        .set_require_all_decoys(false) // no decoys!
         .add_input_by_secrets(
             starting_dbc
                 .owner_once_bearer()
@@ -82,8 +81,6 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                 .secret_key()
                 .unwrap(),
             starting_dbc.amount_secrets_bearer().unwrap(),
-            vec![], // never any decoy inputs for genesis
-            &mut rng,
         )
         .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
             let owner_once =
@@ -103,17 +100,13 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
     let mut merge_dbc_builder = sn_dbc::TransactionBuilder::default()
+        .set_require_all_decoys(false) // no decoys!
         .add_inputs_by_secrets(
             dbcs.into_iter()
                 .map(|(_dbc, owner_once, amount_secrets)| {
-                    (
-                        owner_once.as_owner().secret_key().unwrap(),
-                        amount_secrets,
-                        spentbook_node.random_decoys(num_decoys, &mut rng),
-                    )
+                    (owner_once.as_owner().secret_key().unwrap(), amount_secrets)
                 })
                 .collect(),
-            &mut rng,
         )
         .add_output_by_amount(N_OUTPUTS as Amount, output_owner_once)
         .build(&mut rng)
@@ -153,11 +146,10 @@ fn generate_dbc_of_value(
     let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
+        .set_require_all_decoys(false) // no decoys!
         .add_input_by_secrets(
             genesis_dbc.owner_once_bearer()?.secret_key()?,
             genesis_dbc.amount_secrets_bearer()?,
-            vec![], // never any decoys for genesis
-            rng,
         )
         .add_outputs_by_amount(output_amounts.into_iter().map(|amount| {
             let owner_once = OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng), rng);

@@ -136,6 +136,9 @@ mod tests {
     use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
 
+    pub const STD_DECOYS_PER_INPUT: usize = 3;
+    pub const STD_DECOYS_TO_FETCH: usize = 100;
+
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyInt(pub u8);
 
@@ -195,7 +198,7 @@ mod tests {
     }
 
     #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-    pub struct TinyVec<T>(Vec<T>);
+    pub struct TinyVec<T>(pub Vec<T>);
 
     impl<T> TinyVec<T> {
         pub fn into_iter(self) -> impl Iterator<Item = T> {
