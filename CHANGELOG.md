@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.17.0](https://github.com/maidsafe/sn_dbc/compare/v2.16.3...v2.17.0) (2022-04-05)
+
+
+### Features
+
+* serialize blsttc and ringct error variants ([18c80a3](https://github.com/maidsafe/sn_dbc/commit/18c80a3aae9d1b459b7c1704d6cd564199a61a8f))
+
 ### [2.16.3](https://github.com/maidsafe/sn_dbc/compare/v2.16.2...v2.16.3) (2022-04-05)
 
 
