@@ -1,6 +1,6 @@
 [package]
 name = "sn_dbc"
-version = "2.16.2"
+version = "2.16.3"
 description = "Safe Network DBC"
 license = "MIT OR BSD-3-Clause"
 repository = "https://github.com/maidsafe/sn_dbc"
@@ -38,11 +38,6 @@ rustyline = "8.0.0"
 bincode = "1.3.3"
 criterion = "0.3.5"
 
-# pprof is not building on windows, mac
-[target."cfg(unix)".dev-dependencies.pprof]
-  version = "0.7.0"
-  features = [ "flamegraph" ]
-
   [dev-dependencies.sn_dbc]
   path = "."
   features = [ "serdes" ]
@@ -50,8 +45,10 @@ criterion = "0.3.5"
 [target."cfg(unix)".dev-dependencies]
 termios = "0.3.3"
 
-# pprof is not building on windows, mac
-[target.'cfg(unix)']
+  [target."cfg(unix)".dev-dependencies.pprof]
+  version = "0.7.0"
+  features = [ "flamegraph" ]
+
 [[bench]]
 name = "reissue"
 harness = false
