@@ -14,6 +14,7 @@ use anyhow::{anyhow, Result};
 
 use rustyline::{config::Configurer, error::ReadlineError, Editor};
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, SystemTime};
 
 use sn_dbc::{
     blsttc::{
@@ -702,11 +703,30 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
     let mut rng = rng::thread_rng();
 
     let num_reissues: usize =
-        readline_prompt_nl_default("\nHow many reissues to perform [10]: ", "10")?.parse()?;
+        readline_prompt_default("\nHow many reissues to perform [10]: ", "10")?.parse()?;
+
+    let min_inputs: usize =
+        readline_prompt_default("\nMin (if available) number of inputs [1]: ", "1")?.parse()?;
+
+    let max_inputs: usize =
+        readline_prompt_default("\nMax number of inputs [2]: ", "2")?.parse()?;
+
+    let max_outputs: usize =
+        readline_prompt_default("\nMax number of outputs [2]: ", "2")?.parse()?;
+
+    let max_decoys: usize =
+        readline_prompt_default("\nMax number of decoys [10]: ", "10")?.parse()?;
+
+    println!(
+        "\ninputs to outputs.  value                  wallet     sb::random_decoys  sb::log_spent  total"
+    );
 
     for _i in 1..=num_reissues {
-        let max_inputs = std::cmp::min(mintinfo.reissue_auto.unspent_dbcs.len(), 10);
-        let num_inputs = rng.gen_range(1..max_inputs + 1);
+        let iter_time_start = SystemTime::now();
+
+        let max_inputs = std::cmp::min(mintinfo.reissue_auto.unspent_dbcs.len(), max_inputs);
+        let min_inputs = std::cmp::min(min_inputs, max_inputs);
+        let num_inputs = rng.gen_range(min_inputs..max_inputs + 1);
 
         // subset of unspent_dbcs become the inputs for next reissue.
         let input_dbcs: Vec<Dbc> = mintinfo
@@ -718,12 +738,14 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             .map(|(_, d)| (*d).clone())
             .collect();
 
+        let random_decoys_start = SystemTime::now();
         let decoy_inputs = mintinfo
             .spentbook()?
             .random_decoys(STD_DECOYS_TO_FETCH, &mut rng);
+        let random_decoys_duration = random_decoys_start.elapsed().unwrap();
 
         let mut tx_builder = TransactionBuilder::default()
-            .set_decoys_per_input(STD_DECOYS_PER_INPUT)
+            .set_decoys_per_input(max_decoys)
             .set_require_all_decoys(false)
             .add_decoy_inputs(decoy_inputs);
 
@@ -735,10 +757,20 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
         let inputs_sum = tx_builder.inputs_amount_sum();
 
         while tx_builder.outputs_amount_sum() < inputs_sum || tx_builder.outputs().is_empty() {
-            // randomize output amount
-            let diff = inputs_sum - tx_builder.outputs_amount_sum();
-            let range_max = if diff == Amount::MAX { diff } else { diff + 1 };
-            let amount = rng.gen_range(0..range_max);
+            let amount = if tx_builder.outputs().len() >= max_outputs - 1 {
+                inputs_sum - tx_builder.outputs_amount_sum()
+            } else {
+                // randomize output amount
+                let diff = inputs_sum - tx_builder.outputs_amount_sum();
+
+                let is_last = rng.gen_range(0..max_outputs + 1) == max_outputs;
+                if is_last {
+                    diff
+                } else {
+                    let range_max = if diff == Amount::MAX { diff } else { diff + 1 };
+                    rng.gen_range(0..range_max)
+                }
+            };
 
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
@@ -748,10 +780,13 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
 
         let mut dbc_builder = tx_builder.build(&mut rng)?;
 
+        let mut log_spent_duration = Duration::new(0, 0);
         for (key_image, tx) in dbc_builder.inputs() {
             for spentbook_node in mintinfo.spentbook_nodes.iter_mut() {
-                dbc_builder = dbc_builder
-                    .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?);
+                let log_spent_start = SystemTime::now();
+                let spent_proof_share = spentbook_node.log_spent(key_image, tx.clone())?;
+                log_spent_duration += log_spent_start.elapsed().unwrap();
+                dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
             }
         }
         let outputs = dbc_builder.build(&mintinfo.spentbook()?.key_manager)?;
@@ -761,11 +796,18 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             mintinfo.reissue_auto.unspent_dbcs.remove(&dbc.hash());
         }
 
+        let iter_duration = iter_time_start.elapsed().unwrap();
+        let wallet_duration = iter_duration - log_spent_duration - random_decoys_duration;
+
         println!(
-            "Reissued {} inputs to {} outputs.  total value: {}",
+            "{:>6} -> {:<8}  {:<22} {:<10} {:<10}         {:<10}     {:<10}",
             input_dbcs.len(),
             output_dbcs.len(),
-            inputs_sum
+            inputs_sum,
+            fd(wallet_duration),
+            fd(random_decoys_duration),
+            fd(log_spent_duration),
+            fd(iter_duration),
         );
 
         mintinfo
@@ -775,6 +817,11 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
     }
 
     Ok(())
+}
+
+// format a Duration into secs.millis.
+fn fd(duration: Duration) -> String {
+    format!("{}.{}", duration.as_secs(), duration.subsec_millis())
 }
 
 /// Implements reissue command.
@@ -848,6 +895,17 @@ fn readline_prompt(prompt: &str) -> Result<String> {
     }
 }
 
+fn readline_prompt_default(prompt: &str, default: &str) -> Result<String> {
+    use std::io::Write;
+    print!("{}", prompt);
+    std::io::stdout().flush()?;
+    let line = readline()?;
+    match line.is_empty() {
+        true => Ok(default.to_string()),
+        false => Ok(line),
+    }
+}
+
 /// Prompts for input and reads the input.
 /// Re-prompts in a loop if input is empty.
 fn readline_prompt_nl(prompt: &str) -> Result<String> {
@@ -860,6 +918,7 @@ fn readline_prompt_nl(prompt: &str) -> Result<String> {
     }
 }
 
+#[allow(dead_code)]
 fn readline_prompt_nl_default(prompt: &str, default: &str) -> Result<String> {
     println!("{}", prompt);
     let line = readline()?;
