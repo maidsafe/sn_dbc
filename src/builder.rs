@@ -6,12 +6,12 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blst_ringct::{bulletproofs::PedersenGens, group::Curve, ringct::Amount};
-pub use blst_ringct::{
+use blsttc::{PublicKey, SecretKey};
+use sn_ringct::{group::Curve, ringct::Amount, sn_bulletproofs::PedersenGens};
+pub use sn_ringct::{
     ringct::RingCtTransaction, DecoyInput, MlsagMaterial, Output, RevealedCommitment,
     RingCtMaterial, TrueInput,
 };
-use blsttc::{PublicKey, SecretKey};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{

@@ -1,6 +1,6 @@
 [package]
 name = "sn_dbc"
-version = "2.17.1"
+version = "2.18.0"
 description = "Safe Network DBC"
 license = "MIT OR BSD-3-Clause"
 repository = "https://github.com/maidsafe/sn_dbc"
@@ -11,7 +11,7 @@ edition = "2018"
 
 [features]
 serdes = [ "serde", "ringct-serde" ]
-ringct-serde = [ "blst_ringct/serde" ]
+ringct-serde = [ "sn_ringct/serde" ]
 mock = [ ]
 
 [dependencies]
@@ -19,8 +19,8 @@ thiserror = "1.0.24"
 blsttc = "5.2.0"
 hex = "0.4.3"
 
-  [dependencies.blst_ringct]
-  git = "https://github.com/maidsafe/blst-ringct"
+  [dependencies.sn_ringct]
+  version = "0.1.0"
 
   [dependencies.tiny-keccak]
   version = "2.0.0"
