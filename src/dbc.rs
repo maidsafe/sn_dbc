@@ -8,12 +8,12 @@
 
 use crate::{AmountSecrets, KeyImage, Owner, SpentProof, TransactionVerifier};
 use crate::{DbcContent, DerivationIndex, Error, KeyManager, Result};
-use blst_ringct::{
+use blsttc::SecretKey;
+use sn_ringct::{
     group::Curve,
     ringct::{OutputProof, RingCtTransaction},
     {RevealedCommitment, TrueInput},
 };
-use blsttc::SecretKey;
 use std::collections::BTreeSet;
 use std::convert::TryFrom;
 use tiny_keccak::{Hasher, Sha3};
@@ -136,7 +136,7 @@ impl Dbc {
     /// This is useful for checking if a Dbc has been spent.
     pub fn key_image(&self, base_sk: &SecretKey) -> Result<KeyImage> {
         let secret_key = self.owner_once(base_sk)?.secret_key()?;
-        Ok(blst_ringct::key_image(secret_key).to_affine().into())
+        Ok(sn_ringct::key_image(secret_key).to_affine().into())
     }
 
     /// returns KeyImage for the owner's derived public key
@@ -266,7 +266,7 @@ pub(crate) mod tests {
         rand::{CryptoRng, RngCore},
         Amount, AmountSecrets, DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent,
     };
-    use blst_ringct::{bulletproofs::PedersenGens, ringct::RingCtMaterial, Output};
+    use sn_ringct::{ringct::RingCtMaterial, sn_bulletproofs::PedersenGens, Output};
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
         (0..n_ways).into_iter().map(move |i| {
@@ -342,9 +342,7 @@ pub(crate) mod tests {
 
         assert!(matches!(
             dbc.verify(&owner_once.owner_base().secret_key()?, &key_manager),
-            Err(Error::RingCt(
-                blst_ringct::Error::TransactionMustHaveAnInput
-            ))
+            Err(Error::RingCt(sn_ringct::Error::TransactionMustHaveAnInput))
         ));
 
         Ok(())
@@ -588,7 +586,7 @@ pub(crate) mod tests {
                     .iter()
                     .any(|o| dbc_owner.eq(o.public_key())));
             }
-            Err(Error::RingCt(blst_ringct::Error::TransactionMustHaveAnInput)) => {
+            Err(Error::RingCt(sn_ringct::Error::TransactionMustHaveAnInput)) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
             }
             Err(Error::AmountCommitmentsDoNotMatch) => {

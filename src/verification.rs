@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{Commitment, Error, Hash, KeyImage, KeyManager, Result, SpentProof};
-use blst_ringct::ringct::RingCtTransaction;
+use sn_ringct::ringct::RingCtTransaction;
 use std::collections::BTreeSet;
 
 // Here we are putting transaction verification logic that is beyond

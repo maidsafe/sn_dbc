@@ -75,9 +75,9 @@ pub enum Error {
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 
-    /// blst_ringct error.
+    /// sn_ringct error.
     #[error("ringct error: {0}")]
-    RingCt(#[from] blst_ringct::Error),
+    RingCt(#[from] sn_ringct::Error),
 
     // mock error.
     #[cfg(feature = "mock")]

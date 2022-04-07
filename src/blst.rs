@@ -14,14 +14,14 @@
 //!
 //! sn_dbc internally uses the type aliases rather than directly using the blstrs types.
 //!
-//! We could consider moving some or all of this lower into blst_ringct to make these
+//! We could consider moving some or all of this lower into sn_ringct to make these
 //! crates consistent.
 
 /// a Commitment
-pub type Commitment = blst_ringct::blstrs::G1Affine;
+pub type Commitment = sn_ringct::blstrs::G1Affine;
 
 /// a BlindingFactor
-pub type BlindingFactor = blst_ringct::blstrs::Scalar;
+pub type BlindingFactor = sn_ringct::blstrs::Scalar;
 
 /// A KeyImage can be thought of as a specific type
 /// of public key. blsttc::PublicKey is a newtype

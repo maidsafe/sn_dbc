@@ -8,16 +8,16 @@
 
 use crate::rand::RngCore;
 use crate::{BlindingFactor, Error};
-use blst_ringct::RevealedCommitment;
 use blsttc::{
     Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
     SecretKeyShare,
 };
+use sn_ringct::RevealedCommitment;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 
 // we re-export this.
-pub use blst_ringct::ringct::Amount;
+pub use sn_ringct::ringct::Amount;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -25,14 +25,14 @@ use serde::{Deserialize, Serialize};
 const AMT_SIZE: usize = std::mem::size_of::<Amount>(); // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = std::mem::size_of::<BlindingFactor>(); // Blinding factor size: 32 bytes (BlindingFactor)
 
-/// AmountSecrets wraps blst_ringct::RevealedCommitment to provide some methods
+/// AmountSecrets wraps sn_ringct::RevealedCommitment to provide some methods
 /// for ergonomic usage, eg: decrypting from Ciphertext using various blsttc
 /// components, eg SecretKey, SecretKeyShare, SecretKeySet, DecryptionShare
 //
 // todo: perhaps AmountSecrets should be renamed to be more consistent with
 //  RevealedCommitment, since it is just a NewType wrapper.
 //
-// Once blst_ringct uses blsttc, perhaps AmountSecrets functionality could
+// Once sn_ringct uses blsttc, perhaps AmountSecrets functionality could
 //  move into RevealedCommitment, and AmountSecrets goes away entirely.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
