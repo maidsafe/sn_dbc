@@ -11,44 +11,35 @@ edition = "2018"
 
 [features]
 serdes = [ "serde", "ringct-serde" ]
-ringct-serde = [ "sn_ringct/serde" ]
+ringct-serde = [ "bls_ringct/serde" ]
 mock = [ ]
 
 [dependencies]
-thiserror = "1.0.24"
 blsttc = "5.2.0"
+bls_ringct = "0.1.0"
 hex = "0.4.3"
-
-  [dependencies.sn_ringct]
-  version = "0.1.0"
-
-  [dependencies.tiny-keccak]
-  version = "2.0.0"
-  features = [ "sha3" ]
-
-  [dependencies.serde]
-  version = "1.0.133"
-  features = [ "derive", "rc" ]
-  optional = true
+serde = { version = "1.0.133", features = [ "derive", "rc" ], optional = true }
+thiserror = "1.0.24"
+tiny-keccak = { features = [ "sha3" ], version = "2.0.0" }
 
 [dev-dependencies]
-quickcheck_macros = "1"
-quickcheck = "1.0.3"
 anyhow = "1.0.40"
-rustyline = "8.0.0"
 bincode = "1.3.3"
 criterion = "0.3.5"
+quickcheck_macros = "1"
+quickcheck = "1.0.3"
+rustyline = "8.0.0"
 
-  [dev-dependencies.sn_dbc]
-  path = "."
-  features = [ "serdes", "mock" ]
+[dev-dependencies.sn_dbc]
+path = "."
+features = [ "serdes", "mock" ]
 
 [target."cfg(unix)".dev-dependencies]
 termios = "0.3.3"
 
-  [target."cfg(unix)".dev-dependencies.pprof]
-  version = "0.7.0"
-  features = [ "flamegraph" ]
+[target."cfg(unix)".dev-dependencies.pprof]
+version = "0.7.0"
+features = [ "flamegraph" ]
 
 [[bench]]
 name = "reissue"

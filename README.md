@@ -75,7 +75,7 @@ $ cargo test
 
 This crate depends most heavily on:
 
-- [sn_ringct](https://github.com/maidsafe/sn_ringct/) - RingCt using bls curve
+- [bls_ringct](https://github.com/maidsafe/bls_ringct/) - RingCt using bls curve
 - [blsttc](https://github.com/maidsafe/blsttc/) - BLS keys
 
 

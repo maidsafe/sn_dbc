@@ -25,15 +25,15 @@ mod verification;
 pub mod mock;
 
 // re-export crates used in our public API
+pub use bls_ringct;
 pub use blsttc;
-pub use sn_ringct;
-// note: both sn_ringct::rand and blsttc::rand are
+// note: both bls_ringct::rand and blsttc::rand are
 // exposed in our public API.  Here, by choosing
 // just one, we are making an implicit promise that
 // the two versions will remain compatible, or that
 // our API will reconcile the difference.  We do
 // this knowingly and pledge to uphold that promise.
-pub use sn_ringct::rand;
+pub use bls_ringct::rand;
 
 pub use crate::{
     amount_secrets::{Amount, AmountSecrets},
