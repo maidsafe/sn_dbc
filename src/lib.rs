@@ -16,6 +16,7 @@ mod dbc_content;
 mod error;
 mod genesis;
 mod key_manager;
+mod message;
 mod mint;
 mod owner;
 mod spent_proof;
