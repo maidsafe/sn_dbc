@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [3.0.0](https://github.com/maidsafe/sn_dbc/compare/v2.18.0...v3.0.0) (2022-04-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* The sn_ringct crate was renamed to bls_ringct, so we update this reference.
+
+* reference renamed ringct crate ([2d15911](https://github.com/maidsafe/sn_dbc/commit/2d15911eee1dd01bc4ece91ff294722255e54c76))
+
+### [2.17.1](https://github.com/maidsafe/sn_dbc/compare/v2.17.0...v2.17.1) (2022-04-05)
+
 ## [2.17.0](https://github.com/maidsafe/sn_dbc/compare/v2.16.3...v2.17.0) (2022-04-05)
 
 

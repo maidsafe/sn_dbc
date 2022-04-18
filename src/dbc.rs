@@ -8,7 +8,7 @@
 
 use crate::{AmountSecrets, KeyImage, Owner, SpentProof, TransactionVerifier};
 use crate::{DbcContent, DerivationIndex, Error, KeyManager, Result};
-use blst_ringct::{
+use bls_ringct::{
     group::Curve,
     ringct::{OutputProof, RingCtTransaction},
     {RevealedCommitment, TrueInput},
@@ -136,7 +136,7 @@ impl Dbc {
     /// This is useful for checking if a Dbc has been spent.
     pub fn key_image(&self, base_sk: &SecretKey) -> Result<KeyImage> {
         let secret_key = self.owner_once(base_sk)?.secret_key()?;
-        Ok(blst_ringct::key_image(secret_key).to_affine().into())
+        Ok(bls_ringct::key_image(secret_key).to_affine().into())
     }
 
     /// returns KeyImage for the owner's derived public key
@@ -262,11 +262,12 @@ pub(crate) mod tests {
 
     use crate::tests::{NonZeroTinyInt, TinyInt, STD_DECOYS_PER_INPUT, STD_DECOYS_TO_FETCH};
     use crate::{
+        mock,
         rand::{CryptoRng, RngCore},
-        Amount, AmountSecrets, DbcBuilder, GenesisBuilderMock, Hash, Owner, OwnerOnce,
-        SimpleKeyManager, SimpleSigner, SpentBookNodeMock, SpentProofContent,
+        Amount, AmountSecrets, DbcBuilder, GenesisMaterial, Hash, Owner, OwnerOnce,
+        SpentProofContent,
     };
-    use blst_ringct::{bulletproofs::PedersenGens, ringct::RingCtMaterial, Output};
+    use bls_ringct::{bls_bulletproofs::PedersenGens, ringct::RingCtMaterial, Output};
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
         (0..n_ways).into_iter().map(move |i| {
@@ -283,7 +284,7 @@ pub(crate) mod tests {
         amount_secrets: AmountSecrets,
         n_ways: u8,
         output_owners: Vec<OwnerOnce>,
-        spentbook_node: &mut SpentBookNodeMock,
+        spentbook_node: &mut mock::SpentBookNode,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<DbcBuilder> {
         let amount = amount_secrets.amount();
@@ -338,13 +339,11 @@ pub(crate) mod tests {
         };
 
         let id = crate::bls_dkg_id(&mut rng);
-        let key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
+        let key_manager = mock::KeyManager::from(mock::Signer::from(id));
 
         assert!(matches!(
             dbc.verify(&owner_once.owner_base().secret_key()?, &key_manager),
-            Err(Error::RingCt(
-                blst_ringct::Error::TransactionMustHaveAnInput
-            ))
+            Err(Error::RingCt(bls_ringct::Error::TransactionMustHaveAnInput))
         ));
 
         Ok(())
@@ -475,7 +474,7 @@ pub(crate) mod tests {
         for _ in 0..n_wrong_signer_sigs.coerce() {
             if let Some(spent_proof) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id(&mut rng);
-                let key_manager = SimpleKeyManager::from(SimpleSigner::from(id));
+                let key_manager = mock::KeyManager::from(mock::Signer::from(id));
                 let sig_share = key_manager.sign(&spent_proof.content.hash()).unwrap();
                 let sig = key_manager
                     .public_key_set()?
@@ -588,7 +587,7 @@ pub(crate) mod tests {
                     .iter()
                     .any(|o| dbc_owner.eq(o.public_key())));
             }
-            Err(Error::RingCt(blst_ringct::Error::TransactionMustHaveAnInput)) => {
+            Err(Error::RingCt(bls_ringct::Error::TransactionMustHaveAnInput)) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
             }
             Err(Error::AmountCommitmentsDoNotMatch) => {
@@ -620,11 +619,11 @@ pub(crate) mod tests {
     pub(crate) fn generate_dbc_of_value(
         amount: Amount,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(SpentBookNodeMock, Dbc, Dbc, Dbc)> {
+    ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
         let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(rng)?;
+            mock::GenesisBuilder::init_genesis_single(rng)?;
 
-        let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
+        let output_amounts = vec![amount, GenesisMaterial::GENESIS_AMOUNT - amount];
 
         let mut dbc_builder = crate::TransactionBuilder::default()
             .set_require_all_decoys(false)

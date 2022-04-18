@@ -6,8 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blst_ringct::{
-    bulletproofs::PedersenGens,
+use bls_ringct::{
+    bls_bulletproofs::PedersenGens,
     group::Curve,
     ringct::{OutputProof, RingCtTransaction},
     DecoyInput,
@@ -16,9 +16,10 @@ use blsttc::PublicKey;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{
+    mock,
     rand::{prelude::IteratorRandom, RngCore},
-    Commitment, GenesisMaterial, Hash, KeyImage, KeyManager, Result, SimpleKeyManager,
-    SpentProofContent, SpentProofShare,
+    Commitment, GenesisMaterial, Hash, KeyImage, KeyManager, Result, SpentProofContent,
+    SpentProofShare,
 };
 
 /// This is a mock SpentBook used for our test cases. A proper implementation
@@ -44,8 +45,8 @@ use crate::{
 /// See the very first commit of this file For a naive impl that uses only
 /// a single map<key_image, tx>.
 #[derive(Debug, Clone)]
-pub struct SpentBookNodeMock {
-    pub key_manager: SimpleKeyManager,
+pub struct SpentBookNode {
+    pub key_manager: mock::KeyManager,
 
     pub transactions: HashMap<Hash, RingCtTransaction>,
     pub key_images: BTreeMap<KeyImage, Hash>,
@@ -54,8 +55,8 @@ pub struct SpentBookNodeMock {
     pub genesis: (KeyImage, Commitment), // genesis input (keyimage, public_commitment)
 }
 
-impl From<SimpleKeyManager> for SpentBookNodeMock {
-    fn from(key_manager: SimpleKeyManager) -> Self {
+impl From<mock::KeyManager> for SpentBookNode {
+    fn from(key_manager: mock::KeyManager) -> Self {
         let genesis_material = GenesisMaterial::default();
         let public_commitment = genesis_material.ringct_material.inputs[0]
             .true_input
@@ -73,7 +74,7 @@ impl From<SimpleKeyManager> for SpentBookNodeMock {
     }
 }
 
-impl SpentBookNodeMock {
+impl SpentBookNode {
     pub fn iter(&self) -> impl Iterator<Item = (&KeyImage, &RingCtTransaction)> + '_ {
         self.key_images.iter().map(move |(k, h)| {
             (
@@ -140,10 +141,10 @@ impl SpentBookNodeMock {
                             .collect();
 
                         if output_proofs.len() != mlsag.public_keys().len() {
-                            return Err(crate::Error::SpentbookRingSizeMismatch(
+                            return Err(crate::Error::from(crate::mock::Error::RingSizeMismatch(
                                 mlsag.public_keys().len(),
                                 output_proofs.len(),
-                            ));
+                            )));
                         }
 
                         // collect commitments from OutputProofs
@@ -207,8 +208,7 @@ impl SpentBookNodeMock {
                 spentbook_sig_share,
             })
         } else {
-            // fixme: return an error.  can wait until we refactor into a Mock feature flag.
-            Err(crate::Error::SpentbookKeyImageAlreadySpent)
+            Err(crate::mock::Error::KeyImageAlreadySpent.into())
         }
     }
 

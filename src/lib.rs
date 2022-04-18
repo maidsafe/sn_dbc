@@ -19,24 +19,25 @@ mod key_manager;
 mod mint;
 mod owner;
 mod spent_proof;
-mod spentbook;
 mod verification;
 
+#[cfg(feature = "mock")]
+pub mod mock;
+
 // re-export crates used in our public API
-pub use blst_ringct;
+pub use bls_ringct;
 pub use blsttc;
-// note: both blst_ringct::rand and blsttc::rand are
+// note: both bls_ringct::rand and blsttc::rand are
 // exposed in our public API.  Here, by choosing
 // just one, we are making an implicit promise that
 // the two versions will remain compatible, or that
 // our API will reconcile the difference.  We do
 // this knowingly and pledge to uphold that promise.
-pub use blst_ringct::rand;
+pub use bls_ringct::rand;
 
 pub use crate::{
     amount_secrets::{Amount, AmountSecrets},
     blst::{BlindingFactor, Commitment, KeyImage},
-    builder::mock::GenesisBuilderMock,
     builder::{
         DbcBuilder, DecoyInput, MlsagMaterial, Output, OutputOwnerMap, RevealedCommitment,
         RingCtMaterial, RingCtTransaction, TransactionBuilder, TrueInput,
@@ -45,13 +46,9 @@ pub use crate::{
     dbc_content::DbcContent,
     error::{Error, Result},
     genesis::GenesisMaterial,
-    key_manager::{
-        IndexedSignatureShare, KeyManager, PublicKey, PublicKeySet, Signature, SimpleKeyManager,
-        SimpleSigner,
-    },
+    key_manager::{IndexedSignatureShare, KeyManager, PublicKey, PublicKeySet, Signature},
     owner::{DerivationIndex, Owner, OwnerOnce},
     spent_proof::{SpentProof, SpentProofContent, SpentProofShare},
-    spentbook::SpentBookNodeMock,
     verification::TransactionVerifier,
 };
 

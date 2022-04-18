@@ -16,9 +16,9 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::{
-        Amount, AmountSecrets, Dbc, DbcContent, Error, GenesisBuilderMock, GenesisMaterial,
-        IndexedSignatureShare, KeyImage, Owner, OwnerOnce, Result, SpentBookNodeMock,
-        SpentProofContent, SpentProofShare, TransactionBuilder,
+        mock, Amount, AmountSecrets, Dbc, DbcContent, Error, GenesisMaterial,
+        IndexedSignatureShare, KeyImage, Owner, OwnerOnce, Result, SpentProofContent,
+        SpentProofShare, TransactionBuilder,
     };
 
     #[test]
@@ -26,7 +26,7 @@ mod tests {
         let mut rng = crate::rng::from_seed([0u8; 32]);
 
         let (spentbook_node, genesis_dbc, genesis, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(&mut rng)?;
+            mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
         let verified = genesis_dbc.verify(
             &genesis.owner_once.owner_base().secret_key()?,
@@ -50,7 +50,7 @@ mod tests {
         let output_amount = output_amounts.iter().sum();
 
         let (mut spentbook_node, genesis_dbc, _genesis, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(&mut rng)?;
+            mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
         let owners: Vec<OwnerOnce> = (0..output_amounts.len())
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng))
@@ -71,13 +71,13 @@ mod tests {
         let check_error = |error: Error| -> Result<()> {
             match error {
                 Error::RingCt(
-                    blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
+                    bls_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
                 }
-                Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing) => {
+                Error::RingCt(bls_ringct::Error::InvalidHiddenCommitmentInRing) => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
@@ -163,7 +163,7 @@ mod tests {
         let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
 
         let (mut spentbook_node, genesis_dbc, _genesis, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(&mut rng)?;
+            mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
         let decoy_inputs = spentbook_node.random_decoys(STD_DECOYS_TO_FETCH, &mut rng);
 
@@ -183,7 +183,7 @@ mod tests {
         let check_tx_error = |error: Error| -> Result<()> {
             match error {
                 Error::RingCt(
-                    blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
+                    bls_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
                     // Verify that no inputs were present and we got correct verification error.
                     assert!(input_amounts.is_empty());
@@ -246,7 +246,7 @@ mod tests {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
                 Error::RingCt(
-                    blst_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
+                    bls_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
                     if GenesisMaterial::GENESIS_AMOUNT == output_total_amount {
                         // This can correctly occur if there are 0 outputs and inputs sum to zero.
@@ -259,10 +259,10 @@ mod tests {
                         assert!(!input_amounts.is_empty());
                     }
                 }
-                Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing) => {
+                Error::RingCt(bls_ringct::Error::InvalidHiddenCommitmentInRing) => {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
-                Error::RingCt(blst_ringct::Error::TransactionMustHaveAnInput) => {
+                Error::RingCt(bls_ringct::Error::TransactionMustHaveAnInput) => {
                     assert_eq!(input_amounts.len(), 0);
                 }
                 Error::FailedSignature => {
@@ -374,7 +374,7 @@ mod tests {
         let mut rng = crate::rng::from_seed([0u8; 32]);
 
         let (spentbook_node, _genesis_dbc, _genesis, _amount_secrets) =
-            GenesisBuilderMock::init_genesis_single(&mut rng)?;
+            mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
         let output1_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
@@ -550,7 +550,7 @@ mod tests {
 
         for (key_image, tx) in dbc_builder_fudged.inputs() {
             match spentbook.log_spent(key_image, tx) {
-                Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
+                Err(Error::RingCt(bls_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
                 _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
             }
         }
@@ -571,7 +571,7 @@ mod tests {
         let result_fudged = dbc_builder_fudged.build(&spentbook.key_manager);
 
         match result_fudged {
-            Err(Error::RingCt(blst_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
+            Err(Error::RingCt(bls_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
             _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
         }
 
@@ -605,8 +605,8 @@ mod tests {
 
             // The builder should return an error because the spentproof does not match the tx.
             match result {
-                Err(Error::SpentbookKeyImageAlreadySpent) => {}
-                _ => panic!("Expected Error::SpentbookKeyImageAlreadySpent"),
+                Err(Error::Mock(mock::Error::KeyImageAlreadySpent)) => {}
+                _ => panic!("Expected Error::Mock::Error::KeyImageAlreadySpent"),
             }
         }
 
@@ -627,7 +627,7 @@ mod tests {
         //
         // Make a new spentbook and replay the first three tx, plus the new tx_true
         // Note that the new spentbook uses the same signing key as the original
-        let mut new_spentbook = SpentBookNodeMock::from(spentbook.key_manager);
+        let mut new_spentbook = mock::SpentBookNode::from(spentbook.key_manager);
         let _genesis_spent_proof_share = new_spentbook.log_spent(
             genesis_dbc.transaction.mlsags[0].key_image.into(),
             genesis_dbc.transaction.clone(),

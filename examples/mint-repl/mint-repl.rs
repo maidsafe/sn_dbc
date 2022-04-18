@@ -21,9 +21,10 @@ use sn_dbc::{
         poly::Poly, serde_impl::SerdeSecret, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
         SecretKeyShare,
     },
+    mock,
     rand::{seq::IteratorRandom, Rng},
-    rng, Amount, Dbc, DbcBuilder, GenesisBuilderMock, OutputOwnerMap, Owner, OwnerOnce,
-    RevealedCommitment, RingCtMaterial, RingCtTransaction, SpentBookNodeMock, TransactionBuilder,
+    rng, Amount, Dbc, DbcBuilder, OutputOwnerMap, Owner, OwnerOnce, RevealedCommitment,
+    RingCtMaterial, RingCtTransaction, TransactionBuilder,
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -41,7 +42,7 @@ const STD_DECOYS_PER_INPUT: usize = 3; // how many decoys to use per input (when
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
 struct MintInfo {
-    spentbook_nodes: Vec<SpentBookNodeMock>,
+    spentbook_nodes: Vec<mock::SpentBookNode>,
     genesis: Dbc,
     secret_key_set: SecretKeySet,
     poly: Poly,
@@ -50,7 +51,7 @@ struct MintInfo {
 
 impl MintInfo {
     // returns the first spentbook node.
-    fn spentbook(&self) -> Result<&SpentBookNodeMock> {
+    fn spentbook(&self) -> Result<&mock::SpentBookNode> {
         self.spentbook_nodes
             .get(0)
             .ok_or_else(|| anyhow!("Spentbook not yet created"))
@@ -184,7 +185,7 @@ fn mk_new_mint(sks: SecretKeySet, poly: Poly) -> Result<MintInfo> {
 
     let num_spentbook_nodes = sks.threshold() + 1;
 
-    let (spentbook_nodes, genesis_dbc, _genesis, _amount_secrets) = GenesisBuilderMock::default()
+    let (spentbook_nodes, genesis_dbc, _genesis, _amount_secrets) = mock::GenesisBuilder::default()
         .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
         .build(&mut rng)?;
 

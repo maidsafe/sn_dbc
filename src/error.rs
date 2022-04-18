@@ -72,20 +72,15 @@ pub enum Error {
     #[error("Secret key does not match public key")]
     SecretKeyDoesNotMatchPublicKey,
 
-    // temporary.  should be part of (future) spentbook module.
-    #[error("Key image has already been spent")]
-    SpentbookKeyImageAlreadySpent,
-
-    // temporary.  should be part of (future) spentbook module.
-    #[error("The transaction input has {0:?} public keys but found {1:?} matching outputs in spentbook.")]
-    SpentbookRingSizeMismatch(usize, usize),
-
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 
-    /// blst_ringct error.
     #[error("ringct error: {0}")]
-    RingCt(#[from] blst_ringct::Error),
+    RingCt(#[from] bls_ringct::Error),
+
+    #[cfg(feature = "mock")]
+    #[error("mock object error")]
+    Mock(#[from] crate::mock::Error),
 
     #[cfg_attr(feature = "serde", serde(skip))]
     #[error("Infallible.  Can never fail")]

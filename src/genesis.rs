@@ -1,5 +1,5 @@
 use crate::{Amount, KeyImage, Owner, OwnerOnce};
-use blst_ringct::{
+use bls_ringct::{
     blstrs::Scalar,
     group::Curve,
     mlsag::{MlsagMaterial, TrueInput},
