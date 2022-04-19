@@ -12,7 +12,10 @@ pub use bls_ringct::{
     RingCtMaterial, TrueInput,
 };
 use blsttc::{PublicKey, SecretKey};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, BTreeSet, HashSet},
+};
 
 use crate::{
     rand::{CryptoRng, RngCore},
@@ -154,9 +157,12 @@ impl TransactionBuilder {
     }
 
     /// add an input given a list of bearer Dbcs and associated SecretKey and decoys
-    pub fn add_inputs_dbc_bearer(mut self, dbcs: impl IntoIterator<Item = Dbc>) -> Result<Self> {
-        for dbc in dbcs.into_iter() {
-            self = self.add_input_dbc_bearer(&dbc)?;
+    pub fn add_inputs_dbc_bearer<D>(mut self, dbcs: impl Iterator<Item = D>) -> Result<Self>
+    where
+        D: Borrow<Dbc>,
+    {
+        for dbc in dbcs {
+            self = self.add_input_dbc_bearer(dbc.borrow())?;
         }
         Ok(self)
     }
