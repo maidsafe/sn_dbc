@@ -427,7 +427,7 @@ fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>)
     Ok(())
 }
 
-/// handles decode command.  
+/// handles decode command.
 fn decode_input() -> Result<()> {
     let t = readline_prompt(
         "\n[d: DBC, rt: RingCtTransaction, pks: PublicKeySet, sks: SecretKeySet]\nType: ",
@@ -509,14 +509,14 @@ fn decode_input() -> Result<()> {
 fn print_logo() {
     println!(
         r#"
- __     _                        
-(_  _._|__  |\ | __|_     _ ._|  
-__)(_| |(/_ | \|(/_|_\/\/(_)| |< 
- ____  ____   ____   __  __ _       _   
-|  _ \| __ ) / ___| |  \/  (_)_ __ | |_ 
+ __     _
+(_  _._|__  |\ | __|_     _ ._|
+__)(_| |(/_ | \|(/_|_\/\/(_)| |<
+ ____  ____   ____   __  __ _       _
+|  _ \| __ ) / ___| |  \/  (_)_ __ | |_
 | | | |  _ \| |     | |\/| | | '_ \| __|
-| |_| | |_) | |___  | |  | | | | | | |_ 
-|____/|____/ \____| |_|  |_|_|_| |_|\__|        
+| |_| | |_) | |___  | |  | | | | | | |_
+|____/|____/ \____| |_|  |_|_|_| |_|\__|
   "#
     );
 }

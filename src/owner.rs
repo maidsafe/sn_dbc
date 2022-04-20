@@ -139,7 +139,7 @@ impl From<OwnerOnce> for Owner {
 /// The one-time-use Owner key(pair) is derived from a reusable
 /// base Owner key(pair) using the DerivationIndex.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OwnerOnce {
     pub owner_base: Owner,
     pub derivation_index: DerivationIndex,
