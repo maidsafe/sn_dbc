@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [3.1.0](https://github.com/maidsafe/sn_dbc/compare/v3.0.1...v3.1.0) (2022-04-20)
+
+
+### Features
+
+* **api:** decouple the verification of Tx and spentproofs from DbcBuilder::build ([918b076](https://github.com/maidsafe/sn_dbc/commit/918b076050670a3c3c1103ad967ce574c7d98e22))
+
 ### [3.0.1](https://github.com/maidsafe/sn_dbc/compare/v3.0.0...v3.0.1) (2022-04-19)
 
 ## [3.0.0](https://github.com/maidsafe/sn_dbc/compare/v2.18.0...v3.0.0) (2022-04-08)
