@@ -387,7 +387,7 @@ impl DbcBuilder {
         self
     }
 
-    /// Build the output DBCs
+    /// Build the output DBCs, verifying the transaction and spentproofs.
     ///
     /// see TransactionVerifier::verify() for a description of
     /// verifier requirements.
@@ -401,6 +401,21 @@ impl DbcBuilder {
         // note that we do this just once for entire Tx, not once per output Dbc.
         TransactionVerifier::verify(verifier, &self.transaction, &spent_proofs)?;
 
+        // build output DBCs
+        self.build_output_dbcs(spent_proofs)
+    }
+
+    /// Build the output DBCs (no verification over Tx or spentproof is performed).
+    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
+        let spent_proofs = self.spent_proofs()?;
+        self.build_output_dbcs(spent_proofs)
+    }
+
+    // Private helper to build output DBCs
+    fn build_output_dbcs(
+        self,
+        spent_proofs: BTreeSet<SpentProof>,
+    ) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
         let pc_gens = PedersenGens::default();
         let output_commitments: Vec<(Commitment, RevealedCommitment)> = self
             .revealed_commitments
