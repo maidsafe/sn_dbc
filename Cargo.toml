@@ -15,6 +15,7 @@ ringct-serde = [ "bls_ringct/serde" ]
 mock = [ ]
 
 [dependencies]
+bincode = "1.3.3"
 blsttc = "5.2.0"
 bls_ringct = "0.2.0"
 hex = "0.4.3"
@@ -31,7 +32,6 @@ thiserror = "1.0.24"
 
 [dev-dependencies]
 anyhow = "1.0.40"
-bincode = "1.3.3"
 criterion = "0.3.5"
 quickcheck_macros = "1"
 quickcheck = "1.0.3"
