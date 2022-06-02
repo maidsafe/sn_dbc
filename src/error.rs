@@ -72,6 +72,12 @@ pub enum Error {
     #[error("Secret key does not match public key")]
     SecretKeyDoesNotMatchPublicKey,
 
+    #[error("Could not deserialize specified hex string to a DBC: {0}")]
+    HexDeserializationFailed(String),
+
+    #[error("Could not serialize DBC to hex: {0}")]
+    HexSerializationFailed(String),
+
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 
