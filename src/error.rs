@@ -78,6 +78,9 @@ pub enum Error {
     #[error("Could not serialize DBC to hex: {0}")]
     HexSerializationFailed(String),
 
+    #[error("Could not convert owned DBC to bearer: {0}")]
+    DbcBearerConversionFailed(String),
+
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 

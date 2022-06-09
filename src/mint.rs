@@ -446,7 +446,7 @@ mod tests {
         let output_amount = 1000;
 
         let (mut spentbook, genesis_dbc, starting_dbc, _change_dbc) =
-            crate::dbc::tests::generate_dbc_of_value(output_amount, &mut rng)?;
+            crate::dbc::tests::generate_bearer_dbc_of_value(output_amount, &mut rng)?;
 
         // ----------
         // 2. spend genesis DBC (a) to Dbc (b)  with value 1000.
