@@ -236,6 +236,27 @@ impl Dbc {
         Ok(hex::encode(serialized))
     }
 
+    /// Convert this instance from owned to bearer by supplying the secret key for the
+    /// corresponding public key.
+    ///
+    /// Will return an error if this instance is already bearer or if the supplied secret key
+    /// doesn't match the public key.
+    pub fn to_bearer(&mut self, base_sk: &SecretKey) -> Result<(), Error> {
+        if self.is_bearer() {
+            return Err(Error::DbcBearerConversionFailed(
+                "this DBC is already bearer".to_string(),
+            ));
+        }
+        if base_sk.public_key() != self.owner_base().public_key() {
+            return Err(Error::DbcBearerConversionFailed(
+                "supplied secret key does not match the public key".to_string(),
+            ));
+        }
+        let owner = Owner::from(base_sk.clone());
+        self.content.owner_base = owner;
+        Ok(())
+    }
+
     /// Checks if the provided AmountSecrets matches the amount commitment.
     /// note that both the amount and blinding_factor must be correct.
     ///
@@ -288,6 +309,8 @@ pub(crate) mod tests {
         SpentProofContent,
     };
     use bls_ringct::{bls_bulletproofs::PedersenGens, ringct::RingCtMaterial, Output};
+    use blsttc::PublicKey;
+    use std::convert::TryInto;
 
     fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
         (0..n_ways).into_iter().map(move |i| {
@@ -371,6 +394,60 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn to_bearer_should_convert_an_owned_dbc_to_bearer() -> Result<(), Error> {
+        let mut rng = crate::rng::from_seed([0u8; 32]);
+        let (_, _, mut dbc, _) = generate_owned_dbc_of_value(
+            100,
+            "a7f2888a4ef621681eb8df4318ebe8c68504b50a33300e113466004de48834a3a0\
+            eab591077e173ec7f2e4e1261a6a98",
+            &mut rng,
+        )?;
+        let sk = get_secret_key_from_hex(
+            "d823b03be25ad306ce2c2ef8f67d8a49322ed2a8636de5dbf01f6cc3467dc91e",
+        )?;
+        dbc.to_bearer(&sk)?;
+        assert!(dbc.is_bearer());
+        Ok(())
+    }
+
+    #[test]
+    fn to_bearer_should_error_if_dbc_is_already_bearer() -> Result<(), Error> {
+        let mut rng = crate::rng::from_seed([0u8; 32]);
+        let (_, _, mut dbc, _) = generate_bearer_dbc_of_value(100, &mut rng)?;
+        let sk = get_secret_key_from_hex(
+            "d823b03be25ad306ce2c2ef8f67d8a49322ed2a8636de5dbf01f6cc3467dc91e",
+        )?;
+        let result = dbc.to_bearer(&sk);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Could not convert owned DBC to bearer: this DBC is already bearer"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn to_bearer_should_error_if_secret_key_does_not_match_public_key() -> Result<(), Error> {
+        let mut rng = crate::rng::from_seed([0u8; 32]);
+        let (_, _, mut dbc, _) = generate_owned_dbc_of_value(
+            100,
+            "a14a1887c61f95d5bdf6d674da3032dad77f2168fe6bf5e282aa02394bd45f41f0\
+            fe722b61fa94764da42a9b628701db",
+            &mut rng,
+        )?;
+        let sk = get_secret_key_from_hex(
+            "d823b03be25ad306ce2c2ef8f67d8a49322ed2a8636de5dbf01f6cc3467dc91e",
+        )?;
+        let result = dbc.to_bearer(&sk);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Could not convert owned DBC to bearer: supplied secret key does not match the public key"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_dbc_without_inputs_fails_verification() -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
         let amount = 100;
@@ -442,7 +519,7 @@ pub(crate) mod tests {
         // we add extra_output_amount to amount, which would otherwise
         // cause an integer overflow.
         let (mut spentbook_node, _genesis_dbc, starting_dbc, _change_dbc) =
-            generate_dbc_of_value(amount, &mut rng)?;
+            generate_bearer_dbc_of_value(amount, &mut rng)?;
 
         let input_owners: Vec<OwnerOnce> = (0..n_inputs.coerce())
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng))
@@ -679,8 +756,35 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    pub(crate) fn generate_dbc_of_value(
+    pub(crate) fn generate_bearer_dbc_of_value(
         amount: Amount,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
+        generate_dbc_of_value(amount, Owner::from_random_secret_key(rng), rng)
+    }
+
+    pub(crate) fn generate_owned_dbc_of_value(
+        amount: Amount,
+        pk_hex: &str,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
+        let pk_bytes =
+            hex::decode(pk_hex).map_err(|e| Error::HexDeserializationFailed(e.to_string()))?;
+        let pk_bytes: [u8; blsttc::PK_SIZE] = pk_bytes.try_into().unwrap_or_else(|v: Vec<u8>| {
+            panic!(
+                "Expected vec of length {} but received vec of length {}",
+                blsttc::PK_SIZE,
+                v.len()
+            )
+        });
+        let pk = PublicKey::from_bytes(pk_bytes)?;
+        let owner = Owner::from(pk);
+        generate_dbc_of_value(amount, owner, rng)
+    }
+
+    fn generate_dbc_of_value(
+        amount: Amount,
+        owner: Owner,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
         let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
@@ -694,12 +798,11 @@ pub(crate) mod tests {
                 genesis_dbc.owner_once_bearer()?.secret_key()?,
                 genesis_dbc.amount_secrets_bearer()?,
             )
-            .add_outputs_by_amount(output_amounts.into_iter().map(|amount| {
-                (
-                    amount,
-                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng), rng),
-                )
-            }))
+            .add_outputs_by_amount(
+                output_amounts
+                    .into_iter()
+                    .map(|amount| (amount, OwnerOnce::from_owner_base(owner.clone(), rng))),
+            )
             .build(rng)?;
 
         for (key_image, tx) in dbc_builder.inputs() {
@@ -712,5 +815,20 @@ pub(crate) mod tests {
         let (change_dbc, ..) = iter.next().unwrap();
 
         Ok((spentbook_node, genesis_dbc, starting_dbc, change_dbc))
+    }
+
+    fn get_secret_key_from_hex(sk_hex: &str) -> Result<SecretKey, Error> {
+        let sk_bytes =
+            hex::decode(sk_hex).map_err(|e| Error::HexDeserializationFailed(e.to_string()))?;
+        let mut sk_bytes: [u8; blsttc::SK_SIZE] =
+            sk_bytes.try_into().unwrap_or_else(|v: Vec<u8>| {
+                panic!(
+                    "Expected vec of length {} but received vec of length {}",
+                    blsttc::SK_SIZE,
+                    v.len()
+                )
+            });
+        sk_bytes.reverse();
+        Ok(SecretKey::from_bytes(sk_bytes)?)
     }
 }
