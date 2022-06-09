@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [3.3.0](https://github.com/maidsafe/sn_dbc/compare/v3.2.1...v3.3.0) (2022-06-09)
+
+
+### Features
+
+* convert owned dbc to bearer ([40a1775](https://github.com/maidsafe/sn_dbc/commit/40a1775b6b244478ffc2c72e4c4abbd0937c45f8))
+
 ### [3.2.1](https://github.com/maidsafe/sn_dbc/compare/v3.2.0...v3.2.1) (2022-06-03)
 
 ## [3.2.0](https://github.com/maidsafe/sn_dbc/compare/v3.1.2...v3.2.0) (2022-06-02)
