@@ -9,13 +9,9 @@ use thiserror::Error;
 
 use crate::KeyImage;
 
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-
 /// Specialisation of `std::Result`.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[allow(clippy::large_enum_variant)]
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
@@ -91,7 +87,6 @@ pub enum Error {
     #[error("mock object error")]
     Mock(#[from] crate::mock::Error),
 
-    #[cfg_attr(feature = "serde", serde(skip))]
     #[error("Infallible.  Can never fail")]
     Infallible(#[from] std::convert::Infallible),
 }
