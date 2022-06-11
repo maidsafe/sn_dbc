@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [4.0.0](https://github.com/maidsafe/sn_dbc/compare/v3.3.0...v4.0.0) (2022-06-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* a change from the blsttc release cascades here to require the error type to remove
+derivation from `Serialize` and `Deserialize`.
+
+This release includes some utilities for converting keys to and from hex, which I have been making
+use of in work related to owned DBCs.
+
+* update blsttc to 6.0.0 ([f5fddba](https://github.com/maidsafe/sn_dbc/commit/f5fddba49974c073eff8bd0dd75e5f6eafb850b1))
+
 ## [3.3.0](https://github.com/maidsafe/sn_dbc/compare/v3.2.1...v3.3.0) (2022-06-09)
 
 
