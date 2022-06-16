@@ -714,8 +714,10 @@ pub(crate) mod tests {
                 assert_eq!(dbc_amount, amount);
                 assert_eq!(extra_output_amount.coerce::<u8>(), 0);
             }
-            Err(Error::SpentProofInputLenMismatch) => {
+            Err(Error::SpentProofInputLenMismatch { current, expected }) => {
                 assert_ne!(dbc.spent_proofs.len(), dbc.transaction.mlsags.len());
+                assert_eq!(dbc.spent_proofs.len(), current);
+                assert_eq!(dbc.transaction.mlsags.len(), expected);
             }
             Err(Error::SpentProofInputKeyImageMismatch) => {
                 assert!(n_extra_input_sigs.coerce::<u8>() > 0);

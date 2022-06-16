@@ -239,8 +239,9 @@ mod tests {
         // a couple places.
         let check_error = |error: Error| -> Result<()> {
             match error {
-                Error::SpentProofInputLenMismatch => {
+                Error::SpentProofInputLenMismatch { expected, .. } => {
                     assert!(!invalid_spent_proofs.is_empty());
+                    assert_eq!(inputs_dbcs.len(), expected);
                 }
                 Error::SpentProofInputKeyImageMismatch => {
                     assert!(!invalid_spent_proofs.is_empty());
