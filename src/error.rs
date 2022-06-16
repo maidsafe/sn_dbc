@@ -38,8 +38,10 @@ pub enum Error {
     #[error("public key is not unique across all transaction outputs")]
     PublicKeyNotUniqueAcrossOutputs,
 
-    #[error("The number of SpentProof does not match the number of input MlsagSignature")]
-    SpentProofInputLenMismatch,
+    #[error(
+        "The number of SpentProof ({current}) does not match the number of input MlsagSignature ({expected})"
+    )]
+    SpentProofInputLenMismatch { current: usize, expected: usize },
 
     #[error("A SpentProof KeyImage does not match an MlsagSignature KeyImage")]
     SpentProofInputKeyImageMismatch,

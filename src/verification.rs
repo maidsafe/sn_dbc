@@ -35,7 +35,10 @@ impl TransactionVerifier {
         spent_proofs: &BTreeSet<SpentProof>,
     ) -> Result<(), Error> {
         if spent_proofs.len() != transaction.mlsags.len() {
-            return Err(Error::SpentProofInputLenMismatch);
+            return Err(Error::SpentProofInputLenMismatch {
+                current: spent_proofs.len(),
+                expected: transaction.mlsags.len(),
+            });
         }
 
         let transaction_hash = Hash::from(transaction.hash());
