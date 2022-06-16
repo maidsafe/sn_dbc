@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [5.0.0](https://github.com/maidsafe/sn_dbc/compare/v4.0.0...v5.0.0) (2022-06-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **errors:** additional context information to Error::SpentProofInputLenMismatch
+
+### Features
+
+* **errors:** additional context information to Error::SpentProofInputLenMismatch ([3e291d7](https://github.com/maidsafe/sn_dbc/commit/3e291d734d9a21f7a54dc68d4cec80afe42143df))
+
 ## [4.0.0](https://github.com/maidsafe/sn_dbc/compare/v3.3.0...v4.0.0) (2022-06-11)
 
 
