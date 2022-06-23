@@ -313,10 +313,8 @@ impl TransactionBuilder {
             ));
         }
 
-        // Grand finale!  sign the ringct_material to generate a Tx.
-        let result: Result<(RingCtTransaction, Vec<RevealedCommitment>)> =
-            ringct_material.sign(rng).map_err(|e| e.into());
-        let (transaction, revealed_commitments) = result?;
+        // Grand finale! sign the ringct_material to generate a Tx.
+        let (transaction, revealed_commitments) = ringct_material.sign(rng)?;
 
         Ok(DbcBuilder::new(
             transaction,
@@ -337,6 +335,7 @@ pub struct DbcBuilder {
     pub ringct_material: RingCtMaterial,
 
     pub spent_proof_shares: BTreeMap<KeyImage, HashSet<SpentProofShare>>,
+    pub spent_transactions: Vec<RingCtTransaction>,
 }
 
 impl DbcBuilder {
@@ -351,8 +350,9 @@ impl DbcBuilder {
             transaction,
             revealed_commitments,
             output_owner_map,
-            spent_proof_shares: Default::default(),
             ringct_material,
+            spent_proof_shares: Default::default(),
+            spent_transactions: Vec::default(),
         }
     }
 
@@ -387,6 +387,12 @@ impl DbcBuilder {
         self
     }
 
+    /// Add a transaction which spent one of the inputs
+    pub fn add_spent_transaction(mut self, spent_tx: RingCtTransaction) -> Self {
+        self.spent_transactions.push(spent_tx);
+        self
+    }
+
     /// Build the output DBCs, verifying the transaction and spentproofs.
     ///
     /// see TransactionVerifier::verify() for a description of
@@ -400,6 +406,15 @@ impl DbcBuilder {
         // verify the Tx, along with spent proofs.
         // note that we do this just once for entire Tx, not once per output Dbc.
         TransactionVerifier::verify(verifier, &self.transaction, &spent_proofs)?;
+
+        // verify there is a maching spent transaction for each spent_proof
+        if !spent_proofs.iter().all(|proof| {
+            self.spent_transactions
+                .iter()
+                .any(|tx| Hash::from(tx.hash()) == proof.transaction_hash())
+        }) {
+            return Err(Error::MissingSpentTransaction);
+        }
 
         // build output DBCs
         self.build_output_dbcs(spent_proofs)
@@ -456,6 +471,7 @@ impl DbcBuilder {
                     )),
                     transaction: self.transaction.clone(),
                     spent_proofs: spent_proofs.clone(),
+                    spent_transactions: self.spent_transactions.clone(),
                 };
                 (dbc, owner_once.clone(), amount_secrets_list[0].clone())
             })

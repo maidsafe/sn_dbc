@@ -91,7 +91,9 @@ mod tests {
                 Ok(s) => s,
                 Err(e) => return check_error(e),
             };
-            dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
+            dbc_builder = dbc_builder
+                .add_spent_proof_share(spent_proof_share)
+                .add_spent_transaction(tx);
         }
         let output_dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
 
@@ -200,7 +202,9 @@ mod tests {
                     Ok(s) => s,
                     Err(e) => return check_tx_error(e),
                 };
-            dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
+            dbc_builder = dbc_builder
+                .add_spent_proof_share(spent_proof_share)
+                .add_spent_transaction(tx);
         }
 
         let output_dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
@@ -320,7 +324,9 @@ mod tests {
                 }
             };
 
-            dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
+            dbc_builder = dbc_builder
+                .add_spent_proof_share(spent_proof_share)
+                .add_spent_transaction(tx);
         }
 
         let many_to_many_result = dbc_builder.build(&spentbook_node.key_manager);
@@ -466,8 +472,9 @@ mod tests {
             .build(&mut rng)?;
 
         for (key_image, tx) in dbc_builder.inputs() {
-            dbc_builder =
-                dbc_builder.add_spent_proof_share(spentbook.log_spent(key_image, tx.clone())?);
+            dbc_builder = dbc_builder
+                .add_spent_proof_share(spentbook.log_spent(key_image, tx.clone())?)
+                .add_spent_transaction(tx);
         }
 
         // build output DBCs
@@ -564,8 +571,11 @@ mod tests {
         // normally spentbook verifies the tx, but here we skip it in order to obtain
         // a spentproof with an invalid tx.
         for (key_image, tx) in dbc_builder_fudged.inputs() {
-            let spent_proof_share = spentbook.log_spent_and_skip_tx_verification(key_image, tx)?;
-            dbc_builder_fudged = dbc_builder_fudged.add_spent_proof_share(spent_proof_share);
+            let spent_proof_share =
+                spentbook.log_spent_and_skip_tx_verification(key_image, tx.clone())?;
+            dbc_builder_fudged = dbc_builder_fudged
+                .add_spent_proof_share(spent_proof_share)
+                .add_spent_transaction(tx);
         }
 
         // The builder should give an error because the sum(inputs) does not equal sum(outputs)
@@ -643,8 +653,10 @@ mod tests {
         )?;
 
         for (key_image, tx) in dbc_builder_true.inputs() {
-            let spent_proof_share = new_spentbook.log_spent(key_image, tx)?;
-            dbc_builder_true = dbc_builder_true.add_spent_proof_share(spent_proof_share);
+            let spent_proof_share = new_spentbook.log_spent(key_image, tx.clone())?;
+            dbc_builder_true = dbc_builder_true
+                .add_spent_proof_share(spent_proof_share)
+                .add_spent_transaction(tx);
         }
 
         // Now that the SpentBook is correct, we have a valid spent_proof_share

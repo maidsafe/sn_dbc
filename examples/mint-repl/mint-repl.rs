@@ -683,6 +683,7 @@ fn write_to_spentbook(mintinfo: &mut MintInfo, mut dbc_builder: DbcBuilder) -> R
             dbc_builder =
                 dbc_builder.add_spent_proof_share(sb_node.log_spent(key_image, tx.clone())?);
         }
+        dbc_builder = dbc_builder.add_spent_transaction(tx);
     }
     Ok(dbc_builder)
 }
