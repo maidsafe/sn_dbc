@@ -118,7 +118,7 @@ impl SpentProofShare {
         &self.spentbook_pks
     }
 
-    /// represent this SpentProofContent as bytes
+    /// represent this SpentProofShare as bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = self.content.to_bytes();
 

@@ -99,6 +99,7 @@ impl GenesisBuilder {
                 dbc_builder = dbc_builder
                     .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?);
             }
+            dbc_builder = dbc_builder.add_spent_transaction(tx);
         }
 
         // note: for our (mock) purposes, all spentbook nodes are verified to
