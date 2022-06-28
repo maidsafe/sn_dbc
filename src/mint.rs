@@ -16,9 +16,8 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::{
-        mock, Amount, AmountSecrets, Dbc, DbcContent, Error, GenesisMaterial,
-        IndexedSignatureShare, KeyImage, Owner, OwnerOnce, Result, SpentProofContent,
-        SpentProofShare, TransactionBuilder,
+        mock, Amount, AmountSecrets, Dbc, DbcContent, Error, IndexedSignatureShare, KeyImage,
+        Owner, OwnerOnce, Result, SpentProofContent, SpentProofShare, TransactionBuilder,
     };
 
     #[test]
@@ -44,7 +43,7 @@ mod tests {
         let mut output_amounts =
             Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
         output_amounts
-            .push(GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<Amount>());
+            .push(mock::GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<Amount>());
 
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
@@ -146,12 +145,13 @@ mod tests {
 
         let mut input_amounts =
             Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<Amount>));
-        input_amounts.push(GenesisMaterial::GENESIS_AMOUNT - input_amounts.iter().sum::<Amount>());
+        input_amounts
+            .push(mock::GenesisMaterial::GENESIS_AMOUNT - input_amounts.iter().sum::<Amount>());
 
         let mut output_amounts =
             Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
         output_amounts
-            .push(GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<Amount>());
+            .push(mock::GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<Amount>());
 
         let invalid_spent_proofs = BTreeSet::from_iter(
             invalid_spent_proofs
@@ -253,7 +253,7 @@ mod tests {
                 Error::RingCt(
                     bls_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
-                    if GenesisMaterial::GENESIS_AMOUNT == output_total_amount {
+                    if mock::GenesisMaterial::GENESIS_AMOUNT == output_total_amount {
                         // This can correctly occur if there are 0 outputs and inputs sum to zero.
                         //
                         // The error occurs because there is no output with a commitment
@@ -333,7 +333,7 @@ mod tests {
 
         match many_to_many_result {
             Ok(output_dbcs) => {
-                assert_eq!(GenesisMaterial::GENESIS_AMOUNT, output_total_amount);
+                assert_eq!(mock::GenesisMaterial::GENESIS_AMOUNT, output_total_amount);
                 assert!(invalid_spent_proofs.iter().all(|i| i >= &tx2.mlsags.len()));
 
                 // The output amounts (from params) should correspond to the actual output_amounts

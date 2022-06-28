@@ -143,7 +143,7 @@ fn generate_dbc_of_value(
     let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
         mock::GenesisBuilder::init_genesis_single(rng)?;
 
-    let output_amounts = vec![amount, sn_dbc::GenesisMaterial::GENESIS_AMOUNT - amount];
+    let output_amounts = vec![amount, mock::GenesisMaterial::GENESIS_AMOUNT - amount];
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .set_require_all_decoys(false) // no decoys!

@@ -8,12 +8,14 @@
 
 mod error;
 mod genesis_builder;
+mod genesis_material;
 mod key_manager;
 mod spentbook;
 
 pub use self::{
     error::Error,
     genesis_builder::GenesisBuilder,
+    genesis_material::GenesisMaterial,
     key_manager::{KeyManager, Signer},
     spentbook::SpentBookNode,
 };

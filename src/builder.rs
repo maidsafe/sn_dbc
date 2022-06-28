@@ -335,7 +335,7 @@ pub struct DbcBuilder {
     pub ringct_material: RingCtMaterial,
 
     pub spent_proof_shares: BTreeMap<KeyImage, HashSet<SpentProofShare>>,
-    pub spent_transactions: Vec<RingCtTransaction>,
+    pub spent_transactions: BTreeMap<Hash, RingCtTransaction>,
 }
 
 impl DbcBuilder {
@@ -352,7 +352,7 @@ impl DbcBuilder {
             output_owner_map,
             ringct_material,
             spent_proof_shares: Default::default(),
-            spent_transactions: Vec::default(),
+            spent_transactions: Default::default(),
         }
     }
 
@@ -389,7 +389,10 @@ impl DbcBuilder {
 
     /// Add a transaction which spent one of the inputs
     pub fn add_spent_transaction(mut self, spent_tx: RingCtTransaction) -> Self {
-        self.spent_transactions.push(spent_tx);
+        let tx_hash = Hash::from(spent_tx.hash());
+        self.spent_transactions
+            .entry(tx_hash)
+            .or_insert_with(|| spent_tx);
         self
     }
 
@@ -410,8 +413,7 @@ impl DbcBuilder {
         // verify there is a maching spent transaction for each spent_proof
         if !spent_proofs.iter().all(|proof| {
             self.spent_transactions
-                .iter()
-                .any(|tx| Hash::from(tx.hash()) == proof.transaction_hash())
+                .contains_key(&proof.transaction_hash())
         }) {
             return Err(Error::MissingSpentTransaction);
         }
@@ -471,7 +473,7 @@ impl DbcBuilder {
                     )),
                     transaction: self.transaction.clone(),
                     spent_proofs: spent_proofs.clone(),
-                    spent_transactions: self.spent_transactions.clone(),
+                    spent_transactions: self.spent_transactions.values().cloned().collect(),
                 };
                 (dbc, owner_once.clone(), amount_secrets_list[0].clone())
             })
