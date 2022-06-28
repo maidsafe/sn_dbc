@@ -6,10 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use super::GenesisMaterial;
 use crate::{
     mock,
     rand::{CryptoRng, RngCore},
-    Amount, AmountSecrets, Dbc, GenesisMaterial, KeyManager, Result, TransactionBuilder,
+    Amount, AmountSecrets, Dbc, KeyManager, Result, TransactionBuilder,
 };
 use blsttc::SecretKeySet;
 

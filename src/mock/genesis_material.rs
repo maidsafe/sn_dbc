@@ -1,3 +1,11 @@
+// Copyright 2022 MaidSafe.net limited.
+//
+// This SAFE Network Software is licensed to you under The General Public License (GPL), version 3.
+// Unless required by applicable law or agreed to in writing, the SAFE Network Software distributed
+// under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. Please review the Licences for the specific language governing
+// permissions and limitations relating to use of the SAFE Network Software.
+
 use crate::{Amount, KeyImage, Owner, OwnerOnce};
 use bls_ringct::{
     blstrs::Scalar,
@@ -17,31 +25,23 @@ pub struct GenesisMaterial {
 
 impl GenesisMaterial {
     /// The Genesis DBC will mint all possible tokens.
-    pub const GENESIS_AMOUNT: Amount = 18446744073709551615; // aka 2^64 aka Amount::MAX
+    pub const GENESIS_AMOUNT: Amount = Amount::MAX; // aka 2^64
 }
 
 impl Default for GenesisMaterial {
     /// generate the GenesisMaterial.
     ///
-    /// It is allowed to pass in an amount for local testing purposes.
-    /// However, to participate on a public network (mainnet, testnet)
-    /// one must use GenesisMaterial::STD_GENESIS_AMOUNT
-    ///
-    /// todo: implement Network enum {Mainnet, Testnet, ...}
+    /// It uses GenesisMaterial::GENESIS_AMOUNT by default
     fn default() -> Self {
         // Make a secret key for the input of Genesis Tx. (fictional Dbc)
         // note that this represents the one-time-use key.
         // (we have no need for the base key)
-        // The seed is an homage to bitcoin.  block 0 timestamp (utc).
-        let input_sk_seed: u64 = 1231006505;
+        let input_sk_seed: u64 = 1234567890;
         let input_sk = blsttc::SecretKey::from_mut(&mut input_sk_seed.into_fr());
 
         // Make a secret key for the output of Genesis Tx. (The Genesis Dbc)
         // note that this represents the base key, from which one-time-use key is derived.
-        // The seed is an homage to monero.  block 1 timestamp (utc).
-        // We do not use the block 0 timestamp because it is 0 (1970) which is boring!
-        let output_sk_seed: u64 = 1397843393;
-        let output_sk = blsttc::SecretKey::from_mut(&mut output_sk_seed.into_fr());
+        let output_sk = blsttc::SecretKey::random();
 
         // OwnerOnce ties together the base key and one-time-use key.
         let output_owner_once = OwnerOnce {
@@ -58,7 +58,7 @@ impl Default for GenesisMaterial {
             input_sk,
             RevealedCommitment {
                 value: Self::GENESIS_AMOUNT,
-                blinding: 1776.into(), // freedom baby!
+                blinding: 1000.into(), // just a random number
             },
         );
 
@@ -75,7 +75,7 @@ impl Default for GenesisMaterial {
             r: vec![(Scalar::default(), Scalar::default())],
         };
 
-        // onward to RingCtMaterial
+        // build the genesis RingCtMaterial
         let ringct_material = RingCtMaterial {
             inputs: vec![mlsag_material],
             outputs: vec![Output::new(
@@ -84,7 +84,6 @@ impl Default for GenesisMaterial {
             )],
         };
 
-        // Voila!
         Self {
             ringct_material,
             owner_once: output_owner_once,

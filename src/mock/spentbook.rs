@@ -15,11 +15,11 @@ use bls_ringct::{
 use blsttc::PublicKey;
 use std::collections::{BTreeMap, HashMap};
 
+use super::GenesisMaterial;
 use crate::{
     mock,
     rand::{prelude::IteratorRandom, RngCore},
-    Commitment, GenesisMaterial, Hash, KeyImage, KeyManager, Result, SpentProofContent,
-    SpentProofShare,
+    Commitment, Hash, KeyImage, KeyManager, Result, SpentProofContent, SpentProofShare,
 };
 
 /// This is a mock SpentBook used for our test cases. A proper implementation

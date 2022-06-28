@@ -72,7 +72,7 @@ pub struct Dbc {
     pub content: DbcContent,
     pub transaction: RingCtTransaction,
     pub spent_proofs: BTreeSet<SpentProof>,
-    pub spent_transactions: Vec<RingCtTransaction>,
+    pub spent_transactions: BTreeSet<RingCtTransaction>,
 }
 
 impl Dbc {
@@ -321,8 +321,7 @@ pub(crate) mod tests {
     use crate::{
         mock,
         rand::{CryptoRng, RngCore},
-        Amount, AmountSecrets, DbcBuilder, GenesisMaterial, Hash, Owner, OwnerOnce,
-        SpentProofContent,
+        Amount, AmountSecrets, DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent,
     };
     use bls_ringct::{bls_bulletproofs::PedersenGens, ringct::RingCtMaterial, Output};
     use blsttc::PublicKey;
@@ -702,7 +701,7 @@ pub(crate) mod tests {
             }
         }
 
-        let spent_transactions = dbc_builder.spent_transactions.clone();
+        let spent_transactions = dbc_builder.spent_transactions.values().cloned().collect();
         let dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
         let (dbc_valid, ..) = &dbcs[0];
 
@@ -814,7 +813,7 @@ pub(crate) mod tests {
         let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
             mock::GenesisBuilder::init_genesis_single(rng)?;
 
-        let output_amounts = vec![amount, GenesisMaterial::GENESIS_AMOUNT - amount];
+        let output_amounts = vec![amount, mock::GenesisMaterial::GENESIS_AMOUNT - amount];
 
         let mut dbc_builder = crate::TransactionBuilder::default()
             .set_require_all_decoys(false)
