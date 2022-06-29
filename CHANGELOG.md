@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [6.0.0](https://github.com/maidsafe/sn_dbc/compare/v5.0.0...v6.0.0) (2022-06-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* changes in the API due to Dbc struct change, but also due
+to moving GenesisMaterial to the mock/exmaple mod as it's not needed in public API.
+* embed the transaction which spent the inputs within the Dbc struct
+
+### Features
+
+* embed the transaction which spent the inputs within the Dbc struct ([7db1874](https://github.com/maidsafe/sn_dbc/commit/7db18742a985268ee850acbc904795e87971b892))
+
+
+* keeping spent transactions within Dbc in a set rather than a vec ([861288a](https://github.com/maidsafe/sn_dbc/commit/861288a431cb069698df7389aff7043bd6ec64bf))
+
 ## [5.0.0](https://github.com/maidsafe/sn_dbc/compare/v4.0.0...v5.0.0) (2022-06-16)
 
 
