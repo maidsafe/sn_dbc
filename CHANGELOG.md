@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [7.0.0](https://github.com/maidsafe/sn_dbc/compare/v6.0.0...v7.0.0) (2022-07-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* simplifying spent proofs and TX verification public APIs
+
+### Features
+
+* simplifying spent proofs and TX verification public APIs ([e4ec6ce](https://github.com/maidsafe/sn_dbc/commit/e4ec6ce4f94bd9e7167b41fa52bdb84ef5996807))
+
 ## [6.0.0](https://github.com/maidsafe/sn_dbc/compare/v5.0.0...v6.0.0) (2022-06-29)
 
 
