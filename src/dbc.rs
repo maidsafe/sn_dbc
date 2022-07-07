@@ -7,8 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    AmountSecrets, DbcContent, DerivationIndex, Error, Hash, KeyImage, KeyManager, Owner, Result,
-    SpentProof, TransactionVerifier,
+    AmountSecrets, DbcContent, DerivationIndex, Error, Hash, KeyImage, Owner, Result, SpentProof,
+    SpentProofKeyVerifier, TransactionVerifier,
 };
 use bls_ringct::{
     group::Curve,
@@ -200,7 +200,11 @@ impl Dbc {
     ///
     /// see comments for Dbc::verify_amount_matches_commitment() for a
     /// description of how to handle Error::AmountCommitmentsDoNotMatch
-    pub fn verify<K: KeyManager>(&self, base_sk: &SecretKey, verifier: &K) -> Result<(), Error> {
+    pub fn verify<K: SpentProofKeyVerifier>(
+        &self,
+        base_sk: &SecretKey,
+        verifier: &K,
+    ) -> Result<(), Error> {
         TransactionVerifier::verify(verifier, &self.transaction, &self.spent_proofs)?;
 
         let owner = self.owner_once(base_sk)?.public_key();
@@ -228,7 +232,7 @@ impl Dbc {
 
     /// bearer version of verify()
     /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn verify_bearer<K: KeyManager>(&self, verifier: &K) -> Result<(), Error> {
+    pub fn verify_bearer<K: SpentProofKeyVerifier>(&self, verifier: &K) -> Result<(), Error> {
         self.verify(&self.owner_base().secret_key()?, verifier)
     }
 

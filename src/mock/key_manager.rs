@@ -74,19 +74,29 @@ impl From<Signer> for KeyManager {
     }
 }
 
-impl crate::KeyManager for KeyManager {
+impl crate::SpentProofKeyVerifier for KeyManager {
     type Error = crate::Error;
 
-    fn add_known_key(&mut self, key: PublicKey) -> Result<()> {
+    fn verify(&self, msg_hash: &Hash, key: &PublicKey, signature: &Signature) -> Result<()> {
+        self.cache.verify(msg_hash, key, signature)
+    }
+}
+
+impl KeyManager {
+    pub fn add_known_key(&mut self, key: PublicKey) -> Result<()> {
         self.cache.add_known_key(key);
         Ok(())
     }
 
-    fn public_key_set(&self) -> Result<PublicKeySet> {
+    pub fn public_key_set(&self) -> Result<PublicKeySet> {
         Ok(self.signer.public_key_set())
     }
 
-    fn sign_with_child_key(&self, index: &[u8], tx_hash: &Hash) -> Result<IndexedSignatureShare> {
+    pub fn sign_with_child_key(
+        &self,
+        index: &[u8],
+        tx_hash: &Hash,
+    ) -> Result<IndexedSignatureShare> {
         let child_signer = self.signer.derive_child(index);
         Ok(IndexedSignatureShare::new(
             child_signer.index(),
@@ -94,18 +104,14 @@ impl crate::KeyManager for KeyManager {
         ))
     }
 
-    fn sign(&self, msg_hash: &Hash) -> Result<IndexedSignatureShare> {
+    pub fn sign(&self, msg_hash: &Hash) -> Result<IndexedSignatureShare> {
         Ok(IndexedSignatureShare::new(
             self.signer.index(),
             self.signer.sign(msg_hash),
         ))
     }
 
-    fn verify(&self, msg_hash: &Hash, key: &PublicKey, signature: &Signature) -> Result<()> {
-        self.cache.verify(msg_hash, key, signature)
-    }
-
-    fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
+    pub fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
         self.cache.verify_known_key(key)
     }
 }

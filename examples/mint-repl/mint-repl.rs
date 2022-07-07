@@ -85,7 +85,7 @@ fn main() -> Result<()> {
     loop {
         match rl.readline(">> ") {
             Ok(line) => {
-                let mut args = line.trim().split_whitespace();
+                let mut args = line.split_whitespace();
                 let cmd = if let Some(cmd) = args.next() {
                     cmd
                 } else {

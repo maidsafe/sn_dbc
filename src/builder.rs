@@ -20,7 +20,7 @@ use std::{
 use crate::{
     rand::{CryptoRng, RngCore},
     AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, IndexedSignatureShare, KeyImage,
-    KeyManager, OwnerOnce, Result, SpentProof, SpentProofContent, SpentProofShare,
+    OwnerOnce, Result, SpentProof, SpentProofContent, SpentProofKeyVerifier, SpentProofShare,
     TransactionVerifier,
 };
 
@@ -400,7 +400,7 @@ impl DbcBuilder {
     ///
     /// see TransactionVerifier::verify() for a description of
     /// verifier requirements.
-    pub fn build<K: KeyManager>(
+    pub fn build<K: SpentProofKeyVerifier>(
         self,
         verifier: &K,
     ) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
@@ -410,7 +410,7 @@ impl DbcBuilder {
         // note that we do this just once for entire Tx, not once per output Dbc.
         TransactionVerifier::verify(verifier, &self.transaction, &spent_proofs)?;
 
-        // verify there is a maching spent transaction for each spent_proof
+        // verify there is a matching spent transaction for each spent_proof
         if !spent_proofs.iter().all(|proof| {
             self.spent_transactions
                 .contains_key(&proof.transaction_hash())
