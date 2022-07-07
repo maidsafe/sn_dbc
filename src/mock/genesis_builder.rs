@@ -10,7 +10,7 @@ use super::GenesisMaterial;
 use crate::{
     mock,
     rand::{CryptoRng, RngCore},
-    Amount, AmountSecrets, Dbc, KeyManager, Result, TransactionBuilder,
+    Amount, AmountSecrets, Dbc, Result, TransactionBuilder,
 };
 use blsttc::SecretKeySet;
 

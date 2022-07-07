@@ -7,8 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    Commitment, Error, Hash, IndexedSignatureShare, KeyImage, KeyManager, PublicKey, PublicKeySet,
-    Result, Signature,
+    Commitment, Error, Hash, KeyImage, PublicKey, PublicKeySet, Result, Signature, SignatureShare,
 };
 
 use std::cmp::Ordering;
@@ -58,6 +57,32 @@ impl PartialOrd for SpentProofContent {
 impl Ord for SpentProofContent {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key_image.cmp(&other.key_image)
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct IndexedSignatureShare {
+    index: u64,
+    signature_share: SignatureShare,
+}
+
+impl IndexedSignatureShare {
+    pub fn new(index: u64, signature_share: SignatureShare) -> Self {
+        Self {
+            index,
+            signature_share,
+        }
+    }
+
+    pub fn threshold_crypto(&self) -> (u64, &SignatureShare) {
+        (self.index, &self.signature_share)
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = self.index.to_le_bytes().to_vec();
+        bytes.extend(&self.signature_share.to_bytes());
+        bytes
     }
 }
 
@@ -128,6 +153,19 @@ impl SpentProofShare {
     }
 }
 
+/// For the spent proofs to verify, the caller must provide
+/// an implementation of this trait which must have/know
+/// the pubkey of the spentbook section that signed each of the proofs.
+pub trait SpentProofKeyVerifier {
+    type Error: std::error::Error;
+    fn verify(
+        &self,
+        msg_hash: &Hash,
+        key: &PublicKey,
+        signature: &Signature,
+    ) -> Result<(), Self::Error>;
+}
+
 /// SpentProof's are constructed when a DBC is logged to the spentbook.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -177,13 +215,17 @@ impl SpentProof {
     /// valid for this SpentProof.
     ///
     /// note that the verifier must already hold (trust) the spentbook's public key.
-    pub fn verify<K: KeyManager>(&self, tx_hash: Hash, verifier: &K) -> Result<()> {
+    pub fn verify<K: SpentProofKeyVerifier>(
+        &self,
+        tx_hash: Hash,
+        proof_key_verifier: &K,
+    ) -> Result<()> {
         // verify input tx_hash matches our tx_hash which was signed by spentbook.
         if tx_hash != self.content.transaction_hash {
             return Err(Error::InvalidTransactionHash);
         }
 
-        verifier
+        proof_key_verifier
             .verify(
                 &self.content.hash(),
                 &self.spentbook_pub_key,

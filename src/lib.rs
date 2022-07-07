@@ -14,7 +14,6 @@ mod builder;
 mod dbc;
 mod dbc_content;
 mod error;
-mod key_manager;
 mod mint;
 mod owner;
 mod spent_proof;
@@ -34,6 +33,8 @@ pub use blsttc;
 // this knowingly and pledge to uphold that promise.
 pub use bls_ringct::rand;
 
+pub use blsttc::{PublicKey, PublicKeySet, Signature, SignatureShare};
+
 pub use crate::{
     amount_secrets::{Amount, AmountSecrets},
     blst::{BlindingFactor, Commitment, KeyImage},
@@ -44,9 +45,11 @@ pub use crate::{
     dbc::Dbc,
     dbc_content::DbcContent,
     error::{Error, Result},
-    key_manager::{IndexedSignatureShare, KeyManager, PublicKey, PublicKeySet, Signature},
     owner::{DerivationIndex, Owner, OwnerOnce},
-    spent_proof::{SpentProof, SpentProofContent, SpentProofShare},
+    spent_proof::{
+        IndexedSignatureShare, SpentProof, SpentProofContent, SpentProofKeyVerifier,
+        SpentProofShare,
+    },
     verification::TransactionVerifier,
 };
 

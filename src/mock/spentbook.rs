@@ -19,7 +19,7 @@ use super::GenesisMaterial;
 use crate::{
     mock,
     rand::{prelude::IteratorRandom, RngCore},
-    Commitment, Hash, KeyImage, KeyManager, Result, SpentProofContent, SpentProofShare,
+    Commitment, Hash, KeyImage, Result, SpentProofContent, SpentProofShare,
 };
 
 /// This is a mock SpentBook used for our test cases. A proper implementation

@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Commitment, Error, Hash, KeyImage, KeyManager, Result, SpentProof};
+use crate::{Commitment, Error, Hash, KeyImage, Result, SpentProof, SpentProofKeyVerifier};
 use bls_ringct::ringct::RingCtTransaction;
 use std::collections::BTreeSet;
 
@@ -22,14 +22,14 @@ impl TransactionVerifier {
     /// Verifies a transaction including spent proofs.
     ///
     /// This function relies/assumes that the caller (wallet/client) obtains
-    /// the spentbook's public keys (held by KeyManager) in a
+    /// the spentbook's public keys (held by SpentProofKeyVerifier) in a
     /// trustless/verified way.  ie, the caller should not simply obtain keys
     /// from a SpentBookNode directly, but must somehow verify that the node is
     /// a valid authority.
     ///
     /// note: for spent_proofs to verify, the verifier must have/know the
     ///       public key of each spentbook section that recorded a tx input as spent.
-    pub fn verify<K: KeyManager>(
+    pub fn verify<K: SpentProofKeyVerifier>(
         verifier: &K,
         transaction: &RingCtTransaction,
         spent_proofs: &BTreeSet<SpentProof>,
