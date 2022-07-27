@@ -182,6 +182,38 @@ pub struct SpentProof {
 }
 
 impl SpentProof {
+    /// Attempts to build a SpentProof by combining a given set of proof shares
+    pub fn try_from_proof_shares<'a>(
+        key_image: KeyImage,
+        transaction_hash: Hash,
+        shares: impl Iterator<Item = &'a SpentProofShare>,
+    ) -> Result<Self> {
+        let mut peekable_shares = shares.peekable();
+        let any_share = peekable_shares
+            .peek()
+            .cloned()
+            .ok_or(Error::MissingSpentProofShare(key_image))?;
+
+        let spentbook_pub_key = any_share.spentbook_pks().public_key();
+        let spentbook_sig = any_share.spentbook_pks.combine_signatures(
+            peekable_shares
+                .map(SpentProofShare::spentbook_sig_share)
+                .map(IndexedSignatureShare::threshold_crypto),
+        )?;
+
+        let public_commitments: Vec<Commitment> = any_share.public_commitments().clone();
+
+        Ok(SpentProof {
+            content: SpentProofContent {
+                key_image,
+                transaction_hash,
+                public_commitments,
+            },
+            spentbook_pub_key,
+            spentbook_sig,
+        })
+    }
+
     /// get KeyImage of input Dbc
     pub fn key_image(&self) -> &KeyImage {
         &self.content.key_image

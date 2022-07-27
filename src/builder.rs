@@ -19,9 +19,8 @@ use std::{
 
 use crate::{
     rand::{CryptoRng, RngCore},
-    AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, IndexedSignatureShare, KeyImage,
-    OwnerOnce, Result, SpentProof, SpentProofContent, SpentProofKeyVerifier, SpentProofShare,
-    TransactionVerifier,
+    AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, KeyImage, OwnerOnce, Result,
+    SpentProof, SpentProofKeyVerifier, SpentProofShare, TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
@@ -484,36 +483,12 @@ impl DbcBuilder {
 
     /// build spent proofs from shares.
     pub fn spent_proofs(&self) -> Result<BTreeSet<SpentProof>> {
+        let transaction_hash = Hash::from(self.transaction.hash());
         let spent_proofs: BTreeSet<SpentProof> = self
             .spent_proof_shares
             .iter()
             .map(|(key_image, shares)| {
-                let any_share = shares
-                    .iter()
-                    .next()
-                    .ok_or(Error::MissingSpentProofShare(*key_image))?;
-
-                let spentbook_pub_key = any_share.spentbook_pks().public_key();
-                let spentbook_sig = any_share.spentbook_pks.combine_signatures(
-                    shares
-                        .iter()
-                        .map(SpentProofShare::spentbook_sig_share)
-                        .map(IndexedSignatureShare::threshold_crypto),
-                )?;
-
-                let public_commitments: Vec<Commitment> = any_share.public_commitments().clone();
-
-                let spent_proof = SpentProof {
-                    content: SpentProofContent {
-                        key_image: *key_image,
-                        transaction_hash: Hash::from(self.transaction.hash()),
-                        public_commitments,
-                    },
-                    spentbook_pub_key,
-                    spentbook_sig,
-                };
-
-                Ok(spent_proof)
+                SpentProof::try_from_proof_shares(*key_image, transaction_hash, shares.iter())
             })
             .collect::<Result<_>>()?;
 
