@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [7.1.0](https://github.com/maidsafe/sn_dbc/compare/v7.0.1...v7.1.0) (2022-07-28)
+
+
+### Features
+
+* expose a public API which allows to build a SpentProof from a given set of proof shares ([d25a01b](https://github.com/maidsafe/sn_dbc/commit/d25a01b14392beacd8f07f3c100603cf5a73ba91))
+
 ### [7.0.1](https://github.com/maidsafe/sn_dbc/compare/v7.0.0...v7.0.1) (2022-07-20)
 
 ## [7.0.0](https://github.com/maidsafe/sn_dbc/compare/v6.0.0...v7.0.0) (2022-07-07)
