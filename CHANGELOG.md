@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [7.2.0](https://github.com/maidsafe/sn_dbc/compare/v7.1.0...v7.2.0) (2022-08-04)
+
+
+### Features
+
+* expose Token type in public API ([5333138](https://github.com/maidsafe/sn_dbc/commit/53331387d8bd24a96ab4b85b6416ea877abf1287))
+
 ## [7.1.0](https://github.com/maidsafe/sn_dbc/compare/v7.0.1...v7.1.0) (2022-07-28)
 
 
