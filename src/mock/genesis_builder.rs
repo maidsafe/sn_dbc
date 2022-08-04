@@ -10,7 +10,7 @@ use super::GenesisMaterial;
 use crate::{
     mock,
     rand::{CryptoRng, RngCore},
-    Amount, AmountSecrets, Dbc, Result, TransactionBuilder,
+    AmountSecrets, Dbc, Result, TransactionBuilder,
 };
 use blsttc::SecretKeySet;
 
@@ -21,7 +21,6 @@ use blsttc::SecretKeySet;
 /// single Spentbook section.
 #[derive(Default)]
 pub struct GenesisBuilder {
-    pub genesis_amount: Amount,
     pub spentbook_nodes: Vec<mock::SpentBookNode>,
 }
 

@@ -6,12 +6,12 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Amount, KeyImage, Owner, OwnerOnce};
+use crate::{KeyImage, Owner, OwnerOnce};
 use bls_ringct::{
     blstrs::Scalar,
     group::Curve,
     mlsag::{MlsagMaterial, TrueInput},
-    ringct::RingCtMaterial,
+    ringct::{Amount, RingCtMaterial},
     {Output, RevealedCommitment},
 };
 use blsttc::IntoFr;
