@@ -16,8 +16,8 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::{
-        mock, Amount, AmountSecrets, Dbc, DbcContent, Error, IndexedSignatureShare, KeyImage,
-        Owner, OwnerOnce, Result, SpentProofContent, SpentProofShare, TransactionBuilder,
+        mock, AmountSecrets, Dbc, DbcContent, Error, IndexedSignatureShare, KeyImage, Owner,
+        OwnerOnce, Result, SpentProofContent, SpentProofShare, Token, TransactionBuilder,
     };
 
     #[test]
@@ -41,9 +41,9 @@ mod tests {
         let mut rng = crate::rng::from_seed([0u8; 32]);
 
         let mut output_amounts =
-            Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
+            Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<u64>));
         output_amounts
-            .push(mock::GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<Amount>());
+            .push(mock::GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<u64>());
 
         let n_outputs = output_amounts.len();
         let output_amount = output_amounts.iter().sum();
@@ -62,7 +62,7 @@ mod tests {
                 output_amounts
                     .iter()
                     .enumerate()
-                    .map(|(idx, a)| (*a, owners[idx].clone())),
+                    .map(|(idx, a)| (Token::from_nano(*a), owners[idx].clone())),
             )
             .build(&mut rng)?;
 
@@ -98,7 +98,9 @@ mod tests {
 
         for (dbc, owner_once, amount_secrets) in output_dbcs.iter() {
             let dbc_amount = amount_secrets.amount();
-            assert!(output_amounts.iter().any(|a| *a == dbc_amount));
+            assert!(output_amounts
+                .iter()
+                .any(|a| Token::from_nano(*a) == dbc_amount));
             assert!(dbc
                 .verify(
                     &owner_once.owner_base().secret_key().unwrap(),
@@ -109,13 +111,14 @@ mod tests {
 
         assert_eq!(
             {
-                let mut sum: Amount = 0;
-                for (dbc, owner_once, _amount_secrets) in output_dbcs.iter() {
+                let mut sum: u64 = 0;
+                for (dbc, owner_once, _) in output_dbcs.iter() {
                     // note: we could just use amount_secrets provided by DbcBuilder::build()
                     // but we go further to verify the correct value is encrypted in the Dbc.
                     sum += dbc
                         .amount_secrets(&owner_once.owner_base().secret_key()?)?
                         .amount()
+                        .as_nano()
                 }
                 sum
             },
@@ -144,14 +147,14 @@ mod tests {
         // let num_decoy_inputs = TinyInt(0);
 
         let mut input_amounts =
-            Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<Amount>));
+            Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<u64>));
         input_amounts
-            .push(mock::GenesisMaterial::GENESIS_AMOUNT - input_amounts.iter().sum::<Amount>());
+            .push(mock::GenesisMaterial::GENESIS_AMOUNT - input_amounts.iter().sum::<u64>());
 
         let mut output_amounts =
-            Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<Amount>));
+            Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<u64>));
         output_amounts
-            .push(mock::GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<Amount>());
+            .push(mock::GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<u64>());
 
         let invalid_spent_proofs = BTreeSet::from_iter(
             invalid_spent_proofs
@@ -174,10 +177,10 @@ mod tests {
             .set_require_all_decoys(false)
             .add_decoy_inputs(decoy_inputs.clone())
             .add_input_dbc(&genesis_dbc, &genesis_dbc.owner_base().secret_key()?)?
-            .add_outputs_by_amount(input_amounts.iter().copied().map(|amount| {
+            .add_outputs_by_amount(input_amounts.iter().map(|amount| {
                 let owner_once =
                     OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
-                (amount, owner_once)
+                (Token::from_nano(*amount), owner_once)
             }))
             .build(&mut rng)?;
 
@@ -221,18 +224,22 @@ mod tests {
             .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng))
             .collect();
 
-        let outputs = output_amounts.clone().into_iter().zip(owners);
+        let outputs = output_amounts
+            .clone()
+            .into_iter()
+            .map(Token::from_nano)
+            .zip(owners);
 
         let mut dbc_builder = TransactionBuilder::default()
             .set_decoys_per_input(num_decoy_inputs)
             .set_require_all_decoys(false)
             .add_decoy_inputs(decoy_inputs)
             .add_inputs_dbc(inputs_dbcs.clone())?
-            .add_outputs_by_amount(outputs.clone())
+            .add_outputs_by_amount(outputs)
             .build(&mut rng)?;
 
-        let dbc_output_amounts: Vec<Amount> = outputs.map(|(amt, _)| amt).collect();
-        let output_total_amount: Amount = dbc_output_amounts.iter().sum();
+        let dbc_output_amounts = output_amounts.clone();
+        let output_total_amount = dbc_output_amounts.iter().sum();
 
         assert_eq!(inputs_dbcs.len(), dbc_builder.transaction.mlsags.len());
         assert_eq!(inputs_dbcs.len(), dbc_builder.inputs().len());
@@ -260,7 +267,7 @@ mod tests {
                         // to match against the input commitment, and also no way to
                         // know that the input amount is zero.
                         assert!(output_amounts.is_empty());
-                        assert_eq!(input_amounts.iter().sum::<Amount>(), 0);
+                        assert_eq!(input_amounts.iter().sum::<u64>(), 0);
                         assert!(!input_amounts.is_empty());
                     }
                 }
@@ -355,7 +362,7 @@ mod tests {
                         .iter()
                         .enumerate()
                         .map(|(idx, _dbc)| { dbc_output_amounts[idx] })
-                        .sum::<Amount>(),
+                        .sum::<u64>(),
                     output_total_amount
                 );
                 Ok(())
@@ -387,7 +394,7 @@ mod tests {
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
         let dbc_builder = TransactionBuilder::default()
-            .add_output_by_amount(100, output1_owner.clone())
+            .add_output_by_amount(Token::from_nano(100), output1_owner.clone())
             .build(&mut rng)?;
 
         let amount_secrets = AmountSecrets::from(dbc_builder.revealed_commitments[0]);
@@ -400,7 +407,7 @@ mod tests {
         let fraud_dbc_builder = TransactionBuilder::default()
             .set_require_all_decoys(false)
             .add_input_by_secrets(secret_key, amount_secrets)
-            .add_output_by_amount(100, output2_owner)
+            .add_output_by_amount(Token::from_nano(100), output2_owner)
             .build(&mut rng)?;
 
         let result = fraud_dbc_builder.build(&spentbook_node.key_manager);
@@ -468,7 +475,7 @@ mod tests {
         let mut dbc_builder = TransactionBuilder::default()
             .set_require_all_decoys(false)
             .add_input_dbc(&starting_dbc, &starting_dbc.owner_base().secret_key()?)?
-            .add_output_by_amount(output_amount, output_owner.clone())
+            .add_output_by_amount(Token::from_nano(output_amount), output_owner.clone())
             .build(&mut rng)?;
 
         for (key_image, tx) in dbc_builder.inputs() {
@@ -490,8 +497,8 @@ mod tests {
         // twice the committed value.
         let starting_amount_secrets = starting_dbc.amount_secrets_bearer()?;
         let fudged_amount_secrets = AmountSecrets::from((
-            starting_amount_secrets.amount() * 2, // Claim we are paying twice the committed value
-            starting_amount_secrets.blinding_factor(), // Use the real blinding factor
+            starting_amount_secrets.amount().as_nano() * 2, // Claim we are paying twice the committed value
+            starting_amount_secrets.blinding_factor(),      // Use the real blinding factor
         ));
 
         let (true_output_dbc, ..) = output_dbcs[0].clone();
@@ -511,7 +518,7 @@ mod tests {
             fudged_output_dbc.amount_secrets(&output_owner.owner_base().secret_key()?)?;
 
         // confirm the secret amount is 2000.
-        assert_eq!(fudged_secrets.amount(), output_amount * 2);
+        assert_eq!(fudged_secrets.amount(), Token::from_nano(output_amount * 2));
 
         // ----------
         // 4. Check if the amounts match, using the provided API.
@@ -532,7 +539,7 @@ mod tests {
             fudged_output_dbc
                 .amount_secrets(&output_owner.owner_base().secret_key()?)?
                 .amount(),
-            output_amount
+            Token::from_nano(output_amount)
         );
 
         // ----------

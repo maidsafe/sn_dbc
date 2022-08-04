@@ -11,18 +11,18 @@
 use sn_dbc::{
     mock,
     rand::{CryptoRng, RngCore},
-    rng, Amount, Dbc, Owner, OwnerOnce, Result, TransactionVerifier,
+    rng, Dbc, Owner, OwnerOnce, Result, Token, TransactionVerifier,
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-const N_OUTPUTS: u32 = 100;
+const N_OUTPUTS: u64 = 100;
 
 fn bench_reissue_1_to_100(c: &mut Criterion) {
     let mut rng = rng::from_seed([0u8; 32]);
 
     let (mut spentbook, starting_dbc) =
-        generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng).unwrap();
+        generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .set_require_all_decoys(false) // no decoys!
@@ -37,7 +37,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
-            (1, owner_once)
+            (Token::from_nano(1), owner_once)
         }))
         .build(&mut rng)
         .unwrap();
@@ -70,7 +70,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let mut rng = rng::from_seed([0u8; 32]);
 
     let (mut spentbook_node, starting_dbc) =
-        generate_dbc_of_value(N_OUTPUTS as Amount, &mut rng).unwrap();
+        generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .set_require_all_decoys(false) // no decoys!
@@ -85,7 +85,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
-            (1, owner_once)
+            (Token::from_nano(1), owner_once)
         }))
         .build(&mut rng)
         .unwrap();
@@ -108,7 +108,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                 })
                 .collect(),
         )
-        .add_output_by_amount(N_OUTPUTS as Amount, output_owner_once)
+        .add_output_by_amount(Token::from_nano(N_OUTPUTS), output_owner_once)
         .build(&mut rng)
         .unwrap();
 
@@ -137,13 +137,16 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 }
 
 fn generate_dbc_of_value(
-    amount: Amount,
+    amount: Token,
     rng: &mut (impl RngCore + CryptoRng),
 ) -> Result<(mock::SpentBookNode, Dbc)> {
     let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
         mock::GenesisBuilder::init_genesis_single(rng)?;
 
-    let output_amounts = vec![amount, mock::GenesisMaterial::GENESIS_AMOUNT - amount];
+    let output_amounts = vec![
+        amount,
+        Token::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - amount.as_nano()),
+    ];
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .set_require_all_decoys(false) // no decoys!

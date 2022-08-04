@@ -325,19 +325,19 @@ pub(crate) mod tests {
     use crate::{
         mock,
         rand::{CryptoRng, RngCore},
-        Amount, AmountSecrets, DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent,
+        AmountSecrets, DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent, Token,
     };
     use bls_ringct::{bls_bulletproofs::PedersenGens, ringct::RingCtMaterial, Output};
     use blsttc::PublicKey;
     use std::convert::TryInto;
 
-    fn divide(amount: Amount, n_ways: u8) -> impl Iterator<Item = Amount> {
+    fn divide(amount: Token, n_ways: u8) -> impl Iterator<Item = Token> {
         (0..n_ways).into_iter().map(move |i| {
-            let equal_parts = amount / (n_ways as Amount);
-            let leftover = amount % (n_ways as Amount);
+            let equal_parts = amount.as_nano() / n_ways as u64;
+            let leftover = amount.as_nano() % n_ways as u64;
 
-            let odd_compensation = if (i as Amount) < leftover { 1 } else { 0 };
-            equal_parts + odd_compensation
+            let odd_compensation = if (i as u64) < leftover { 1 } else { 0 };
+            Token::from_nano(equal_parts + odd_compensation)
         })
     }
 
@@ -376,7 +376,7 @@ pub(crate) mod tests {
     fn from_hex_should_deserialize_a_hex_encoded_string_to_a_dbc() -> Result<(), Error> {
         let dbc = Dbc::from_hex(DBC_WITH_1_530_000_000)?;
         let amount = dbc.amount_secrets_bearer()?.amount();
-        assert_eq!(amount, 1_530_000_000);
+        assert_eq!(amount, Token::from_nano(1_530_000_000));
         Ok(())
     }
 
@@ -586,7 +586,7 @@ pub(crate) mod tests {
             .set_require_all_decoys(false)
             .add_decoy_inputs(decoy_inputs)
             .add_inputs_dbc(inputs)?
-            .add_output_by_amount(amount, owner_once.clone())
+            .add_output_by_amount(Token::from_nano(amount), owner_once.clone())
             .build(&mut rng)?;
 
         for (key_image, tx) in dbc_builder.inputs() {
@@ -611,7 +611,7 @@ pub(crate) mod tests {
             .collect();
 
         let fuzzed_amt_secrets = AmountSecrets::from((
-            amount + extra_output_amount.coerce::<Amount>(),
+            amount + extra_output_amount.coerce::<u64>(),
             amount_secrets_list[0].blinding_factor(),
         ));
         let dbc_amount = fuzzed_amt_secrets.amount();
@@ -736,7 +736,7 @@ pub(crate) mod tests {
                 assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
                 assert_eq!(n_wrong_msg_sigs.coerce::<u8>(), 0);
 
-                assert_eq!(dbc_amount, amount);
+                assert_eq!(dbc_amount, Token::from_nano(amount));
                 assert_eq!(extra_output_amount.coerce::<u8>(), 0);
             }
             Err(Error::SpentProofInputLenMismatch { current, expected }) => {
@@ -758,7 +758,7 @@ pub(crate) mod tests {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
             }
             Err(Error::AmountCommitmentsDoNotMatch) => {
-                assert_ne!(amount, dbc_amount);
+                assert_ne!(Token::from_nano(amount), dbc_amount);
                 assert_ne!(extra_output_amount, TinyInt(0));
             }
             Err(Error::InvalidSpentProofSignature(_pk, _msg)) => {
@@ -784,14 +784,14 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn generate_bearer_dbc_of_value(
-        amount: Amount,
+        amount: u64,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
         generate_dbc_of_value(amount, Owner::from_random_secret_key(rng), rng)
     }
 
     pub(crate) fn generate_owned_dbc_of_value(
-        amount: Amount,
+        amount: u64,
         pk_hex: &str,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
@@ -810,14 +810,17 @@ pub(crate) mod tests {
     }
 
     fn generate_dbc_of_value(
-        amount: Amount,
+        amount: u64,
         owner: Owner,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
         let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
             mock::GenesisBuilder::init_genesis_single(rng)?;
 
-        let output_amounts = vec![amount, mock::GenesisMaterial::GENESIS_AMOUNT - amount];
+        let output_amounts = vec![
+            Token::from_nano(amount),
+            Token::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - amount),
+        ];
 
         let mut dbc_builder = crate::TransactionBuilder::default()
             .set_require_all_decoys(false)

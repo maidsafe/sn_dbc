@@ -23,8 +23,8 @@ use sn_dbc::{
     },
     mock,
     rand::{seq::IteratorRandom, Rng},
-    rng, Amount, Dbc, DbcBuilder, OutputOwnerMap, Owner, OwnerOnce, RevealedCommitment,
-    RingCtMaterial, RingCtTransaction, TransactionBuilder,
+    rng, Dbc, DbcBuilder, OutputOwnerMap, Owner, OwnerOnce, RevealedCommitment, RingCtMaterial,
+    RingCtTransaction, Token, TransactionBuilder,
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -604,26 +604,24 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<DbcBuilder> {
     // note, we upcast to i128 to allow negative value.
     // This permits unbalanced inputs/outputs to reach sn_dbc layer for verification.
     let inputs_amount_sum = tx_builder.inputs_amount_sum();
-    while inputs_amount_sum as i128 - tx_builder.outputs_amount_sum() as i128 > 0 {
+    while let Some(remaining) = inputs_amount_sum.checked_sub(tx_builder.outputs_amount_sum()) {
         println!();
         println!("------------");
         println!("Output #{}", i);
         println!("------------\n");
 
-        let remaining = inputs_amount_sum - tx_builder.outputs_amount_sum();
-
         println!(
             "Inputs total: {}.  Remaining: {}",
             inputs_amount_sum, remaining
         );
-        let line = readline_prompt("Amount, or '[c]ancel': ")?;
-        let amount: Amount = if line == "c" {
+        let line = readline_prompt("Token, or '[c]ancel': ")?;
+        let amount: Token = if line == "c" {
             println!("\nprepare_tx cancelled\n");
             break;
         } else {
             line.parse()?
         };
-        if amount > remaining || amount == 0 {
+        if amount > remaining || amount == Token::zero() {
             let answer = readline_prompt(&format!(
                 "\nThe amount should normally be in the range 1..{}. Change it? [y/n]: ",
                 remaining
@@ -759,16 +757,16 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
 
         while tx_builder.outputs_amount_sum() < inputs_sum || tx_builder.outputs().is_empty() {
             let amount = if tx_builder.outputs().len() >= max_outputs - 1 {
-                inputs_sum - tx_builder.outputs_amount_sum()
+                inputs_sum.as_nano() - tx_builder.outputs_amount_sum().as_nano()
             } else {
                 // randomize output amount
-                let diff = inputs_sum - tx_builder.outputs_amount_sum();
+                let diff = inputs_sum.as_nano() - tx_builder.outputs_amount_sum().as_nano();
 
                 let is_last = rng.gen_range(0..max_outputs + 1) == max_outputs;
                 if is_last {
                     diff
                 } else {
-                    let range_max = if diff == Amount::MAX { diff } else { diff + 1 };
+                    let range_max = if diff == u64::MAX { diff } else { diff + 1 };
                     rng.gen_range(0..range_max)
                 }
             };
@@ -776,7 +774,7 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
-            tx_builder = tx_builder.add_output_by_amount(amount, owner_once);
+            tx_builder = tx_builder.add_output_by_amount(Token::from_nano(amount), owner_once);
         }
 
         let mut dbc_builder = tx_builder.build(&mut rng)?;

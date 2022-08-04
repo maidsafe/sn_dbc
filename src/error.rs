@@ -13,10 +13,20 @@ use crate::KeyImage;
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq)]
 #[non_exhaustive]
 /// Node error variants.
 pub enum Error {
+    /// While parsing a `Token`, precision would be lost.
+    #[error("Lost precision on the number of coins during parsing")]
+    LossOfTokenPrecision,
+    /// The amount would exceed the maximum value for `Token` (u64::MAX).
+    #[error("The token amount would exceed the maximum value (u64::MAX)")]
+    ExcessiveTokenValue,
+    /// Failed to parse a `Token` from a string.
+    #[error("Failed to parse: {0}")]
+    FailedToParseToken(String),
+
     #[error("Failed signature check.")]
     FailedSignature,
 

@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use bls_ringct::{bls_bulletproofs::PedersenGens, group::Curve, ringct::Amount};
+use bls_ringct::{bls_bulletproofs::PedersenGens, group::Curve};
 pub use bls_ringct::{
     ringct::RingCtTransaction, DecoyInput, MlsagMaterial, Output, RevealedCommitment,
     RingCtMaterial, TrueInput,
@@ -20,7 +20,7 @@ use std::{
 use crate::{
     rand::{CryptoRng, RngCore},
     AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, KeyImage, OwnerOnce, Result,
-    SpentProof, SpentProofKeyVerifier, SpentProofShare, TransactionVerifier,
+    SpentProof, SpentProofKeyVerifier, SpentProofShare, Token, TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
@@ -201,19 +201,19 @@ impl TransactionBuilder {
         self
     }
 
-    /// add an output by providing Amount and OwnerOnce
-    pub fn add_output_by_amount(mut self, amount: Amount, owner: OwnerOnce) -> Self {
+    /// add an output by providing Token and OwnerOnce
+    pub fn add_output_by_amount(mut self, amount: Token, owner: OwnerOnce) -> Self {
         let pk = owner.as_owner().public_key();
-        let output = Output::new(pk, amount);
+        let output = Output::new(pk, amount.as_nano());
         self.output_owner_map.insert(pk, owner);
         self.ringct_material.outputs.push(output);
         self
     }
 
-    /// add an output by providing iter of (Amount, OwnerOnce)
+    /// add an output by providing iter of (Token, OwnerOnce)
     pub fn add_outputs_by_amount(
         mut self,
-        outputs: impl IntoIterator<Item = (Amount, OwnerOnce)>,
+        outputs: impl IntoIterator<Item = (Token, OwnerOnce)>,
     ) -> Self {
         for (amount, owner) in outputs.into_iter() {
             self = self.add_output_by_amount(amount, owner);
@@ -230,16 +230,20 @@ impl TransactionBuilder {
     }
 
     /// get sum of input amounts
-    pub fn inputs_amount_sum(&self) -> Amount {
-        self.true_inputs
+    pub fn inputs_amount_sum(&self) -> Token {
+        let amount = self
+            .true_inputs
             .iter()
             .map(|t| t.revealed_commitment.value)
-            .sum()
+            .sum();
+
+        Token::from_nano(amount)
     }
 
     /// get sum of output amounts
-    pub fn outputs_amount_sum(&self) -> Amount {
-        self.ringct_material.outputs.iter().map(|o| o.amount).sum()
+    pub fn outputs_amount_sum(&self) -> Token {
+        let amount = self.ringct_material.outputs.iter().map(|o| o.amount).sum();
+        Token::from_nano(amount)
     }
 
     /// get true inputs

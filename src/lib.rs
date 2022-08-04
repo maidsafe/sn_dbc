@@ -17,6 +17,7 @@ mod error;
 mod mint;
 mod owner;
 mod spent_proof;
+mod token;
 mod verification;
 
 #[cfg(feature = "mock")]
@@ -36,7 +37,7 @@ pub use bls_ringct::rand;
 pub use blsttc::{PublicKey, PublicKeySet, Signature, SignatureShare};
 
 pub use crate::{
-    amount_secrets::{Amount, AmountSecrets},
+    amount_secrets::AmountSecrets,
     blst::{BlindingFactor, Commitment, KeyImage},
     builder::{
         DbcBuilder, DecoyInput, MlsagMaterial, Output, OutputOwnerMap, RevealedCommitment,
@@ -50,6 +51,7 @@ pub use crate::{
         IndexedSignatureShare, SpentProof, SpentProofContent, SpentProofKeyVerifier,
         SpentProofShare,
     },
+    token::Token,
     verification::TransactionVerifier,
 };
 

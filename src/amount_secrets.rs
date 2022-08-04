@@ -6,22 +6,18 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::rand::RngCore;
-use crate::{BlindingFactor, Error};
-use bls_ringct::RevealedCommitment;
+use crate::{rand::RngCore, BlindingFactor, Error, Token};
+use bls_ringct::{ringct::Amount, RevealedCommitment};
 use blsttc::{
     Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
     SecretKeyShare,
 };
-use std::collections::BTreeMap;
-use std::convert::TryFrom;
-
-pub use bls_ringct::ringct::Amount;
+use std::{collections::BTreeMap, convert::TryFrom};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-const AMT_SIZE: usize = std::mem::size_of::<Amount>(); // Amount size: 8 bytes (u64)
+const AMT_SIZE: usize = std::mem::size_of::<Token>(); // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = std::mem::size_of::<BlindingFactor>(); // Blinding factor size: 32 bytes (BlindingFactor)
 
 /// AmountSecrets wraps bls_ringct::RevealedCommitment to provide some methods
@@ -39,8 +35,8 @@ pub struct AmountSecrets(RevealedCommitment);
 
 impl AmountSecrets {
     /// amount getter
-    pub fn amount(&self) -> Amount {
-        self.0.value
+    pub fn amount(&self) -> Token {
+        Token::from_nano(self.0.value)
     }
 
     /// blinding factor getter
