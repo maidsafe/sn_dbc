@@ -638,15 +638,15 @@ pub(crate) mod tests {
             if let Some(spent_proof) = repeating_inputs.next() {
                 let id = crate::bls_dkg_id(&mut rng);
                 let key_manager = mock::KeyManager::from(mock::Signer::from(id));
-                let sig_share = key_manager.sign(&spent_proof.content.hash()).unwrap();
+                let sig_share = key_manager.sign(&spent_proof.content.hash());
                 let sig = key_manager
-                    .public_key_set()?
+                    .public_key_set()
                     .combine_signatures(vec![sig_share.threshold_crypto()])
                     .unwrap();
 
                 let fuzzed_sp = SpentProof {
                     content: spent_proof.content.clone(),
-                    spentbook_pub_key: key_manager.public_key_set()?.public_key(),
+                    spentbook_pub_key: key_manager.public_key_set().public_key(),
                     spentbook_sig: sig,
                 };
                 // note: existing items may be replaced.
@@ -658,11 +658,10 @@ pub(crate) mod tests {
         // Valid spentbook signatures BUT signing wrong message
         for _ in 0..n_wrong_msg_sigs.coerce() {
             if let Some(spent_proof) = repeating_inputs.next() {
-                let wrong_msg_sig_share =
-                    spentbook_node.key_manager.sign(&Hash([0u8; 32])).unwrap();
+                let wrong_msg_sig_share = spentbook_node.key_manager.sign(&Hash([0u8; 32]));
                 let wrong_msg_sig = spentbook_node
                     .key_manager
-                    .public_key_set()?
+                    .public_key_set()
                     .combine_signatures(vec![wrong_msg_sig_share.threshold_crypto()])
                     .unwrap();
 
@@ -689,10 +688,10 @@ pub(crate) mod tests {
                     public_commitments: spent_proof.public_commitments().clone(),
                 };
 
-                let sig_share = spentbook_node.key_manager.sign(&content.hash()).unwrap();
+                let sig_share = spentbook_node.key_manager.sign(&content.hash());
                 let sig = spentbook_node
                     .key_manager
-                    .public_key_set()?
+                    .public_key_set()
                     .combine_signatures(vec![sig_share.threshold_crypto()])
                     .unwrap();
 
