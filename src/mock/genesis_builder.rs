@@ -56,15 +56,10 @@ impl GenesisBuilder {
         if !self.spentbook_nodes.is_empty() {
             // we only support a single mock spentbook section.  pubkeys must match.
             assert_eq!(
-                spentbook_node
-                    .key_manager
-                    .public_key_set()
-                    .unwrap()
-                    .public_key(),
+                spentbook_node.key_manager.public_key_set().public_key(),
                 self.spentbook_nodes[0]
                     .key_manager
                     .public_key_set()
-                    .unwrap()
                     .public_key()
             );
         }

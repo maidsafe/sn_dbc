@@ -11,7 +11,7 @@ use thiserror::Error;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Error, Debug, Clone, PartialEq)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 /// Mock error variants.
 pub enum Error {
     #[error("Key image has already been spent")]

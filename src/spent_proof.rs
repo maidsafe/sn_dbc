@@ -158,12 +158,7 @@ impl SpentProofShare {
 /// the pubkey of the spentbook section that signed each of the proofs.
 pub trait SpentProofKeyVerifier {
     type Error: std::error::Error;
-    fn verify(
-        &self,
-        msg_hash: &Hash,
-        key: &PublicKey,
-        signature: &Signature,
-    ) -> Result<(), Self::Error>;
+    fn verify_known_key(&self, key: &PublicKey) -> Result<(), Self::Error>;
 }
 
 /// SpentProof's are constructed when a DBC is logged to the spentbook.
@@ -257,13 +252,20 @@ impl SpentProof {
             return Err(Error::InvalidTransactionHash);
         }
 
+        let pub_key = &self.spentbook_pub_key;
+
+        if !pub_key.verify(&self.spentbook_sig, &self.content.hash()) {
+            return Err(Error::InvalidSpentProofSignature(
+                *self.key_image(),
+                format!(
+                    "Failed to verify SpentProof signature with key: {}",
+                    pub_key.to_hex()
+                ),
+            ));
+        }
+
         proof_key_verifier
-            .verify(
-                &self.content.hash(),
-                &self.spentbook_pub_key,
-                &self.spentbook_sig,
-            )
-            .map_err(|e| Error::InvalidSpentProofSignature(*self.key_image(), e.to_string()))?;
-        Ok(())
+            .verify_known_key(pub_key)
+            .map_err(|err| Error::InvalidSpentProofSignature(*self.key_image(), err.to_string()))
     }
 }

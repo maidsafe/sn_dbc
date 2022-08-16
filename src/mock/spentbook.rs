@@ -199,8 +199,8 @@ impl SpentBookNode {
                 public_commitments,
             };
 
-            let spentbook_pks = self.key_manager.public_key_set()?;
-            let spentbook_sig_share = self.key_manager.sign(&sp_content.hash())?;
+            let spentbook_pks = self.key_manager.public_key_set();
+            let spentbook_sig_share = self.key_manager.sign(&sp_content.hash());
 
             Ok(SpentProofShare {
                 content: sp_content,

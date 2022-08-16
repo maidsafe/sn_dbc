@@ -62,89 +62,47 @@ impl Signer {
 #[derive(Debug, Clone)]
 pub struct KeyManager {
     signer: Signer,
-    cache: Keys,
+    cache: HashSet<PublicKey>,
 }
 
 impl From<Signer> for KeyManager {
     fn from(signer: Signer) -> Self {
         let public_key_set = signer.public_key_set();
-        let mut cache = Keys::default();
-        cache.add_known_key(public_key_set.public_key());
-        Self { signer, cache }
+        let cache = HashSet::default();
+        let mut key_manager = Self { signer, cache };
+        key_manager.add_known_key(public_key_set.public_key());
+
+        key_manager
     }
 }
 
 impl crate::SpentProofKeyVerifier for KeyManager {
     type Error = crate::Error;
 
-    fn verify(&self, msg_hash: &Hash, key: &PublicKey, signature: &Signature) -> Result<()> {
-        self.cache.verify(msg_hash, key, signature)
-    }
-}
-
-impl KeyManager {
-    pub fn add_known_key(&mut self, key: PublicKey) -> Result<()> {
-        self.cache.add_known_key(key);
-        Ok(())
-    }
-
-    pub fn public_key_set(&self) -> Result<PublicKeySet> {
-        Ok(self.signer.public_key_set())
-    }
-
-    pub fn sign_with_child_key(
-        &self,
-        index: &[u8],
-        tx_hash: &Hash,
-    ) -> Result<IndexedSignatureShare> {
-        let child_signer = self.signer.derive_child(index);
-        Ok(IndexedSignatureShare::new(
-            child_signer.index(),
-            child_signer.sign(tx_hash),
-        ))
-    }
-
-    pub fn sign(&self, msg_hash: &Hash) -> Result<IndexedSignatureShare> {
-        Ok(IndexedSignatureShare::new(
-            self.signer.index(),
-            self.signer.sign(msg_hash),
-        ))
-    }
-
-    pub fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
-        self.cache.verify_known_key(key)
-    }
-}
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Default, Clone)]
-struct Keys(HashSet<PublicKey>);
-
-impl From<Vec<PublicKey>> for Keys {
-    fn from(keys: Vec<PublicKey>) -> Self {
-        Self(keys.into_iter().collect())
-    }
-}
-
-impl Keys {
-    pub fn add_known_key(&mut self, key: PublicKey) {
-        self.0.insert(key);
-    }
-
-    fn verify(&self, msg: &Hash, key: &PublicKey, sig: &Signature) -> Result<()> {
-        self.verify_known_key(key)?;
-        if key.verify(sig, msg) {
-            Ok(())
-        } else {
-            Err(Error::FailedSignature)
-        }
-    }
-
     fn verify_known_key(&self, key: &PublicKey) -> Result<()> {
-        if self.0.contains(key) {
+        if self.cache.contains(key) {
             Ok(())
         } else {
             Err(Error::UnrecognisedAuthority)
         }
+    }
+}
+
+impl KeyManager {
+    pub fn add_known_key(&mut self, key: PublicKey) {
+        self.cache.insert(key);
+    }
+
+    pub fn public_key_set(&self) -> PublicKeySet {
+        self.signer.public_key_set()
+    }
+
+    pub fn sign_with_child_key(&self, index: &[u8], tx_hash: &Hash) -> IndexedSignatureShare {
+        let child_signer = self.signer.derive_child(index);
+        IndexedSignatureShare::new(child_signer.index(), child_signer.sign(tx_hash))
+    }
+
+    pub fn sign(&self, msg_hash: &Hash) -> IndexedSignatureShare {
+        IndexedSignatureShare::new(self.signer.index(), self.signer.sign(msg_hash))
     }
 }
