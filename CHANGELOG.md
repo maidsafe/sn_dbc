@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [8.0.0](https://github.com/maidsafe/sn_dbc/compare/v7.2.0...v8.0.0) (2022-08-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* reducing spent proof verification public API scope to only check it is known key
+
+* reducing spent proof verification public API scope to only check it is known key ([cf559f1](https://github.com/maidsafe/sn_dbc/commit/cf559f11b5c3db3c05ceb26223513a2e674a04b6))
+
 ## [7.2.0](https://github.com/maidsafe/sn_dbc/compare/v7.1.0...v7.2.0) (2022-08-04)
 
 
