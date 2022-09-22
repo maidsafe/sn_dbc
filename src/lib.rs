@@ -52,7 +52,7 @@ pub use crate::{
         SpentProofShare,
     },
     token::Token,
-    verification::TransactionVerifier,
+    verification::{get_public_commitments_from_transaction, TransactionVerifier},
 };
 
 #[cfg(feature = "serde")]
