@@ -56,6 +56,11 @@ pub enum Error {
     )]
     SpentProofInputLenMismatch { current: usize, expected: usize },
 
+    #[error(
+        "The number of commitments ({current}) does not match the number of input MlsagSignature ({expected})"
+    )]
+    CommitmentsInputLenMismatch { current: usize, expected: usize },
+
     #[error("A SpentProof KeyImage does not match an MlsagSignature KeyImage")]
     SpentProofInputKeyImageMismatch,
 

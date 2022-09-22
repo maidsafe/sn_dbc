@@ -101,3 +101,57 @@ impl TransactionVerifier {
         Ok(())
     }
 }
+
+/// Get the public commitments for the transaction for a key image spend.
+///
+/// They will be assigned to the spent proof share that is generated.
+///
+/// In the process of doing so, we verify the correct set of spent proofs and transactions have
+/// been provided.
+///
+/// For the moment this function will only be called outside the library, hence the dead code
+/// exception.
+#[allow(dead_code)]
+pub fn get_public_commitments_from_transaction(
+    tx: &RingCtTransaction,
+    spent_proofs: &BTreeSet<SpentProof>,
+    spent_transactions: &BTreeSet<RingCtTransaction>,
+) -> Result<Vec<(KeyImage, Vec<Commitment>)>> {
+    let mut public_commitments_info = Vec::<(KeyImage, Vec<Commitment>)>::new();
+    for mlsag in &tx.mlsags {
+        // For each public key in ring, look up the matching Commitment
+        // using the SpentProofs and spent TX set provided by the client.
+        let commitments: Vec<Commitment> = mlsag
+            .public_keys()
+            .iter()
+            .flat_map(move |input_pk| {
+                spent_proofs.iter().flat_map(move |proof| {
+                    // Make sure the spent proof corresponds to any of the spent TX provided,
+                    // and the TX output PK matches the ring PK
+                    spent_transactions.iter().filter_map(move |spent_tx| {
+                        let tx_hash = Hash::from(spent_tx.hash());
+                        if tx_hash == proof.transaction_hash() {
+                            spent_tx
+                                .outputs
+                                .iter()
+                                .find(|output| output.public_key() == &input_pk.clone())
+                                .map(|output| output.commitment())
+                        } else {
+                            None
+                        }
+                    })
+                })
+            })
+            .collect();
+
+        if commitments.len() != mlsag.public_keys().len() {
+            return Err(Error::CommitmentsInputLenMismatch {
+                current: commitments.len(),
+                expected: mlsag.public_keys().len(),
+            });
+        }
+
+        public_commitments_info.push((mlsag.key_image.into(), commitments));
+    }
+    Ok(public_commitments_info)
+}
