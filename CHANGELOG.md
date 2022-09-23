@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [8.1.0](https://github.com/maidsafe/sn_dbc/compare/v8.0.0...v8.1.0) (2022-09-23)
+
+
+### Features
+
+* function to get commitments from transaction ([fa23ff9](https://github.com/maidsafe/sn_dbc/commit/fa23ff9f1a6e2fa40ca53c8b80a23c3f5bdbb9e8))
+
 ## [8.0.0](https://github.com/maidsafe/sn_dbc/compare/v7.2.0...v8.0.0) (2022-08-16)
 
 
