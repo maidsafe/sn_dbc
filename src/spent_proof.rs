@@ -34,10 +34,10 @@ impl SpentProofContent {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
-        bytes.extend(&self.key_image.to_bytes());
+        bytes.extend(self.key_image.to_bytes());
         bytes.extend(self.transaction_hash.as_ref());
         for pc in self.public_commitments.iter() {
-            bytes.extend(&pc.to_compressed());
+            bytes.extend(pc.to_compressed());
         }
         bytes
     }
@@ -81,7 +81,7 @@ impl IndexedSignatureShare {
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = self.index.to_le_bytes().to_vec();
-        bytes.extend(&self.signature_share.to_bytes());
+        bytes.extend(self.signature_share.to_bytes());
         bytes
     }
 }
@@ -228,9 +228,9 @@ impl SpentProof {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
-        bytes.extend(&self.content.to_bytes());
-        bytes.extend(&self.spentbook_pub_key.to_bytes());
-        bytes.extend(&self.spentbook_sig.to_bytes());
+        bytes.extend(self.content.to_bytes());
+        bytes.extend(self.spentbook_pub_key.to_bytes());
+        bytes.extend(self.spentbook_sig.to_bytes());
 
         bytes
     }
@@ -254,18 +254,12 @@ impl SpentProof {
 
         let pub_key = &self.spentbook_pub_key;
 
-        if !pub_key.verify(&self.spentbook_sig, &self.content.hash()) {
-            return Err(Error::InvalidSpentProofSignature(
-                *self.key_image(),
-                format!(
-                    "Failed to verify SpentProof signature with key: {}",
-                    pub_key.to_hex()
-                ),
-            ));
+        if !pub_key.verify(&self.spentbook_sig, self.content.hash()) {
+            return Err(Error::InvalidSpentProofSignature(*self.key_image()));
         }
 
         proof_key_verifier
             .verify_known_key(pub_key)
-            .map_err(|err| Error::InvalidSpentProofSignature(*self.key_image(), err.to_string()))
+            .map_err(|err| Error::FailedKnownKeyCheck(err.to_string()))
     }
 }

@@ -69,11 +69,11 @@ impl From<(Owner, DerivationIndex, AmountSecrets)> for DbcContent {
     fn from(params: (Owner, DerivationIndex, AmountSecrets)) -> Self {
         let (owner_base, derivation_index, amount_secrets) = params;
 
-        let owner_derivation_cipher = owner_base.public_key().encrypt(&derivation_index);
+        let owner_derivation_cipher = owner_base.public_key().encrypt(derivation_index);
         let amount_secrets_cipher = owner_base
             .derive(&derivation_index)
             .public_key()
-            .encrypt(&amount_secrets.to_bytes());
+            .encrypt(amount_secrets.to_bytes());
 
         Self {
             owner_base,

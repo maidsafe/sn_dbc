@@ -336,7 +336,7 @@ pub(crate) mod tests {
             let equal_parts = amount.as_nano() / n_ways as u64;
             let leftover = amount.as_nano() % n_ways as u64;
 
-            let odd_compensation = if (i as u64) < leftover { 1 } else { 0 };
+            let odd_compensation = u64::from((i as u64) < leftover);
             Token::from_nano(equal_parts + odd_compensation)
         })
     }
@@ -760,7 +760,7 @@ pub(crate) mod tests {
                 assert_ne!(Token::from_nano(amount), dbc_amount);
                 assert_ne!(extra_output_amount, TinyInt(0));
             }
-            Err(Error::InvalidSpentProofSignature(_pk, _msg)) => {
+            Err(Error::InvalidSpentProofSignature(_) | Error::FailedKnownKeyCheck(_)) => {
                 // could be a wrong signer (unrecognized authority) or wrong msg.
                 assert!(n_wrong_signer_sigs.coerce::<u8>() + n_wrong_msg_sigs.coerce::<u8>() > 0);
 

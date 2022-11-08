@@ -280,7 +280,7 @@ mod tests {
                 Error::FailedSignature => {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
-                Error::InvalidSpentProofSignature(key, _msg) => {
+                Error::InvalidSpentProofSignature(key) => {
                     let idx = tx2
                         .mlsags
                         .iter()
@@ -318,7 +318,7 @@ mod tests {
                             0,
                             SecretKeySet::random(1, &mut rng)
                                 .secret_key_share(1)
-                                .sign(&[0u8; 32]),
+                                .sign([0u8; 32]),
                         ),
                     }
                 }

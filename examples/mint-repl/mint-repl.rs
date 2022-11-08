@@ -235,7 +235,7 @@ fn newkey() -> Result<()> {
         println!(
             "  {}. {}",
             i,
-            encode(&sks_to_bytes(&sks.secret_key_share(i))?)
+            encode(sks_to_bytes(&sks.secret_key_share(i))?)
         );
     }
 
@@ -246,7 +246,7 @@ fn newkey() -> Result<()> {
         println!(
             "  {}. {}",
             i,
-            encode(&sks.public_keys().public_key_share(i).to_bytes())
+            encode(sks.public_keys().public_key_share(i).to_bytes())
         );
     }
 
@@ -323,7 +323,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
         println!(
             "    {}. {}",
             i,
-            encode(&sks_to_bytes(&mintinfo.secret_key_set.secret_key_share(i))?)
+            encode(sks_to_bytes(&mintinfo.secret_key_set.secret_key_share(i))?)
         );
     }
 
@@ -337,7 +337,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
             "    {}. {}",
             i,
             encode(
-                &mintinfo
+                mintinfo
                     .secret_key_set
                     .public_keys()
                     .public_key_share(i)
@@ -359,7 +359,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     for (i, spentbook) in mintinfo.spentbook_nodes.iter().enumerate() {
         println!("\n-- SpentBook Node {} --\n", i);
         for (key_image, _tx) in spentbook.iter() {
-            println!("  {}", encode(&key_image.to_bytes()));
+            println!("  {}", encode(key_image.to_bytes()));
         }
     }
 
@@ -370,7 +370,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
 
 /// displays Dbc in human readable form
 fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>) -> Result<()> {
-    println!("hash: {}\n", encode(&dbc.hash()));
+    println!("hash: {}\n", encode(dbc.hash()));
 
     let result = match secret_key_base {
         // use base SecretKey from input param if available.
@@ -462,16 +462,12 @@ fn decode_input() -> Result<()> {
                 pks.threshold(),
                 pks.threshold() + 1
             );
-            println!("  public_key: {}", encode(&pks.public_key().to_bytes()));
+            println!("  public_key: {}", encode(pks.public_key().to_bytes()));
             // temporary: the 2nd line matches ian coleman's bls tool output.  but why not the first?
             //            println!("PublicKeyShare[0]: {}", to_be_hex(&pks.public_key_share(0))? );
             println!("\n  PublicKeyShares:");
             for i in 0..pks.threshold() + 1 {
-                println!(
-                    "    {} : {}",
-                    i,
-                    encode(&pks.public_key_share(i).to_bytes())
-                );
+                println!("    {i} : {}", encode(pks.public_key_share(i).to_bytes()));
             }
             println!("-- End PublicKeySet --\n");
         }
@@ -668,7 +664,7 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<DbcBuilder> {
 
     println!("\n\nPreparing RingCtTransaction...\n\n");
 
-    let dbc_builder = tx_builder.build(&mut rng::thread_rng())?;
+    let dbc_builder = tx_builder.build(rng::thread_rng())?;
 
     Ok(dbc_builder)
 }

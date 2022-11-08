@@ -99,7 +99,7 @@ impl AmountSecrets {
 
     /// encrypt secrets to public_key producing Ciphertext
     pub fn encrypt(&self, public_key: &PublicKey) -> Ciphertext {
-        public_key.encrypt(&self.to_bytes())
+        public_key.encrypt(self.to_bytes())
     }
 }
 
