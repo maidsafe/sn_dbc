@@ -80,7 +80,7 @@ fn main() -> Result<()> {
     // Create a default mint with money supply = 1000.
     let mut mintinfo: MintInfo = mk_new_random_mint(0)?;
 
-    let mut rl = Editor::<()>::new();
+    let mut rl = Editor::<()>::new()?;
     rl.set_auto_add_history(true);
     loop {
         match rl.readline(">> ") {
