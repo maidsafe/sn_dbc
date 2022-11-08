@@ -33,8 +33,8 @@ pub enum Error {
     #[error("Unrecognised authority.")]
     UnrecognisedAuthority,
 
-    #[error("Invalid SpentProof Signature for {0:?}.  Error: {1}")]
-    InvalidSpentProofSignature(KeyImage, String),
+    #[error("Invalid SpentProof Signature for {0:?}.")]
+    InvalidSpentProofSignature(KeyImage),
 
     #[error("Transaction hash does not match the transaction signed by spentbook")]
     InvalidTransactionHash,
@@ -96,6 +96,9 @@ pub enum Error {
 
     #[error("Could not convert owned DBC to bearer: {0}")]
     DbcBearerConversionFailed(String),
+
+    #[error("Failed known key check")]
+    FailedKnownKeyCheck(String),
 
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
