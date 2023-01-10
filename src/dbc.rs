@@ -6,14 +6,14 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::transaction::{
+    group::Curve,
+    output::{OutputProof, RingCtTransaction},
+    {RevealedCommitment, TrueInput},
+};
 use crate::{
     AmountSecrets, DbcContent, DerivationIndex, Error, Hash, KeyImage, Owner, Result, SpentProof,
     SpentProofKeyVerifier, TransactionVerifier,
-};
-use bls_ringct::{
-    group::Curve,
-    ringct::{OutputProof, RingCtTransaction},
-    {RevealedCommitment, TrueInput},
 };
 use blsttc::SecretKey;
 use std::{collections::BTreeSet, convert::TryFrom};
@@ -138,7 +138,7 @@ impl Dbc {
     /// This is useful for checking if a Dbc has been spent.
     pub fn key_image(&self, base_sk: &SecretKey) -> Result<KeyImage> {
         let secret_key = self.owner_once(base_sk)?.secret_key()?;
-        Ok(bls_ringct::key_image(secret_key).to_affine().into())
+        Ok(crate::transaction::key_image(secret_key).to_affine().into())
     }
 
     /// returns KeyImage for the owner's derived public key
@@ -322,12 +322,12 @@ pub(crate) mod tests {
     use quickcheck_macros::quickcheck;
 
     use crate::tests::{NonZeroTinyInt, TinyInt, STD_DECOYS_PER_INPUT, STD_DECOYS_TO_FETCH};
+    use crate::transaction::{bls_bulletproofs::PedersenGens, output::RingCtMaterial, Output};
     use crate::{
         mock,
         rand::{CryptoRng, RngCore},
         AmountSecrets, DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent, Token,
     };
-    use bls_ringct::{bls_bulletproofs::PedersenGens, ringct::RingCtMaterial, Output};
     use blsttc::PublicKey;
     use std::convert::TryInto;
 
@@ -505,7 +505,9 @@ pub(crate) mod tests {
 
         assert!(matches!(
             dbc.verify(&owner_once.owner_base().secret_key()?, &key_manager),
-            Err(Error::RingCt(bls_ringct::Error::TransactionMustHaveAnInput))
+            Err(Error::RingCt(
+                crate::transaction::Error::TransactionMustHaveAnInput
+            ))
         ));
 
         Ok(())
@@ -753,7 +755,7 @@ pub(crate) mod tests {
                     .iter()
                     .any(|o| dbc_owner.eq(o.public_key())));
             }
-            Err(Error::RingCt(bls_ringct::Error::TransactionMustHaveAnInput)) => {
+            Err(Error::RingCt(crate::transaction::Error::TransactionMustHaveAnInput)) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
             }
             Err(Error::AmountCommitmentsDoNotMatch) => {

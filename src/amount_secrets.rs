@@ -6,8 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::transaction::{output::Amount, RevealedCommitment};
 use crate::{rand::RngCore, BlindingFactor, Error, Token};
-use bls_ringct::{ringct::Amount, RevealedCommitment};
 use blsttc::{
     Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
     SecretKeyShare,
@@ -20,14 +20,14 @@ use serde::{Deserialize, Serialize};
 const AMT_SIZE: usize = std::mem::size_of::<Token>(); // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = std::mem::size_of::<BlindingFactor>(); // Blinding factor size: 32 bytes (BlindingFactor)
 
-/// AmountSecrets wraps bls_ringct::RevealedCommitment to provide some methods
+/// AmountSecrets wraps crate::transaction::RevealedCommitment to provide some methods
 /// for ergonomic usage, eg: decrypting from Ciphertext using various blsttc
 /// components, eg SecretKey, SecretKeyShare, SecretKeySet, DecryptionShare
 //
 // todo: perhaps AmountSecrets should be renamed to be more consistent with
 //  RevealedCommitment, since it is just a NewType wrapper.
 //
-// Once bls_ringct uses blsttc, perhaps AmountSecrets functionality could
+// Once crate::transaction uses blsttc, perhaps AmountSecrets functionality could
 //  move into RevealedCommitment, and AmountSecrets goes away entirely.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]

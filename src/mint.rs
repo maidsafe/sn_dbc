@@ -70,13 +70,13 @@ mod tests {
         let check_error = |error: Error| -> Result<()> {
             match error {
                 Error::RingCt(
-                    bls_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
+                    crate::transaction::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
                 }
-                Error::RingCt(bls_ringct::Error::InvalidHiddenCommitmentInRing) => {
+                Error::RingCt(crate::transaction::Error::InvalidHiddenCommitmentInRing) => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
@@ -188,7 +188,7 @@ mod tests {
         let check_tx_error = |error: Error| -> Result<()> {
             match error {
                 Error::RingCt(
-                    bls_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
+                    crate::transaction::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
                     // Verify that no inputs were present and we got correct verification error.
                     assert!(input_amounts.is_empty());
@@ -258,7 +258,7 @@ mod tests {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
                 Error::RingCt(
-                    bls_ringct::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
+                    crate::transaction::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
                     if mock::GenesisMaterial::GENESIS_AMOUNT == output_total_amount {
                         // This can correctly occur if there are 0 outputs and inputs sum to zero.
@@ -271,10 +271,10 @@ mod tests {
                         assert!(!input_amounts.is_empty());
                     }
                 }
-                Error::RingCt(bls_ringct::Error::InvalidHiddenCommitmentInRing) => {
+                Error::RingCt(crate::transaction::Error::InvalidHiddenCommitmentInRing) => {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
-                Error::RingCt(bls_ringct::Error::TransactionMustHaveAnInput) => {
+                Error::RingCt(crate::transaction::Error::TransactionMustHaveAnInput) => {
                     assert_eq!(input_amounts.len(), 0);
                 }
                 Error::FailedSignature => {
@@ -565,7 +565,7 @@ mod tests {
 
         for (key_image, tx) in dbc_builder_fudged.inputs() {
             match spentbook.log_spent(key_image, tx) {
-                Err(Error::RingCt(bls_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
+                Err(Error::RingCt(crate::transaction::Error::InvalidHiddenCommitmentInRing)) => {}
                 _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
             }
         }
@@ -589,7 +589,7 @@ mod tests {
         let result_fudged = dbc_builder_fudged.build(&spentbook.key_manager);
 
         match result_fudged {
-            Err(Error::RingCt(bls_ringct::Error::InvalidHiddenCommitmentInRing)) => {}
+            Err(Error::RingCt(crate::transaction::Error::InvalidHiddenCommitmentInRing)) => {}
             _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
         }
 
