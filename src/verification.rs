@@ -6,8 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::transaction::output::RingCtTransaction;
 use crate::{Commitment, Error, Hash, KeyImage, Result, SpentProof, SpentProofKeyVerifier};
-use bls_ringct::ringct::RingCtTransaction;
 use std::collections::BTreeSet;
 
 // Here we are putting transaction verification logic that is beyond

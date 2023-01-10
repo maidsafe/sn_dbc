@@ -20,19 +20,20 @@ mod spent_proof;
 mod token;
 mod verification;
 
+pub mod transaction;
+
 #[cfg(feature = "mock")]
 pub mod mock;
 
 // re-export crates used in our public API
-pub use bls_ringct;
 pub use blsttc;
-// note: both bls_ringct::rand and blsttc::rand are
+// note: both transaction::rand and blsttc::rand are
 // exposed in our public API.  Here, by choosing
 // just one, we are making an implicit promise that
 // the two versions will remain compatible, or that
 // our API will reconcile the difference.  We do
 // this knowingly and pledge to uphold that promise.
-pub use bls_ringct::rand;
+pub use transaction::rand;
 
 pub use blsttc::{PublicKey, PublicKeySet, Signature, SignatureShare};
 
@@ -52,6 +53,7 @@ pub use crate::{
         SpentProofShare,
     },
     token::Token,
+    // transaction::Transaction,
     verification::{get_public_commitments_from_transaction, TransactionVerifier},
 };
 

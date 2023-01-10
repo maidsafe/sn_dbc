@@ -6,14 +6,14 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{KeyImage, Owner, OwnerOnce};
-use bls_ringct::{
+use crate::transaction::{
     blstrs::Scalar,
     group::Curve,
-    mlsag::{MlsagMaterial, TrueInput},
-    ringct::{Amount, RingCtMaterial},
+    input::{MlsagMaterial, TrueInput},
+    output::{Amount, RingCtMaterial},
     {Output, RevealedCommitment},
 };
+use crate::{KeyImage, Owner, OwnerOnce};
 use blsttc::IntoFr;
 
 /// represents all the inputs required to build the Genesis Dbc.

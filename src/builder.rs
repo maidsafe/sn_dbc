@@ -6,9 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use bls_ringct::{bls_bulletproofs::PedersenGens, group::Curve};
-pub use bls_ringct::{
-    ringct::RingCtTransaction, DecoyInput, MlsagMaterial, Output, RevealedCommitment,
+use crate::transaction::{bls_bulletproofs::PedersenGens, group::Curve};
+pub use crate::transaction::{
+    output::RingCtTransaction, DecoyInput, MlsagMaterial, Output, RevealedCommitment,
     RingCtMaterial, TrueInput,
 };
 use blsttc::{PublicKey, SecretKey};

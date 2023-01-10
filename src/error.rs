@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 use thiserror::Error;
 
+use crate::transaction;
 use crate::KeyImage;
 
 /// Specialisation of `std::Result`.
@@ -104,7 +105,7 @@ pub enum Error {
     Blsttc(#[from] blsttc::error::Error),
 
     #[error("ringct error: {0}")]
-    RingCt(#[from] bls_ringct::Error),
+    RingCt(#[from] transaction::Error),
 
     #[cfg(feature = "mock")]
     #[error("mock object error")]
