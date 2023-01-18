@@ -8,14 +8,14 @@
 
 use crate::transaction::{
     group::Curve,
-    output::{OutputProof, RingCtTransaction},
-    {RevealedCommitment, TrueInput},
+    output::{DbcTransaction, OutputProof},
+    {RevealedCommitment, RevealedInput},
 };
 use crate::{
-    AmountSecrets, DbcContent, DerivationIndex, Error, Hash, KeyImage, Owner, Result, SpentProof,
+    AmountSecrets, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
     SpentProofKeyVerifier, TransactionVerifier,
 };
-use blsttc::SecretKey;
+use blsttc::{PublicKey, SecretKey};
 use std::{collections::BTreeSet, convert::TryFrom};
 use tiny_keccak::{Hasher, Sha3};
 
@@ -70,9 +70,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone)]
 pub struct Dbc {
     pub content: DbcContent,
-    pub transaction: RingCtTransaction,
+    pub transaction: DbcTransaction,
     pub spent_proofs: BTreeSet<SpentProof>,
-    pub spent_transactions: BTreeSet<RingCtTransaction>,
+    pub spent_transactions: BTreeSet<DbcTransaction>,
 }
 
 impl Dbc {
@@ -134,24 +134,26 @@ impl Dbc {
         self.amount_secrets(&self.owner_base().secret_key()?)
     }
 
-    /// returns KeyImage for the owner's derived public key
+    /// returns PublicKey for the owner's derived public key
     /// This is useful for checking if a Dbc has been spent.
-    pub fn key_image(&self, base_sk: &SecretKey) -> Result<KeyImage> {
+    pub fn public_key(&self, base_sk: &SecretKey) -> Result<PublicKey> {
         let secret_key = self.owner_once(base_sk)?.secret_key()?;
-        Ok(crate::transaction::key_image(secret_key).to_affine().into())
+        Ok(crate::transaction::public_key(secret_key)
+            .to_affine()
+            .into())
     }
 
-    /// returns KeyImage for the owner's derived public key
+    /// returns PublicKey for the owner's derived public key
     /// This is useful for checking if a Dbc has been spent.
     /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn key_image_bearer(&self) -> Result<KeyImage> {
-        self.key_image(&self.owner_base().secret_key()?)
+    pub fn key_image_bearer(&self) -> Result<PublicKey> {
+        self.public_key(&self.owner_base().secret_key()?)
     }
 
     /// returns a TrueInput that represents this Dbc for use as
     /// a transaction input.
-    pub fn as_true_input(&self, base_sk: &SecretKey) -> Result<TrueInput> {
-        Ok(TrueInput::new(
+    pub fn as_revealed_input(&self, base_sk: &SecretKey) -> Result<RevealedInput> {
+        Ok(RevealedInput::new(
             self.owner_once(base_sk)?.secret_key()?,
             self.amount_secrets(base_sk)?.into(),
         ))
@@ -160,8 +162,8 @@ impl Dbc {
     /// returns a TrueInput that represents this Dbc for use as
     /// a transaction input.
     /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn as_true_input_bearer(&self) -> Result<TrueInput> {
-        self.as_true_input(&self.owner_base().secret_key()?)
+    pub fn as_revealed_input_bearer(&self) -> Result<RevealedInput> {
+        self.as_revealed_input(&self.owner_base().secret_key()?)
     }
 
     /// Generate hash of this DBC
@@ -321,8 +323,8 @@ pub(crate) mod tests {
 
     use quickcheck_macros::quickcheck;
 
-    use crate::tests::{NonZeroTinyInt, TinyInt, STD_DECOYS_PER_INPUT, STD_DECOYS_TO_FETCH};
-    use crate::transaction::{bls_bulletproofs::PedersenGens, output::RingCtMaterial, Output};
+    use crate::tests::{NonZeroTinyInt, TinyInt};
+    use crate::transaction::{bls_bulletproofs::PedersenGens, output::RevealedTransaction, Output};
     use crate::{
         mock,
         rand::{CryptoRng, RngCore},
@@ -353,19 +355,14 @@ pub(crate) mod tests {
     ) -> Result<DbcBuilder> {
         let amount = amount_secrets.amount();
 
-        let decoy_inputs = spentbook_node.random_decoys(STD_DECOYS_TO_FETCH, rng);
-
         let mut dbc_builder = crate::TransactionBuilder::default()
-            .set_decoys_per_input(STD_DECOYS_PER_INPUT)
-            .set_require_all_decoys(false)
-            .add_decoy_inputs(decoy_inputs)
             .add_input_by_secrets(dbc_owner, amount_secrets)
             .add_outputs_by_amount(divide(amount, n_ways).zip(output_owners.into_iter()))
             .build(rng)?;
 
-        for (key_image, tx) in dbc_builder.inputs() {
+        for (public_key, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?)
+                .add_spent_proof_share(spentbook_node.log_spent(public_key, tx.clone())?)
                 .add_spent_transaction(tx);
         }
 
@@ -386,7 +383,7 @@ pub(crate) mod tests {
         let amount = 100;
         let owner_once =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
-        let ringct_material = RingCtMaterial {
+        let ringct_material = RevealedTransaction {
             inputs: vec![],
             outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
         };
@@ -476,7 +473,7 @@ pub(crate) mod tests {
         let owner_once =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
-        let ringct_material = RingCtMaterial {
+        let ringct_material = RevealedTransaction {
             inputs: vec![],
             outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
         };
@@ -505,7 +502,7 @@ pub(crate) mod tests {
 
         assert!(matches!(
             dbc.verify(&owner_once.owner_base().secret_key()?, &key_manager),
-            Err(Error::RingCt(
+            Err(Error::Transaction(
                 crate::transaction::Error::TransactionMustHaveAnInput
             ))
         ));
@@ -581,19 +578,14 @@ pub(crate) mod tests {
         let owner_once =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
-        let decoy_inputs = spentbook_node.random_decoys(STD_DECOYS_TO_FETCH, &mut rng);
-
         let mut dbc_builder = crate::TransactionBuilder::default()
-            .set_decoys_per_input(STD_DECOYS_PER_INPUT)
-            .set_require_all_decoys(false)
-            .add_decoy_inputs(decoy_inputs)
             .add_inputs_dbc(inputs)?
             .add_output_by_amount(Token::from_nano(amount), owner_once.clone())
             .build(&mut rng)?;
 
-        for (key_image, tx) in dbc_builder.inputs() {
+        for (public_key, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?)
+                .add_spent_proof_share(spentbook_node.log_spent(public_key, tx.clone())?)
                 .add_spent_transaction(tx);
         }
 
@@ -685,9 +677,9 @@ pub(crate) mod tests {
                 let secret_key: SecretKey = Standard.sample(&mut rng);
 
                 let content = SpentProofContent {
-                    key_image: secret_key.public_key(),
+                    public_key: secret_key.public_key(),
                     transaction_hash: spent_proof.transaction_hash(),
-                    public_commitments: spent_proof.public_commitments().clone(),
+                    public_commitment: *spent_proof.public_commitment(),
                 };
 
                 let sig_share = spentbook_node.key_manager.sign(&content.hash());
@@ -741,11 +733,11 @@ pub(crate) mod tests {
                 assert_eq!(extra_output_amount.coerce::<u8>(), 0);
             }
             Err(Error::SpentProofInputLenMismatch { current, expected }) => {
-                assert_ne!(dbc.spent_proofs.len(), dbc.transaction.mlsags.len());
+                assert_ne!(dbc.spent_proofs.len(), dbc.transaction.inputs.len());
                 assert_eq!(dbc.spent_proofs.len(), current);
-                assert_eq!(dbc.transaction.mlsags.len(), expected);
+                assert_eq!(dbc.transaction.inputs.len(), expected);
             }
-            Err(Error::SpentProofInputKeyImageMismatch) => {
+            Err(Error::SpentProofInputPublicKeyMismatch) => {
                 assert!(n_extra_input_sigs.coerce::<u8>() > 0);
             }
             Err(Error::DbcContentNotPresentInTransactionOutput) => {
@@ -755,7 +747,7 @@ pub(crate) mod tests {
                     .iter()
                     .any(|o| dbc_owner.eq(o.public_key())));
             }
-            Err(Error::RingCt(crate::transaction::Error::TransactionMustHaveAnInput)) => {
+            Err(Error::Transaction(crate::transaction::Error::TransactionMustHaveAnInput)) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
             }
             Err(Error::AmountCommitmentsDoNotMatch) => {
@@ -824,7 +816,6 @@ pub(crate) mod tests {
         ];
 
         let mut dbc_builder = crate::TransactionBuilder::default()
-            .set_require_all_decoys(false)
             .add_input_by_secrets(
                 genesis_dbc.owner_once_bearer()?.secret_key()?,
                 genesis_dbc.amount_secrets_bearer()?,
@@ -836,9 +827,9 @@ pub(crate) mod tests {
             )
             .build(rng)?;
 
-        for (key_image, tx) in dbc_builder.inputs() {
+        for (public_key, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?)
+                .add_spent_proof_share(spentbook_node.log_spent(public_key, tx.clone())?)
                 .add_spent_transaction(tx);
         }
 

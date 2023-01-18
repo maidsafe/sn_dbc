@@ -8,7 +8,7 @@
 use thiserror::Error;
 
 use crate::transaction;
-use crate::KeyImage;
+use crate::PublicKey;
 
 /// Specialisation of `std::Result`.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -34,8 +34,8 @@ pub enum Error {
     #[error("Unrecognised authority.")]
     UnrecognisedAuthority,
 
-    #[error("Invalid SpentProof Signature for {0:?}.")]
-    InvalidSpentProofSignature(KeyImage),
+    #[error("Invalid SpentProof Signature for {0:?}")]
+    InvalidSpentProofSignature(PublicKey),
 
     #[error("Transaction hash does not match the transaction signed by spentbook")]
     InvalidTransactionHash,
@@ -53,20 +53,21 @@ pub enum Error {
     PublicKeyNotUniqueAcrossOutputs,
 
     #[error(
-        "The number of SpentProof ({current}) does not match the number of input MlsagSignature ({expected})"
+        "The number of SpentProof ({current}) does not match the number of inputs ({expected})"
     )]
     SpentProofInputLenMismatch { current: usize, expected: usize },
 
-    #[error(
-        "The number of commitments ({current}) does not match the number of input MlsagSignature ({expected})"
-    )]
-    CommitmentsInputLenMismatch { current: usize, expected: usize },
+    #[error("Missing commitment for public key: {0:?}")]
+    MissingCommitmentForPubkey(PublicKey),
 
-    #[error("A SpentProof KeyImage does not match an MlsagSignature KeyImage")]
-    SpentProofInputKeyImageMismatch,
+    #[error("Multiple commitments found for public key: {0:?}")]
+    MultipleCommitmentsForPubkey(PublicKey),
+
+    #[error("A SpentProof PublicKey does not match an MlsagSignature PublicKey")]
+    SpentProofInputPublicKeyMismatch,
 
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
-    MissingSpentProofShare(KeyImage),
+    MissingSpentProofShare(PublicKey),
 
     #[error("Decryption failed")]
     DecryptionBySecretKeyFailed,
@@ -82,9 +83,6 @@ pub enum Error {
 
     #[error("Public key not found")]
     PublicKeyNotFound,
-
-    #[error("Insufficient decoys available for all inputs")]
-    InsufficientDecoys,
 
     #[error("Secret key does not match public key")]
     SecretKeyDoesNotMatchPublicKey,
@@ -104,8 +102,8 @@ pub enum Error {
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 
-    #[error("ringct error: {0}")]
-    RingCt(#[from] transaction::Error),
+    #[error("Transaction error: {0}")]
+    Transaction(#[from] transaction::Error),
 
     #[cfg(feature = "mock")]
     #[error("mock object error")]

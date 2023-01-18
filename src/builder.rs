@@ -8,8 +8,7 @@
 
 use crate::transaction::{bls_bulletproofs::PedersenGens, group::Curve};
 pub use crate::transaction::{
-    output::RingCtTransaction, DecoyInput, MlsagMaterial, Output, RevealedCommitment,
-    RingCtMaterial, TrueInput,
+    output::DbcTransaction, Output, RevealedCommitment, RevealedInput, RevealedTransaction,
 };
 use blsttc::{PublicKey, SecretKey};
 use std::{
@@ -19,8 +18,8 @@ use std::{
 
 use crate::{
     rand::{CryptoRng, RngCore},
-    AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, KeyImage, OwnerOnce, Result,
-    SpentProof, SpentProofKeyVerifier, SpentProofShare, Token, TransactionVerifier,
+    AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, OwnerOnce, Result, SpentProof,
+    SpentProofKeyVerifier, SpentProofShare, Token, TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
@@ -31,110 +30,28 @@ pub type OutputOwnerMap = BTreeMap<PublicKey, OwnerOnce>;
 /// A builder to create a RingCt transaction from
 /// inputs and outputs.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TransactionBuilder {
-    true_inputs: Vec<TrueInput>,
-    ringct_material: RingCtMaterial,
+    revealed_tx: RevealedTransaction,
     output_owner_map: OutputOwnerMap,
-    available_decoys: Vec<DecoyInput>,
-    decoys_per_input: usize,
-    require_all_decoys: bool,
-}
-
-impl Default for TransactionBuilder {
-    fn default() -> Self {
-        Self {
-            true_inputs: Default::default(),
-            ringct_material: Default::default(),
-            output_owner_map: Default::default(),
-            available_decoys: Default::default(),
-            decoys_per_input: 10, // default to 10 decoys per input.
-            require_all_decoys: true,
-        }
-    }
 }
 
 impl TransactionBuilder {
-    /// set decoys_per_input option.
-    /// allocate this many decoys to each input (from available_decoys).
-    pub fn set_decoys_per_input(mut self, decoys_per_input: usize) -> Self {
-        self.decoys_per_input = decoys_per_input;
+    /// add an input given an RevealedInput
+    pub fn add_input(mut self, input: RevealedInput) -> Self {
+        self.revealed_tx.inputs.push(input);
         self
     }
 
-    /// set require_all_decoys option.
-    /// if true, we require <decoys_per_input> for every (true) input.
-    pub fn set_require_all_decoys(mut self, require_all_decoys: bool) -> Self {
-        self.require_all_decoys = require_all_decoys;
+    /// add an input given an iterator over RevealedInput
+    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = RevealedInput>) -> Self {
+        self.revealed_tx.inputs.extend(inputs);
         self
     }
 
-    /// add to pool of available decoys.
-    ///
-    /// It is best that the size of the pool is larger (even much larger)
-    /// than <decoys_per_input> * true_inputs.len().
-    ///
-    /// Especially because it is possible that 1 or more of these
-    /// is actually a true input, which will not be discovered until
-    /// ::build() is called.
-    pub fn add_decoy_inputs(mut self, decoy_inputs: Vec<DecoyInput>) -> Self {
-        let available_decoys = self.available_decoys.clone();
-        let new_decoys = decoy_inputs.iter().filter(|new| {
-            !available_decoys
-                .iter()
-                .any(|old| old.public_key() == new.public_key())
-        });
-        self.available_decoys.extend(new_decoys);
-        self
-    }
-
-    /// add an input given an MlsagMaterial
-    pub fn add_input(mut self, mlsag: MlsagMaterial) -> Self {
-        // This requires a little explanation.
-        //
-        // We add the true input to our true_inputs list. This simplifies
-        // the methods ::true_inputs() and ::inputs_owners() and
-        // ::inputs_amount_sum(), which can operate on true_inputs alone.
-        //
-        // Finally in ::build(), any dups in true_inputs are removed,
-        // and the remaining true_inputs are added to ringct_material.inputs.
-        //
-        // you asK: why not just put all inputs in ringct_material.inputs?
-        //
-        // answer:
-        //   1. it would require an extra rng arg to all the other add_input*
-        //      fns, which is ugly.
-        //   2. it requires knowing the DecoyInputs in advance, which we can't
-        //      really know until we know all the true inputs because we have
-        //      to ensure that no true input is used as a decoy input.
-        self = self.add_true_input(mlsag.true_input.clone());
-        self.ringct_material.inputs.push(mlsag);
-        self
-    }
-
-    /// add an input given an iterator over MlsagMaterial
-    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = MlsagMaterial>) -> Self {
-        self.ringct_material.inputs.extend(inputs);
-        self
-    }
-
-    /// add an input given a TrueInput
-    pub fn add_true_input(mut self, true_input: TrueInput) -> Self {
-        self.true_inputs.push(true_input);
-        self
-    }
-
-    /// add an input given a list of TrueInputs and associated decoys
-    pub fn add_true_inputs(mut self, inputs: impl IntoIterator<Item = TrueInput>) -> Self {
-        for true_input in inputs.into_iter() {
-            self = self.add_true_input(true_input);
-        }
-        self
-    }
-
-    /// add an input given a Dbc, SecretKey and decoy list
+    /// add an input given a Dbc and SecretKey
     pub fn add_input_dbc(mut self, dbc: &Dbc, base_sk: &SecretKey) -> Result<Self> {
-        self = self.add_true_input(dbc.as_true_input(base_sk)?);
+        self = self.add_input(dbc.as_revealed_input(base_sk)?);
         Ok(self)
     }
 
@@ -149,13 +66,13 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// add an input given a bearer Dbc, SecretKey and decoy list
+    /// add an input given a bearer Dbc
     pub fn add_input_dbc_bearer(mut self, dbc: &Dbc) -> Result<Self> {
-        self = self.add_true_input(dbc.as_true_input_bearer()?);
+        self = self.add_input(dbc.as_revealed_input_bearer()?);
         Ok(self)
     }
 
-    /// add an input given a list of bearer Dbcs and associated SecretKey and decoys
+    /// add an input given a list of bearer Dbcs and associated SecretKey
     pub fn add_inputs_dbc_bearer<D>(mut self, dbcs: impl Iterator<Item = D>) -> Result<Self>
     where
         D: Borrow<Dbc>,
@@ -166,14 +83,14 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// add an input given a SecretKey, AmountSecrets, and list of decoys
+    /// add an input given a SecretKey, AmountSecrets
     pub fn add_input_by_secrets(
         mut self,
         secret_key: SecretKey,
         amount_secrets: AmountSecrets,
     ) -> Self {
-        let true_input = TrueInput::new(secret_key, amount_secrets.into());
-        self = self.add_true_input(true_input);
+        let revealed_input = RevealedInput::new(secret_key, amount_secrets.into());
+        self = self.add_input(revealed_input);
         self
     }
 
@@ -189,7 +106,7 @@ impl TransactionBuilder {
     pub fn add_output(mut self, output: Output, owner: OwnerOnce) -> Self {
         self.output_owner_map
             .insert(output.public_key().into(), owner);
-        self.ringct_material.outputs.push(output);
+        self.revealed_tx.outputs.push(output);
         self
     }
 
@@ -206,7 +123,7 @@ impl TransactionBuilder {
         let pk = owner.as_owner().public_key();
         let output = Output::new(pk, amount.as_nano());
         self.output_owner_map.insert(pk, owner);
-        self.ringct_material.outputs.push(output);
+        self.revealed_tx.outputs.push(output);
         self
     }
 
@@ -223,7 +140,8 @@ impl TransactionBuilder {
 
     /// get a list of input (true) owners
     pub fn input_owners(&self) -> Vec<PublicKey> {
-        self.true_inputs
+        self.revealed_tx
+            .inputs
             .iter()
             .map(|t| t.public_key().into())
             .collect()
@@ -232,7 +150,8 @@ impl TransactionBuilder {
     /// get sum of input amounts
     pub fn inputs_amount_sum(&self) -> Token {
         let amount = self
-            .true_inputs
+            .revealed_tx
+            .inputs
             .iter()
             .map(|t| t.revealed_commitment.value)
             .sum();
@@ -242,88 +161,29 @@ impl TransactionBuilder {
 
     /// get sum of output amounts
     pub fn outputs_amount_sum(&self) -> Token {
-        let amount = self.ringct_material.outputs.iter().map(|o| o.amount).sum();
+        let amount = self.revealed_tx.outputs.iter().map(|o| o.amount).sum();
         Token::from_nano(amount)
     }
 
     /// get true inputs
-    pub fn inputs(&self) -> &Vec<TrueInput> {
-        &self.true_inputs
+    pub fn inputs(&self) -> &Vec<RevealedInput> {
+        &self.revealed_tx.inputs
     }
 
     /// get outputs
     pub fn outputs(&self) -> &Vec<Output> {
-        &self.ringct_material.outputs
+        &self.revealed_tx.outputs
     }
 
-    /// build a RingCtTransaction and associated secrets
-    pub fn build(self, mut rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
-        let mut ringct_material = self.ringct_material;
-        let mut true_inputs = self.true_inputs;
-
-        // get public_keys of all true_inputs.
-        let true_public_keys: Vec<_> = true_inputs
-            .iter()
-            .map(|true_input| true_input.public_key().to_affine())
-            .collect();
-        // remove any available decoys that are actually true inputs.
-        let available_decoys: Vec<_> = self
-            .available_decoys
-            .into_iter()
-            .filter(|d| true_public_keys.iter().all(|pk| *pk != d.public_key()))
-            .collect();
-
-        // remove any true inputs that are already in self.ringct_material.inputs
-        // see comment in ::add_input() for explanation.
-        true_inputs.retain(|true_input| {
-            !ringct_material
-                .inputs
-                .iter()
-                .any(|m| m.true_input.public_key() == true_input.public_key())
-        });
-
-        // calc total number of decoys required for Tx.
-        let num_required_decoys = true_inputs.len() * self.decoys_per_input;
-        if self.require_all_decoys && available_decoys.len() < num_required_decoys {
-            return Err(Error::InsufficientDecoys);
-        }
-
-        // group available decoys into sets of <decoys_per_input>.
-        let mut decoy_inputs_chunks: Vec<&[DecoyInput]> = match self.decoys_per_input {
-            0 => vec![], // ::chunks() panics if chunk-size is zero.
-            _ => available_decoys.chunks(self.decoys_per_input).collect(),
-        };
-
-        // if we don't have enough sets of decoys, then we need to add any
-        // missing sets, to match true_inputs.len()
-        let empty: Vec<DecoyInput> = vec![];
-        if decoy_inputs_chunks.len() < true_inputs.len() {
-            assert!(!self.require_all_decoys);
-            assert!(num_required_decoys == 0 || num_required_decoys > available_decoys.len());
-
-            // pad to true_inputs.len with empty vec(s).
-            while decoy_inputs_chunks.len() < true_inputs.len() {
-                decoy_inputs_chunks.push(&empty);
-            }
-        }
-
-        // create our final ringct inputs, with decoys.
-        for (true_input, decoy_inputs) in true_inputs.into_iter().zip(decoy_inputs_chunks) {
-            ringct_material.inputs.push(MlsagMaterial::new(
-                true_input,
-                decoy_inputs.to_vec(),
-                &mut rng,
-            ));
-        }
-
-        // Grand finale! sign the ringct_material to generate a Tx.
-        let (transaction, revealed_commitments) = ringct_material.sign(rng)?;
+    /// build a DbcTransaction and associated secrets
+    pub fn build(self, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
+        let (transaction, revealed_commitments) = self.revealed_tx.sign(rng)?;
 
         Ok(DbcBuilder::new(
             transaction,
             revealed_commitments,
             self.output_owner_map,
-            ringct_material,
+            self.revealed_tx,
         ))
     }
 }
@@ -332,40 +192,40 @@ impl TransactionBuilder {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct DbcBuilder {
-    pub transaction: RingCtTransaction,
+    pub transaction: DbcTransaction,
     pub revealed_commitments: Vec<RevealedCommitment>,
     pub output_owner_map: OutputOwnerMap,
-    pub ringct_material: RingCtMaterial,
+    pub revealed_tx: RevealedTransaction,
 
-    pub spent_proof_shares: BTreeMap<KeyImage, HashSet<SpentProofShare>>,
-    pub spent_transactions: BTreeMap<Hash, RingCtTransaction>,
+    pub spent_proof_shares: BTreeMap<PublicKey, HashSet<SpentProofShare>>,
+    pub spent_transactions: BTreeMap<Hash, DbcTransaction>,
 }
 
 impl DbcBuilder {
     /// Create a new DbcBuilder
     pub fn new(
-        transaction: RingCtTransaction,
+        transaction: DbcTransaction,
         revealed_commitments: Vec<RevealedCommitment>,
         output_owner_map: OutputOwnerMap,
-        ringct_material: RingCtMaterial,
+        revealed_tx: RevealedTransaction,
     ) -> Self {
         Self {
             transaction,
             revealed_commitments,
             output_owner_map,
-            ringct_material,
+            revealed_tx,
             spent_proof_shares: Default::default(),
             spent_transactions: Default::default(),
         }
     }
 
-    /// returns Vec of key_image and tx intended for use as inputs
+    /// returns Vec of public keys and tx intended for use as inputs
     /// to Spendbook::log_spent().
-    pub fn inputs(&self) -> Vec<(KeyImage, RingCtTransaction)> {
+    pub fn inputs(&self) -> Vec<(PublicKey, DbcTransaction)> {
         self.transaction
-            .mlsags
+            .inputs
             .iter()
-            .map(|mlsag| (mlsag.key_image.into(), self.transaction.clone()))
+            .map(|input| (input.public_key().into(), self.transaction.clone()))
             .collect()
     }
 
@@ -373,7 +233,7 @@ impl DbcBuilder {
     pub fn add_spent_proof_share(mut self, share: SpentProofShare) -> Self {
         let shares = self
             .spent_proof_shares
-            .entry(*share.key_image())
+            .entry(*share.public_key())
             .or_default();
         shares.insert(share);
         self
@@ -391,7 +251,7 @@ impl DbcBuilder {
     }
 
     /// Add a transaction which spent one of the inputs
-    pub fn add_spent_transaction(mut self, spent_tx: RingCtTransaction) -> Self {
+    pub fn add_spent_transaction(mut self, spent_tx: DbcTransaction) -> Self {
         let tx_hash = Hash::from(spent_tx.hash());
         self.spent_transactions
             .entry(tx_hash)

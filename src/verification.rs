@@ -6,8 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::output::RingCtTransaction;
-use crate::{Commitment, Error, Hash, KeyImage, Result, SpentProof, SpentProofKeyVerifier};
+use crate::transaction::output::DbcTransaction;
+use crate::{Commitment, Error, Hash, PublicKey, Result, SpentProof, SpentProofKeyVerifier};
 use std::collections::BTreeSet;
 
 // Here we are putting transaction verification logic that is beyond
@@ -31,20 +31,20 @@ impl TransactionVerifier {
     ///       public key of each spentbook section that recorded a tx input as spent.
     pub fn verify<K: SpentProofKeyVerifier>(
         verifier: &K,
-        transaction: &RingCtTransaction,
+        transaction: &DbcTransaction,
         spent_proofs: &BTreeSet<SpentProof>,
     ) -> Result<(), Error> {
-        if spent_proofs.len() != transaction.mlsags.len() {
+        if spent_proofs.len() != transaction.inputs.len() {
             return Err(Error::SpentProofInputLenMismatch {
                 current: spent_proofs.len(),
-                expected: transaction.mlsags.len(),
+                expected: transaction.inputs.len(),
             });
         }
 
         let transaction_hash = Hash::from(transaction.hash());
 
         // Verify that each pubkey is unique in this transaction.
-        let pubkey_unique: BTreeSet<KeyImage> = transaction
+        let pubkey_unique: BTreeSet<PublicKey> = transaction
             .outputs
             .iter()
             .map(|o| (*o.public_key()).into())
@@ -56,11 +56,11 @@ impl TransactionVerifier {
         // Verify that each input has a corresponding spent proof.
         for spent_proof in spent_proofs.iter() {
             if !transaction
-                .mlsags
+                .inputs
                 .iter()
-                .any(|m| Into::<KeyImage>::into(m.key_image) == *spent_proof.key_image())
+                .any(|m| Into::<PublicKey>::into(m.public_key) == *spent_proof.public_key())
             {
-                return Err(Error::SpentProofInputKeyImageMismatch);
+                return Err(Error::SpentProofInputPublicKeyMismatch);
             }
         }
 
@@ -73,16 +73,16 @@ impl TransactionVerifier {
             spent_proof.verify(transaction_hash, verifier)?;
         }
 
-        // We must get the spent_proofs into the same order as mlsags
+        // We must get the spent_proofs into the same order as inputs
         // so that resulting public_commitments will be in the right order.
         // Note: we could use itertools crate to sort in one loop.
         let mut spent_proofs_found: Vec<(usize, &SpentProof)> = spent_proofs
             .iter()
             .filter_map(|s| {
                 transaction
-                    .mlsags
+                    .inputs
                     .iter()
-                    .position(|m| Into::<KeyImage>::into(m.key_image) == *s.key_image())
+                    .position(|m| Into::<PublicKey>::into(m.public_key) == *s.public_key())
                     .map(|idx| (idx, s))
             })
             .collect();
@@ -91,9 +91,9 @@ impl TransactionVerifier {
         let spent_proofs_sorted: Vec<&SpentProof> =
             spent_proofs_found.into_iter().map(|s| s.1).collect();
 
-        let public_commitments: Vec<Vec<Commitment>> = spent_proofs_sorted
+        let public_commitments: Vec<Commitment> = spent_proofs_sorted
             .iter()
-            .map(|s| s.public_commitments().clone())
+            .map(|s| *s.public_commitment())
             .collect();
 
         transaction.verify(&public_commitments)?;
@@ -102,56 +102,50 @@ impl TransactionVerifier {
     }
 }
 
-/// Get the public commitments for the transaction for a key image spend.
+/// Get the public commitments for the transaction.
 ///
 /// They will be assigned to the spent proof share that is generated.
 ///
 /// In the process of doing so, we verify the correct set of spent proofs and transactions have
 /// been provided.
-///
-/// For the moment this function will only be called outside the library, hence the dead code
-/// exception.
-#[allow(dead_code)]
 pub fn get_public_commitments_from_transaction(
-    tx: &RingCtTransaction,
+    tx: &DbcTransaction,
     spent_proofs: &BTreeSet<SpentProof>,
-    spent_transactions: &BTreeSet<RingCtTransaction>,
-) -> Result<Vec<(KeyImage, Vec<Commitment>)>> {
-    let mut public_commitments_info = Vec::<(KeyImage, Vec<Commitment>)>::new();
-    for mlsag in &tx.mlsags {
-        // For each public key in ring, look up the matching Commitment
-        // using the SpentProofs and spent TX set provided by the client.
-        let commitments: Vec<Commitment> = mlsag
-            .public_keys()
+    spent_transactions: &BTreeSet<DbcTransaction>,
+) -> Result<Vec<(PublicKey, Commitment)>> {
+    // get txs that are referenced by the spent proofs
+    let mut referenced_spent_txs: Vec<&DbcTransaction> = vec![];
+    for spent_prf in spent_proofs {
+        for spent_tx in spent_transactions {
+            let tx_hash = Hash::from(spent_tx.hash());
+            if tx_hash == spent_prf.transaction_hash() {
+                referenced_spent_txs.push(spent_tx);
+            }
+        }
+    }
+
+    // for each input's public key, look up the matching Commitment
+    // in those referenced Txs
+    let mut public_commitments_info = Vec::<(PublicKey, Commitment)>::new();
+    for input in &tx.inputs {
+        let input_pk = input.public_key();
+
+        let matching_commitments: Vec<Commitment> = referenced_spent_txs
             .iter()
-            .flat_map(move |input_pk| {
-                spent_proofs.iter().flat_map(move |proof| {
-                    // Make sure the spent proof corresponds to any of the spent TX provided,
-                    // and the TX output PK matches the ring PK
-                    spent_transactions.iter().filter_map(move |spent_tx| {
-                        let tx_hash = Hash::from(spent_tx.hash());
-                        if tx_hash == proof.transaction_hash() {
-                            spent_tx
-                                .outputs
-                                .iter()
-                                .find(|output| output.public_key() == &input_pk.clone())
-                                .map(|output| output.commitment())
-                        } else {
-                            None
-                        }
-                    })
-                })
+            .flat_map(|tx| {
+                tx.outputs
+                    .iter()
+                    .find(|output| output.public_key() == &input_pk)
+                    .map(|output| output.commitment())
             })
             .collect();
 
-        if commitments.len() != mlsag.public_keys().len() {
-            return Err(Error::CommitmentsInputLenMismatch {
-                current: commitments.len(),
-                expected: mlsag.public_keys().len(),
-            });
+        match matching_commitments[..] {
+            [] => return Err(Error::MissingCommitmentForPubkey(input_pk.into())),
+            [one_commit] => public_commitments_info.push((input_pk.into(), one_commit)),
+            [_, _, ..] => return Err(Error::MultipleCommitmentsForPubkey(input_pk.into())),
         }
-
-        public_commitments_info.push((mlsag.key_image.into(), commitments));
     }
+
     Ok(public_commitments_info)
 }

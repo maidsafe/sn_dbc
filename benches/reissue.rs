@@ -25,7 +25,6 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
-        .set_require_all_decoys(false) // no decoys!
         .add_input_by_secrets(
             starting_dbc
                 .owner_once_bearer()
@@ -73,7 +72,6 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
-        .set_require_all_decoys(false) // no decoys!
         .add_input_by_secrets(
             starting_dbc
                 .owner_once_bearer()
@@ -100,7 +98,6 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
     let mut merge_dbc_builder = sn_dbc::TransactionBuilder::default()
-        .set_require_all_decoys(false) // no decoys!
         .add_inputs_by_secrets(
             dbcs.into_iter()
                 .map(|(_dbc, owner_once, amount_secrets)| {
@@ -149,7 +146,6 @@ fn generate_dbc_of_value(
     ];
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
-        .set_require_all_decoys(false) // no decoys!
         .add_input_by_secrets(
             genesis_dbc.owner_once_bearer()?.secret_key()?,
             genesis_dbc.amount_secrets_bearer()?,
