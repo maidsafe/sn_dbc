@@ -6,7 +6,14 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+pub struct UnblindedTransaction {
+    pub inputs: Vec<UnblindedInput>,
+    pub outputs: Vec<Outputs>,
+}
+
+
+
 pub struct Transaction {
-    pub outputs: Vec<OutputProof>,
-    pub inputs: Vec<TrueInput>,
+    pub inputs: Vec<Input>,
+    pub outputs: Vec<OutputProofs>,
 }

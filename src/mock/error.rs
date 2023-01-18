@@ -15,8 +15,5 @@ use serde::{Deserialize, Serialize};
 /// Mock error variants.
 pub enum Error {
     #[error("Key image has already been spent")]
-    KeyImageAlreadySpent,
-
-    #[error("The transaction input has {0:?} public keys but found {1:?} matching outputs in spentbook.")]
-    RingSizeMismatch(usize, usize),
+    PublicKeyAlreadySpent,
 }

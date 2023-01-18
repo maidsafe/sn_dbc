@@ -23,8 +23,8 @@ use sn_dbc::{
     },
     mock,
     rand::{seq::IteratorRandom, Rng},
-    rng, Dbc, DbcBuilder, OutputOwnerMap, Owner, OwnerOnce, RevealedCommitment, RingCtMaterial,
-    RingCtTransaction, Token, TransactionBuilder,
+    rng, Dbc, DbcBuilder, DbcTransaction, OutputOwnerMap, Owner, OwnerOnce, RevealedCommitment,
+    RevealedTransaction, Token, TransactionBuilder,
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -35,9 +35,6 @@ use std::os::unix::{io::AsRawFd, prelude::RawFd};
 
 #[cfg(unix)]
 use termios::{tcsetattr, Termios, ICANON, TCSADRAIN};
-
-const STD_DECOYS_TO_FETCH: usize = 1000; // how many decoys to fetch from spentbook (if available)
-const STD_DECOYS_PER_INPUT: usize = 3; // how many decoys to use per input (when available)
 
 /// Holds information about the Mint, which may be comprised
 /// of 1 or more nodes.
@@ -61,9 +58,9 @@ impl MintInfo {
 /// A RingCtTransaction with pubkey set for all the input and output Dbcs
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RingCtTransactionRevealed {
-    inner: RingCtTransaction,
+    inner: DbcTransaction,
     revealed_commitments: Vec<RevealedCommitment>,
-    ringct_material: RingCtMaterial,
+    ringct_material: RevealedTransaction,
     output_owner_map: OutputOwnerMap,
 }
 
@@ -99,7 +96,7 @@ fn main() -> Result<()> {
                     "mintinfo" => print_mintinfo_human(&mintinfo),
 
                     // Not necessary until multisig Dbc owner is supported
-                    // "prepare_tx" => prepare_tx_cli(&mintinfo),
+                    // "prepare_tx" => prepare_tx_cli(),
                     // "sign_tx" => sign_tx_cli(),
                     // "prepare_reissue" => prepare_reissue_cli(&mut mintinfo),
                     // "reissue_prepared" => reissue_prepared_cli(&mut mintinfo),
@@ -358,8 +355,8 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
 
     for (i, spentbook) in mintinfo.spentbook_nodes.iter().enumerate() {
         println!("\n-- SpentBook Node {} --\n", i);
-        for (key_image, _tx) in spentbook.iter() {
-            println!("  {}", encode(key_image.to_bytes()));
+        for (public_key, _tx) in spentbook.iter() {
+            println!("  {}", encode(public_key.to_bytes()));
         }
     }
 
@@ -411,7 +408,7 @@ fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>)
     println!("is_bearer: {:?}\n", dbc.is_bearer());
 
     println!("inputs:");
-    for i in &dbc.transaction.mlsags {
+    for i in &dbc.transaction.inputs {
         println!("  {}", encode(i.to_bytes()))
     }
 
@@ -543,7 +540,10 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
     };
 
     match dbc.verify(&secret_key, &mintinfo.spentbook()?.key_manager) {
-        Ok(_) => match mintinfo.spentbook()?.is_spent(&dbc.key_image(&secret_key)?) {
+        Ok(_) => match mintinfo
+            .spentbook()?
+            .is_spent(&dbc.public_key(&secret_key)?)
+        {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
         },
@@ -554,15 +554,8 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
 }
 
 /// Implements prepare_tx command.
-fn prepare_tx(mintinfo: &MintInfo) -> Result<DbcBuilder> {
-    let decoy_inputs = mintinfo
-        .spentbook()?
-        .random_decoys(STD_DECOYS_TO_FETCH, &mut rng::thread_rng());
-
-    let mut tx_builder = TransactionBuilder::default()
-        .set_decoys_per_input(STD_DECOYS_PER_INPUT)
-        .set_require_all_decoys(false)
-        .add_decoy_inputs(decoy_inputs);
+fn prepare_tx() -> Result<DbcBuilder> {
+    let mut tx_builder = TransactionBuilder::default();
 
     // Get DBC inputs from user
     loop {
@@ -671,11 +664,11 @@ fn prepare_tx(mintinfo: &MintInfo) -> Result<DbcBuilder> {
 
 fn write_to_spentbook(mintinfo: &mut MintInfo, mut dbc_builder: DbcBuilder) -> Result<DbcBuilder> {
     println!("\nWriting to Spentbook...\n\n");
-    for (key_image, tx) in dbc_builder.inputs() {
+    for (public_key, tx) in dbc_builder.inputs() {
         for (sp_idx, sb_node) in mintinfo.spentbook_nodes.iter_mut().enumerate() {
-            println!("logging input {:?}, spentbook {}", key_image, sp_idx);
+            println!("logging input {:?}, spentbook {}", public_key, sp_idx);
             dbc_builder =
-                dbc_builder.add_spent_proof_share(sb_node.log_spent(key_image, tx.clone())?);
+                dbc_builder.add_spent_proof_share(sb_node.log_spent(public_key, tx.clone())?);
         }
         dbc_builder = dbc_builder.add_spent_transaction(tx);
     }
@@ -709,9 +702,6 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
     let max_outputs: usize =
         readline_prompt_default("\nMax number of outputs [2]: ", "2")?.parse()?;
 
-    let max_decoys: usize =
-        readline_prompt_default("\nMax number of decoys [10]: ", "10")?.parse()?;
-
     println!(
         "\ninputs to outputs.  value                  wallet     sb::random_decoys  sb::log_spent  total"
     );
@@ -733,16 +723,7 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             .map(|(_, d)| (*d).clone())
             .collect();
 
-        let random_decoys_start = SystemTime::now();
-        let decoy_inputs = mintinfo
-            .spentbook()?
-            .random_decoys(STD_DECOYS_TO_FETCH, &mut rng);
-        let random_decoys_duration = random_decoys_start.elapsed().unwrap();
-
-        let mut tx_builder = TransactionBuilder::default()
-            .set_decoys_per_input(max_decoys)
-            .set_require_all_decoys(false)
-            .add_decoy_inputs(decoy_inputs);
+        let mut tx_builder = TransactionBuilder::default();
 
         for dbc in input_dbcs.iter() {
             let base_sk = dbc.owner_base().secret_key()?;
@@ -776,10 +757,10 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
         let mut dbc_builder = tx_builder.build(&mut rng)?;
 
         let mut log_spent_duration = Duration::new(0, 0);
-        for (key_image, tx) in dbc_builder.inputs() {
+        for (public_key, tx) in dbc_builder.inputs() {
             for spentbook_node in mintinfo.spentbook_nodes.iter_mut() {
                 let log_spent_start = SystemTime::now();
-                let spent_proof_share = spentbook_node.log_spent(key_image, tx.clone())?;
+                let spent_proof_share = spentbook_node.log_spent(public_key, tx.clone())?;
                 log_spent_duration += log_spent_start.elapsed().unwrap();
                 dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
             }
@@ -792,15 +773,14 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
         }
 
         let iter_duration = iter_time_start.elapsed().unwrap();
-        let wallet_duration = iter_duration - log_spent_duration - random_decoys_duration;
+        let wallet_duration = iter_duration - log_spent_duration;
 
         println!(
-            "{:>6} -> {:<8}  {:<22} {:<10} {:<10}         {:<10}     {:<10}",
+            "{:>6} -> {:<8}  {:<22} {:<10}         {:<10}     {:<10}",
             input_dbcs.len(),
             output_dbcs.len(),
             inputs_sum,
             fd(wallet_duration),
-            fd(random_decoys_duration),
             fd(log_spent_duration),
             fd(iter_duration),
         );
@@ -821,7 +801,7 @@ fn fd(duration: Duration) -> String {
 
 /// Implements reissue command.
 fn reissue_cli(mintinfo: &mut MintInfo) -> Result<()> {
-    let dbc_builder = prepare_tx(mintinfo)?;
+    let dbc_builder = prepare_tx()?;
     let dbc_builder = write_to_spentbook(mintinfo, dbc_builder)?;
     reissue(mintinfo, dbc_builder)
 }

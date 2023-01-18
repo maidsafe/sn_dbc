@@ -82,9 +82,9 @@ impl GenesisBuilder {
 
         let genesis_material = GenesisMaterial::default();
         let mut dbc_builder = TransactionBuilder::default()
-            .add_input(genesis_material.ringct_material.inputs[0].clone())
+            .add_input(genesis_material.revealed_tx.inputs[0].clone())
             .add_output(
-                genesis_material.ringct_material.outputs[0].clone(),
+                genesis_material.revealed_tx.outputs[0].clone(),
                 genesis_material.owner_once.clone(),
             )
             .build(rng)?;

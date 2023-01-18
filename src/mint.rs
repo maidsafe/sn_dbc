@@ -9,15 +9,15 @@
 #[cfg(test)]
 mod tests {
 
-    use crate::tests::{TinyInt, TinyVec, STD_DECOYS_TO_FETCH};
-    use blsttc::{SecretKey, SecretKeySet};
+    use crate::tests::{TinyInt, TinyVec};
+    use blsttc::{PublicKey, SecretKey, SecretKeySet};
     use quickcheck_macros::quickcheck;
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
 
     use crate::{
-        mock, AmountSecrets, Dbc, DbcContent, Error, IndexedSignatureShare, KeyImage, Owner,
-        OwnerOnce, Result, SpentProofContent, SpentProofShare, Token, TransactionBuilder,
+        mock, AmountSecrets, Dbc, DbcContent, Error, IndexedSignatureShare, Owner, OwnerOnce,
+        Result, SpentProofContent, SpentProofShare, Token, TransactionBuilder,
     };
 
     #[test]
@@ -46,7 +46,7 @@ mod tests {
             .push(mock::GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<u64>());
 
         let n_outputs = output_amounts.len();
-        let output_amount = output_amounts.iter().sum();
+        let output_amount: u64 = output_amounts.iter().sum();
 
         let (mut spentbook_node, genesis_dbc, _genesis, _amount_secrets) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
@@ -56,7 +56,6 @@ mod tests {
             .collect();
 
         let mut dbc_builder = TransactionBuilder::default()
-            .set_require_all_decoys(false)
             .add_input_dbc(&genesis_dbc, &genesis_dbc.owner_base().secret_key()?)?
             .add_outputs_by_amount(
                 output_amounts
@@ -69,14 +68,14 @@ mod tests {
         // We make this a closure to keep the spentbook loop readable.
         let check_error = |error: Error| -> Result<()> {
             match error {
-                Error::RingCt(
+                Error::Transaction(
                     crate::transaction::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
                 }
-                Error::RingCt(crate::transaction::Error::InvalidHiddenCommitmentInRing) => {
+                Error::Transaction(crate::transaction::Error::InvalidCommitment) => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
@@ -85,8 +84,8 @@ mod tests {
             }
         };
 
-        for (key_image, tx) in dbc_builder.inputs() {
-            let spent_proof_share = match spentbook_node.log_spent(key_image, tx.clone()) {
+        for (public_key, tx) in dbc_builder.inputs() {
+            let spent_proof_share = match spentbook_node.log_spent(public_key, tx.clone()) {
                 Ok(s) => s,
                 Err(e) => return check_error(e),
             };
@@ -136,8 +135,6 @@ mod tests {
         output_amounts: TinyVec<TinyInt>,
         // Include an invalid SpentProofs for the following inputs
         invalid_spent_proofs: TinyVec<TinyInt>,
-        // The number of decoy inputs
-        num_decoy_inputs: TinyInt,
     ) -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
 
@@ -162,20 +159,10 @@ mod tests {
                 .map(TinyInt::coerce::<usize>),
         );
 
-        // We apply mod 2 because there is only one available decoy (genesis pubkey)
-        // in the spentbook.  To test decoys further, we would need to devise a test
-        // something like:  genesis --> 100 outputs --> x outputs --> y outputs.
-        let num_decoy_inputs: usize = num_decoy_inputs.coerce::<usize>() % 2;
-
         let (mut spentbook_node, genesis_dbc, _genesis, _amount_secrets) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
-        let decoy_inputs = spentbook_node.random_decoys(STD_DECOYS_TO_FETCH, &mut rng);
-
         let mut dbc_builder = TransactionBuilder::default()
-            .set_decoys_per_input(num_decoy_inputs)
-            .set_require_all_decoys(false)
-            .add_decoy_inputs(decoy_inputs.clone())
             .add_input_dbc(&genesis_dbc, &genesis_dbc.owner_base().secret_key()?)?
             .add_outputs_by_amount(input_amounts.iter().map(|amount| {
                 let owner_once =
@@ -187,7 +174,7 @@ mod tests {
         // note: we make this a closure to keep the spentbook loop readable.
         let check_tx_error = |error: Error| -> Result<()> {
             match error {
-                Error::RingCt(
+                Error::Transaction(
                     crate::transaction::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
                     // Verify that no inputs were present and we got correct verification error.
@@ -198,10 +185,10 @@ mod tests {
             }
         };
 
-        for (key_image, tx) in dbc_builder.inputs() {
+        for (public_key, tx) in dbc_builder.inputs() {
             // normally spentbook verifies the tx, but here we skip it in order check reissue results.
             let spent_proof_share =
-                match spentbook_node.log_spent_and_skip_tx_verification(key_image, tx.clone()) {
+                match spentbook_node.log_spent_and_skip_tx_verification(public_key, tx.clone()) {
                     Ok(s) => s,
                     Err(e) => return check_tx_error(e),
                 };
@@ -231,17 +218,14 @@ mod tests {
             .zip(owners);
 
         let mut dbc_builder = TransactionBuilder::default()
-            .set_decoys_per_input(num_decoy_inputs)
-            .set_require_all_decoys(false)
-            .add_decoy_inputs(decoy_inputs)
             .add_inputs_dbc(inputs_dbcs.clone())?
             .add_outputs_by_amount(outputs)
             .build(&mut rng)?;
 
         let dbc_output_amounts = output_amounts.clone();
-        let output_total_amount = dbc_output_amounts.iter().sum();
+        let output_total_amount: u64 = dbc_output_amounts.iter().sum();
 
-        assert_eq!(inputs_dbcs.len(), dbc_builder.transaction.mlsags.len());
+        assert_eq!(inputs_dbcs.len(), dbc_builder.transaction.inputs.len());
         assert_eq!(inputs_dbcs.len(), dbc_builder.inputs().len());
 
         let tx2 = dbc_builder.transaction.clone();
@@ -254,10 +238,10 @@ mod tests {
                     assert!(!invalid_spent_proofs.is_empty());
                     assert_eq!(inputs_dbcs.len(), expected);
                 }
-                Error::SpentProofInputKeyImageMismatch => {
+                Error::SpentProofInputPublicKeyMismatch => {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
-                Error::RingCt(
+                Error::Transaction(
                     crate::transaction::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
                 ) => {
                     if mock::GenesisMaterial::GENESIS_AMOUNT == output_total_amount {
@@ -271,10 +255,7 @@ mod tests {
                         assert!(!input_amounts.is_empty());
                     }
                 }
-                Error::RingCt(crate::transaction::Error::InvalidHiddenCommitmentInRing) => {
-                    assert!(!invalid_spent_proofs.is_empty());
-                }
-                Error::RingCt(crate::transaction::Error::TransactionMustHaveAnInput) => {
+                Error::Transaction(crate::transaction::Error::TransactionMustHaveAnInput) => {
                     assert_eq!(input_amounts.len(), 0);
                 }
                 Error::FailedSignature => {
@@ -282,9 +263,9 @@ mod tests {
                 }
                 Error::InvalidSpentProofSignature(key) => {
                     let idx = tx2
-                        .mlsags
+                        .inputs
                         .iter()
-                        .position(|i| Into::<KeyImage>::into(i.key_image) == key)
+                        .position(|i| Into::<PublicKey>::into(i.public_key) == key)
                         .unwrap();
                     assert!(invalid_spent_proofs.contains(&idx));
                 }
@@ -293,7 +274,7 @@ mod tests {
             Ok(())
         };
 
-        for (i, (key_image, tx)) in dbc_builder.inputs().into_iter().enumerate() {
+        for (i, (public_key, tx)) in dbc_builder.inputs().into_iter().enumerate() {
             let is_invalid_spent_proof = invalid_spent_proofs.contains(&i);
 
             let spent_proof_share = match i % 2 {
@@ -303,15 +284,15 @@ mod tests {
                 }
                 1 if is_invalid_spent_proof => {
                     // spentbook verifies the tx.  If an error, we need to check it
-                    let spent_proof_share = match spentbook_node.log_spent(key_image, tx.clone()) {
+                    let spent_proof_share = match spentbook_node.log_spent(public_key, tx.clone()) {
                         Ok(s) => s,
                         Err(e) => return check_error(e),
                     };
                     SpentProofShare {
                         content: SpentProofContent {
-                            key_image: *spent_proof_share.key_image(),
+                            public_key: *spent_proof_share.public_key(),
                             transaction_hash: spent_proof_share.transaction_hash(),
-                            public_commitments: spent_proof_share.public_commitments().clone(),
+                            public_commitment: *spent_proof_share.public_commitment(),
                         },
                         spentbook_pks: spent_proof_share.spentbook_pks,
                         spentbook_sig_share: IndexedSignatureShare::new(
@@ -324,7 +305,7 @@ mod tests {
                 }
                 _ => {
                     // spentbook verifies the tx.
-                    match spentbook_node.log_spent(key_image, tx.clone()) {
+                    match spentbook_node.log_spent(public_key, tx.clone()) {
                         Ok(s) => s,
                         Err(e) => return check_error(e),
                     }
@@ -341,7 +322,7 @@ mod tests {
         match many_to_many_result {
             Ok(output_dbcs) => {
                 assert_eq!(mock::GenesisMaterial::GENESIS_AMOUNT, output_total_amount);
-                assert!(invalid_spent_proofs.iter().all(|i| i >= &tx2.mlsags.len()));
+                assert!(invalid_spent_proofs.iter().all(|i| i >= &tx2.inputs.len()));
 
                 // The output amounts (from params) should correspond to the actual output_amounts
                 assert_eq!(
@@ -403,9 +384,7 @@ mod tests {
         let output2_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
-        // note: no decoys
         let fraud_dbc_builder = TransactionBuilder::default()
-            .set_require_all_decoys(false)
             .add_input_by_secrets(secret_key, amount_secrets)
             .add_output_by_amount(Token::from_nano(100), output2_owner)
             .build(&mut rng)?;
@@ -473,14 +452,13 @@ mod tests {
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
         let mut dbc_builder = TransactionBuilder::default()
-            .set_require_all_decoys(false)
             .add_input_dbc(&starting_dbc, &starting_dbc.owner_base().secret_key()?)?
             .add_output_by_amount(Token::from_nano(output_amount), output_owner.clone())
             .build(&mut rng)?;
 
-        for (key_image, tx) in dbc_builder.inputs() {
+        for (public_key, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook.log_spent(key_image, tx.clone())?)
+                .add_spent_proof_share(spentbook.log_spent(public_key, tx.clone())?)
                 .add_spent_transaction(tx);
         }
 
@@ -550,7 +528,6 @@ mod tests {
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
         let mut dbc_builder_fudged = crate::TransactionBuilder::default()
-            .set_require_all_decoys(false)
             .add_input_dbc(
                 &fudged_output_dbc,
                 &fudged_output_dbc.owner_base().secret_key()?,
@@ -563,10 +540,10 @@ mod tests {
         //    This will fail because the input and output commitments do not match.
         // ----------
 
-        for (key_image, tx) in dbc_builder_fudged.inputs() {
-            match spentbook.log_spent(key_image, tx) {
-                Err(Error::RingCt(crate::transaction::Error::InvalidHiddenCommitmentInRing)) => {}
-                _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
+        for (public_key, tx) in dbc_builder_fudged.inputs() {
+            match spentbook.log_spent(public_key, tx) {
+                Err(Error::Transaction(crate::transaction::Error::InvalidCommitment)) => {}
+                _ => panic!("Expecting Transaction Error::InvalidCommitment"),
             }
         }
 
@@ -577,9 +554,9 @@ mod tests {
 
         // normally spentbook verifies the tx, but here we skip it in order to obtain
         // a spentproof with an invalid tx.
-        for (key_image, tx) in dbc_builder_fudged.inputs() {
+        for (public_key, tx) in dbc_builder_fudged.inputs() {
             let spent_proof_share =
-                spentbook.log_spent_and_skip_tx_verification(key_image, tx.clone())?;
+                spentbook.log_spent_and_skip_tx_verification(public_key, tx.clone())?;
             dbc_builder_fudged = dbc_builder_fudged
                 .add_spent_proof_share(spent_proof_share)
                 .add_spent_transaction(tx);
@@ -589,8 +566,8 @@ mod tests {
         let result_fudged = dbc_builder_fudged.build(&spentbook.key_manager);
 
         match result_fudged {
-            Err(Error::RingCt(crate::transaction::Error::InvalidHiddenCommitmentInRing)) => {}
-            _ => panic!("Expecting RingCt Error::InvalidHiddenCommitmentInRing"),
+            Err(Error::Transaction(crate::transaction::Error::InvalidCommitment)) => {}
+            _ => panic!("Expecting Transaction Error::InvalidCommitment"),
         }
 
         // ----------
@@ -609,7 +586,6 @@ mod tests {
         // because entries are immutable.
 
         let mut dbc_builder_true = TransactionBuilder::default()
-            .set_require_all_decoys(false)
             .add_input_by_secrets(
                 fudged_output_dbc.owner_once_bearer()?.secret_key()?,
                 true_secrets.clone(),
@@ -618,13 +594,13 @@ mod tests {
             .build(&mut rng)?;
 
         let dbc_builder_bad_proof = dbc_builder_true.clone();
-        for (key_image, tx) in dbc_builder_bad_proof.inputs() {
-            let result = spentbook.log_spent_and_skip_tx_verification(key_image, tx);
+        for (public_key, tx) in dbc_builder_bad_proof.inputs() {
+            let result = spentbook.log_spent_and_skip_tx_verification(public_key, tx);
 
             // The builder should return an error because the spentproof does not match the tx.
             match result {
-                Err(Error::Mock(mock::Error::KeyImageAlreadySpent)) => {}
-                _ => panic!("Expected Error::Mock::Error::KeyImageAlreadySpent"),
+                Err(Error::Mock(mock::Error::PublicKeyAlreadySpent)) => {}
+                _ => panic!("Expected Error::Mock::Error::PublicKeyAlreadySpent"),
             }
         }
 
@@ -647,20 +623,20 @@ mod tests {
         // Note that the new spentbook uses the same signing key as the original
         let mut new_spentbook = mock::SpentBookNode::from(spentbook.key_manager);
         let _genesis_spent_proof_share = new_spentbook.log_spent(
-            genesis_dbc.transaction.mlsags[0].key_image.into(),
+            genesis_dbc.transaction.inputs[0].public_key.into(),
             genesis_dbc.transaction.clone(),
         )?;
         let _starting_spent_proof_share = new_spentbook.log_spent(
-            starting_dbc.transaction.mlsags[0].key_image.into(),
+            starting_dbc.transaction.inputs[0].public_key.into(),
             starting_dbc.transaction.clone(),
         )?;
         let _spent_proof_share = new_spentbook.log_spent(
-            b_dbc.transaction.mlsags[0].key_image.into(),
+            b_dbc.transaction.inputs[0].public_key.into(),
             b_dbc.transaction.clone(),
         )?;
 
-        for (key_image, tx) in dbc_builder_true.inputs() {
-            let spent_proof_share = new_spentbook.log_spent(key_image, tx.clone())?;
+        for (public_key, tx) in dbc_builder_true.inputs() {
+            let spent_proof_share = new_spentbook.log_spent(public_key, tx.clone())?;
             dbc_builder_true = dbc_builder_true
                 .add_spent_proof_share(spent_proof_share)
                 .add_spent_transaction(tx);

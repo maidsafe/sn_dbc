@@ -39,10 +39,10 @@ pub use blsttc::{PublicKey, PublicKeySet, Signature, SignatureShare};
 
 pub use crate::{
     amount_secrets::AmountSecrets,
-    blst::{BlindingFactor, Commitment, KeyImage},
+    blst::{BlindingFactor, Commitment},
     builder::{
-        DbcBuilder, DecoyInput, MlsagMaterial, Output, OutputOwnerMap, RevealedCommitment,
-        RingCtMaterial, RingCtTransaction, TransactionBuilder, TrueInput,
+        DbcBuilder, DbcTransaction, Output, OutputOwnerMap, RevealedCommitment, RevealedInput,
+        RevealedTransaction, TransactionBuilder,
     },
     dbc::Dbc,
     dbc_content::DbcContent,
@@ -53,7 +53,6 @@ pub use crate::{
         SpentProofShare,
     },
     token::Token,
-    // transaction::Transaction,
     verification::{get_public_commitments_from_transaction, TransactionVerifier},
 };
 
@@ -137,9 +136,6 @@ mod tests {
     use super::*;
     use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
-
-    pub const STD_DECOYS_PER_INPUT: usize = 3;
-    pub const STD_DECOYS_TO_FETCH: usize = 100;
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct TinyInt(pub u8);

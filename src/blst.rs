@@ -22,11 +22,3 @@ pub type Commitment = crate::transaction::blstrs::G1Affine;
 
 /// a BlindingFactor
 pub type BlindingFactor = crate::transaction::blstrs::Scalar;
-
-/// A KeyImage can be thought of as a specific type
-/// of public key. blsttc::PublicKey is a newtype
-/// wrapper around blstrs::G1Affine.  We use
-/// PublicKey because it impls Hash and Ord traits
-/// that are useful for storing the KeyImage in
-/// a map.
-pub type KeyImage = blsttc::PublicKey;

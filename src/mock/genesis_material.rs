@@ -7,20 +7,19 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::transaction::{
-    blstrs::Scalar,
-    group::Curve,
-    input::{MlsagMaterial, TrueInput},
-    output::{Amount, RingCtMaterial},
+    input::RevealedInput,
+    output::{Amount, RevealedTransaction},
     {Output, RevealedCommitment},
 };
-use crate::{KeyImage, Owner, OwnerOnce};
+use crate::{Owner, OwnerOnce, PublicKey};
+use bls_bulletproofs::group::Curve;
 use blsttc::IntoFr;
 
 /// represents all the inputs required to build the Genesis Dbc.
 pub struct GenesisMaterial {
-    pub ringct_material: RingCtMaterial,
+    pub revealed_tx: RevealedTransaction,
     pub owner_once: OwnerOnce,
-    pub input_key_image: KeyImage,
+    pub input_public_key: PublicKey,
 }
 
 impl GenesisMaterial {
@@ -54,30 +53,18 @@ impl Default for GenesisMaterial {
         let output_sk_once = output_sk.derive_child(&output_owner_once.derivation_index);
 
         // build our TrueInput
-        let true_input = TrueInput::new(
+        let revealed_input = RevealedInput::new(
             input_sk,
             RevealedCommitment {
                 value: Self::GENESIS_AMOUNT,
-                blinding: 1000.into(), // just a random number
+                blinding: 42.into(), // just a random number
             },
         );
+        let input_public_key: PublicKey = revealed_input.public_key().to_affine().into();
 
-        // make things a bit easier for our callers.
-        let input_key_image: KeyImage = true_input.key_image().to_affine().into();
-
-        // build our MlsagMaterial manually without randomness.
-        // note: no decoy inputs because no other DBCs exist prior to genesis DBC.
-        let mlsag_material = MlsagMaterial {
-            true_input,
-            decoy_inputs: vec![],
-            pi_base: 0,
-            alpha: (Default::default(), Default::default()),
-            r: vec![(Scalar::default(), Scalar::default())],
-        };
-
-        // build the genesis RingCtMaterial
-        let ringct_material = RingCtMaterial {
-            inputs: vec![mlsag_material],
+        // build the genesis Transaction
+        let ringct_material = RevealedTransaction {
+            inputs: vec![revealed_input],
             outputs: vec![Output::new(
                 output_sk_once.public_key(),
                 Self::GENESIS_AMOUNT,
@@ -85,9 +72,9 @@ impl Default for GenesisMaterial {
         };
 
         Self {
-            ringct_material,
+            revealed_tx: ringct_material,
             owner_once: output_owner_once,
-            input_key_image,
+            input_public_key,
         }
     }
 }

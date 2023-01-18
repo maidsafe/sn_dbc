@@ -6,9 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{
-    Commitment, Error, Hash, KeyImage, PublicKey, PublicKeySet, Result, Signature, SignatureShare,
-};
+use crate::{Commitment, Error, Hash, PublicKey, PublicKeySet, Result, Signature, SignatureShare};
 
 use std::cmp::Ordering;
 
@@ -19,14 +17,14 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpentProofContent {
-    /// KeyImage of input Dbc that this SpentProof is proving to be spent.
-    pub key_image: KeyImage,
+    /// PublicKey of input Dbc that this SpentProof is proving to be spent.
+    pub public_key: PublicKey,
 
     /// Hash of transaction that input Dbc is being spent in.
     pub transaction_hash: Hash,
 
-    /// public commitments for the transaction
-    pub public_commitments: Vec<Commitment>,
+    /// public commitment for the transaction
+    pub public_commitment: Commitment,
 }
 
 impl SpentProofContent {
@@ -34,11 +32,9 @@ impl SpentProofContent {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
-        bytes.extend(self.key_image.to_bytes());
+        bytes.extend(self.public_key.to_bytes());
         bytes.extend(self.transaction_hash.as_ref());
-        for pc in self.public_commitments.iter() {
-            bytes.extend(pc.to_compressed());
-        }
+        bytes.extend(self.public_commitment.to_compressed());
         bytes
     }
 
@@ -56,7 +52,7 @@ impl PartialOrd for SpentProofContent {
 
 impl Ord for SpentProofContent {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.key_image.cmp(&other.key_image)
+        self.public_key.cmp(&other.public_key)
     }
 }
 
@@ -118,9 +114,9 @@ impl std::hash::Hash for SpentProofShare {
 }
 
 impl SpentProofShare {
-    /// get KeyImage of input Dbc
-    pub fn key_image(&self) -> &KeyImage {
-        &self.content.key_image
+    /// get PublicKey of input Dbc
+    pub fn public_key(&self) -> &PublicKey {
+        &self.content.public_key
     }
 
     /// get transaction hash
@@ -129,8 +125,8 @@ impl SpentProofShare {
     }
 
     /// get public commitments
-    pub fn public_commitments(&self) -> &Vec<Commitment> {
-        &self.content.public_commitments
+    pub fn public_commitment(&self) -> &Commitment {
+        &self.content.public_commitment
     }
 
     /// get spentbook's signature share
@@ -172,14 +168,14 @@ pub struct SpentProof {
     pub spentbook_pub_key: PublicKey,
 
     /// The Spentbook's signature notarizing the DBC was spent.
-    /// signing over SpentProofContent. (KeyImage, RingCtTransaction, and public_commitments).
+    /// signing over SpentProofContent. (PublicKey, DbcTransaction, and public_commitment).
     pub spentbook_sig: Signature,
 }
 
 impl SpentProof {
     /// Attempts to build a SpentProof by combining a given set of proof shares
     pub fn try_from_proof_shares<'a>(
-        key_image: KeyImage,
+        key_image: PublicKey,
         transaction_hash: Hash,
         shares: impl Iterator<Item = &'a SpentProofShare>,
     ) -> Result<Self> {
@@ -196,22 +192,22 @@ impl SpentProof {
                 .map(IndexedSignatureShare::threshold_crypto),
         )?;
 
-        let public_commitments: Vec<Commitment> = any_share.public_commitments().clone();
+        let public_commitment = *any_share.public_commitment();
 
         Ok(SpentProof {
             content: SpentProofContent {
-                key_image,
+                public_key: key_image,
                 transaction_hash,
-                public_commitments,
+                public_commitment,
             },
             spentbook_pub_key,
             spentbook_sig,
         })
     }
 
-    /// get KeyImage of input Dbc
-    pub fn key_image(&self) -> &KeyImage {
-        &self.content.key_image
+    /// get PublicKey of input Dbc
+    pub fn public_key(&self) -> &PublicKey {
+        &self.content.public_key
     }
 
     /// get transaction hash
@@ -220,8 +216,8 @@ impl SpentProof {
     }
 
     /// get public commitments
-    pub fn public_commitments(&self) -> &Vec<Commitment> {
-        &self.content.public_commitments
+    pub fn public_commitment(&self) -> &Commitment {
+        &self.content.public_commitment
     }
 
     /// represent this SpentProof as bytes
@@ -255,7 +251,7 @@ impl SpentProof {
         let pub_key = &self.spentbook_pub_key;
 
         if !pub_key.verify(&self.spentbook_sig, self.content.hash()) {
-            return Err(Error::InvalidSpentProofSignature(*self.key_image()));
+            return Err(Error::InvalidSpentProofSignature(*self.public_key()));
         }
 
         proof_key_verifier
