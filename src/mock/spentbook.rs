@@ -10,7 +10,6 @@ use crate::transaction::{
     bls_bulletproofs::PedersenGens,
     output::{DbcTransaction, OutputProof},
 };
-use bls_bulletproofs::group::Curve;
 use blsttc::PublicKey;
 use std::collections::{BTreeMap, HashMap};
 
@@ -55,8 +54,7 @@ impl From<mock::KeyManager> for SpentBookNode {
         let genesis_material = GenesisMaterial::default();
         let public_commitment = genesis_material.revealed_tx.inputs[0]
             .revealed_commitment()
-            .commit(&PedersenGens::default())
-            .to_affine();
+            .commit(&PedersenGens::default());
 
         Self {
             key_manager,
@@ -128,10 +126,10 @@ impl SpentBookNode {
                     .map(|input| {
                         // look up matching OutputProof
                         let pk = input.public_key();
-                        let output_proof = self.outputs.get(&pk.into());
+                        let output_proof = self.outputs.get(&pk);
                         match output_proof {
-                            Some(p) => Ok((input.public_key.into(), p.commitment())),
-                            None => Err(Error::MissingCommitmentForPubkey(pk.into())),
+                            Some(p) => Ok((input.public_key, p.commitment())),
+                            None => Err(Error::MissingCommitmentForPubkey(pk)),
                         }
                     })
                     .collect::<Result<_>>()?
@@ -172,7 +170,7 @@ impl SpentBookNode {
 
             // Add public_key:output_proof to public_key index.
             for output in existing_tx.outputs.iter() {
-                let pk = PublicKey::from(*output.public_key());
+                let pk = *output.public_key();
                 self.outputs.entry(pk).or_insert_with(|| output.clone());
             }
 

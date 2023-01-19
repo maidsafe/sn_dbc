@@ -11,9 +11,9 @@ use crate::{Commitment, Error, Hash, PublicKey, Result, SpentProof, SpentProofKe
 use std::collections::BTreeSet;
 
 // Here we are putting transaction verification logic that is beyond
-// what RingCtTransaction::verify() provides.
+// what DbcTransaction::verify() provides.
 //
-// Another way to do this would be to create a NewType wrapper for RingCtTransaction.
+// Another way to do this would be to create a NewType wrapper for DbcTransaction.
 // We can discuss if that is better or not.
 
 pub struct TransactionVerifier {}
@@ -47,7 +47,7 @@ impl TransactionVerifier {
         let pubkey_unique: BTreeSet<PublicKey> = transaction
             .outputs
             .iter()
-            .map(|o| (*o.public_key()).into())
+            .map(|o| (*o.public_key()))
             .collect();
         if pubkey_unique.len() != transaction.outputs.len() {
             return Err(Error::PublicKeyNotUniqueAcrossOutputs);
@@ -141,9 +141,9 @@ pub fn get_public_commitments_from_transaction(
             .collect();
 
         match matching_commitments[..] {
-            [] => return Err(Error::MissingCommitmentForPubkey(input_pk.into())),
-            [one_commit] => public_commitments_info.push((input_pk.into(), one_commit)),
-            [_, _, ..] => return Err(Error::MultipleCommitmentsForPubkey(input_pk.into())),
+            [] => return Err(Error::MissingCommitmentForPubkey(input_pk)),
+            [one_commit] => public_commitments_info.push((input_pk, one_commit)),
+            [_, _, ..] => return Err(Error::MultipleCommitmentsForPubkey(input_pk)),
         }
     }
 

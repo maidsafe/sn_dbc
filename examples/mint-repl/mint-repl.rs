@@ -55,12 +55,13 @@ impl MintInfo {
     }
 }
 
-/// A RingCtTransaction with pubkey set for all the input and output Dbcs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RingCtTransactionRevealed {
+/// A DBC Transaction with pubkey set for all the input and output Dbcs
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
+struct DbcTransactionRevealed {
     inner: DbcTransaction,
     revealed_commitments: Vec<RevealedCommitment>,
-    ringct_material: RevealedTransaction,
+    revealed_tx: RevealedTransaction,
     output_owner_map: OutputOwnerMap,
 }
 
@@ -427,7 +428,7 @@ fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>)
 /// handles decode command.
 fn decode_input() -> Result<()> {
     let t = readline_prompt(
-        "\n[d: DBC, rt: RingCtTransaction, pks: PublicKeySet, sks: SecretKeySet]\nType: ",
+        "\n[d: DBC, rt: DBC Transaction, pks: PublicKeySet, sks: SecretKeySet]\nType: ",
     )?;
     let input = readline_prompt_nl("\nPaste Data: ")?;
     let bytes = decode(input)?;
@@ -488,8 +489,8 @@ fn decode_input() -> Result<()> {
             println!("-- End SecretKeySet --\n");
         }
         "rt" => println!(
-            "\n\n-- RingCtTransaction --\n\n{:#?}",
-            from_be_bytes::<RingCtTransactionRevealed>(&bytes)?
+            "\n\n-- DBC Transaction --\n\n{:#?}",
+            from_be_bytes::<DbcTransactionRevealed>(&bytes)?
         ),
         _ => println!("Unknown type!"),
     }
@@ -539,11 +540,9 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
         }
     };
 
+    let pk = &dbc.public_key(&secret_key)?;
     match dbc.verify(&secret_key, &mintinfo.spentbook()?.key_manager) {
-        Ok(_) => match mintinfo
-            .spentbook()?
-            .is_spent(&dbc.public_key(&secret_key)?)
-        {
+        Ok(_) => match mintinfo.spentbook()?.is_spent(pk) {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
         },
@@ -655,7 +654,7 @@ fn prepare_tx() -> Result<DbcBuilder> {
         i += 1;
     }
 
-    println!("\n\nPreparing RingCtTransaction...\n\n");
+    println!("\n\nPreparing DBC Transaction...\n\n");
 
     let dbc_builder = tx_builder.build(rng::thread_rng())?;
 
