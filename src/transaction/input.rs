@@ -11,12 +11,12 @@ use crate::Commitment;
 use blsttc::{PublicKey, SecretKey, Signature};
 
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use serde::{self, Deserialize, Serialize};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct RevealedInput {
-    #[serde(skip_serializing)]
+    #[cfg_attr(feature = "serde", serde(skip_serializing))]
     pub secret_key: SecretKey,
     pub revealed_commitment: RevealedCommitment,
 }
