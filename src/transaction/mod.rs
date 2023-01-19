@@ -4,14 +4,9 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-pub mod error;
-pub mod input;
-pub mod output;
-
-// re-export deps used in our public API
-pub use bls_bulletproofs::{self, blstrs, group, rand};
-#[cfg(feature = "serde")]
-pub use serde;
+mod error;
+mod input;
+mod output;
 
 use crate::{BlindingFactor, Commitment};
 
@@ -21,14 +16,14 @@ use bls_bulletproofs::{
     PedersenGens,
 };
 
-pub use error::Error;
+pub(crate) use error::Error;
 pub use input::{Input, RevealedInput};
-pub use output::{Output, RevealedTransaction};
+pub use output::{Amount, DbcTransaction, Output, OutputProof, RevealedTransaction};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub type Result<T> = std::result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy)]

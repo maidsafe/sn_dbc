@@ -15,7 +15,7 @@
 //! sn_dbc internally uses the type aliases rather than directly using the blstrs types.
 
 /// a Commitment
-pub type Commitment = crate::transaction::blstrs::G1Affine;
+pub type Commitment = bls_bulletproofs::blstrs::G1Affine;
 
 /// a BlindingFactor
-pub type BlindingFactor = crate::transaction::blstrs::Scalar;
+pub type BlindingFactor = bls_bulletproofs::blstrs::Scalar;

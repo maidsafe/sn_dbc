@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::{output::Amount, RevealedCommitment};
+use crate::transaction::{Amount, RevealedCommitment};
 use crate::{rand::RngCore, BlindingFactor, Error, Token};
 use blsttc::{
     Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,

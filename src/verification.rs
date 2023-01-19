@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::output::DbcTransaction;
+use crate::transaction::DbcTransaction;
 use crate::{Commitment, Error, Hash, PublicKey, Result, SpentProof, SpentProofKeyVerifier};
 use std::collections::BTreeSet;
 
