@@ -7,7 +7,6 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::transaction::{
-    group::Curve,
     output::{DbcTransaction, OutputProof},
     {RevealedCommitment, RevealedInput},
 };
@@ -138,9 +137,7 @@ impl Dbc {
     /// This is useful for checking if a Dbc has been spent.
     pub fn public_key(&self, base_sk: &SecretKey) -> Result<PublicKey> {
         let secret_key = self.owner_once(base_sk)?.secret_key()?;
-        Ok(crate::transaction::public_key(secret_key)
-            .to_affine()
-            .into())
+        Ok(secret_key.public_key())
     }
 
     /// returns PublicKey for the owner's derived public key
@@ -298,7 +295,7 @@ impl Dbc {
     /// and no recourse.
     pub(crate) fn verify_amount_matches_commitment(&self, base_sk: &SecretKey) -> Result<()> {
         let rc: RevealedCommitment = self.amount_secrets(base_sk)?.into();
-        let secrets_commitment = rc.commit(&Default::default()).to_affine();
+        let secrets_commitment = rc.commit(&Default::default());
         let tx_commitment = self.my_output_proof(base_sk)?.commitment();
 
         match secrets_commitment == tx_commitment {
@@ -383,11 +380,11 @@ pub(crate) mod tests {
         let amount = 100;
         let owner_once =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
-        let ringct_material = RevealedTransaction {
+        let tx_material = RevealedTransaction {
             inputs: vec![],
             outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
         };
-        let (transaction, revealed_commitments) = ringct_material
+        let (transaction, revealed_commitments) = tx_material
             .sign(&mut rng)
             .expect("Failed to sign transaction");
         let input_content = DbcContent::from((
@@ -473,12 +470,12 @@ pub(crate) mod tests {
         let owner_once =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
-        let ringct_material = RevealedTransaction {
+        let tx_material = RevealedTransaction {
             inputs: vec![],
             outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
         };
 
-        let (transaction, revealed_commitments) = ringct_material
+        let (transaction, revealed_commitments) = tx_material
             .sign(&mut rng)
             .expect("Failed to sign transaction");
 
@@ -596,7 +593,7 @@ pub(crate) mod tests {
         let output_commitments: Vec<(crate::Commitment, RevealedCommitment)> = dbc_builder
             .revealed_commitments
             .iter()
-            .map(|r| (r.commit(&pc_gens).to_affine(), *r))
+            .map(|r| (r.commit(&pc_gens), *r))
             .collect();
         let amount_secrets_list: Vec<AmountSecrets> = output_commitments
             .iter()

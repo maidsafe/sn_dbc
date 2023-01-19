@@ -623,15 +623,15 @@ mod tests {
         // Note that the new spentbook uses the same signing key as the original
         let mut new_spentbook = mock::SpentBookNode::from(spentbook.key_manager);
         let _genesis_spent_proof_share = new_spentbook.log_spent(
-            genesis_dbc.transaction.inputs[0].public_key.into(),
+            genesis_dbc.transaction.inputs[0].public_key,
             genesis_dbc.transaction.clone(),
         )?;
         let _starting_spent_proof_share = new_spentbook.log_spent(
-            starting_dbc.transaction.inputs[0].public_key.into(),
+            starting_dbc.transaction.inputs[0].public_key,
             starting_dbc.transaction.clone(),
         )?;
         let _spent_proof_share = new_spentbook.log_spent(
-            b_dbc.transaction.inputs[0].public_key.into(),
+            b_dbc.transaction.inputs[0].public_key,
             b_dbc.transaction.clone(),
         )?;
 

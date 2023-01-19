@@ -13,9 +13,6 @@
 //! and use its types directly.
 //!
 //! sn_dbc internally uses the type aliases rather than directly using the blstrs types.
-//!
-//! We could consider moving some or all of this lower into sn_ringct to make these
-//! crates consistent.
 
 /// a Commitment
 pub type Commitment = crate::transaction::blstrs::G1Affine;

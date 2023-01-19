@@ -12,7 +12,6 @@ use crate::transaction::{
     {Output, RevealedCommitment},
 };
 use crate::{Owner, OwnerOnce, PublicKey};
-use bls_bulletproofs::group::Curve;
 use blsttc::IntoFr;
 
 /// represents all the inputs required to build the Genesis Dbc.
@@ -60,10 +59,10 @@ impl Default for GenesisMaterial {
                 blinding: 42.into(), // just a random number
             },
         );
-        let input_public_key: PublicKey = revealed_input.public_key().to_affine().into();
+        let input_public_key: PublicKey = revealed_input.public_key();
 
         // build the genesis Transaction
-        let ringct_material = RevealedTransaction {
+        let revealed_tx = RevealedTransaction {
             inputs: vec![revealed_input],
             outputs: vec![Output::new(
                 output_sk_once.public_key(),
@@ -72,7 +71,7 @@ impl Default for GenesisMaterial {
         };
 
         Self {
-            revealed_tx: ringct_material,
+            revealed_tx,
             owner_once: output_owner_once,
             input_public_key,
         }

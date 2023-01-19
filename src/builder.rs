@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::{bls_bulletproofs::PedersenGens, group::Curve};
+use crate::transaction::bls_bulletproofs::PedersenGens;
 pub use crate::transaction::{
     output::DbcTransaction, Output, RevealedCommitment, RevealedInput, RevealedTransaction,
 };
@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 
 pub type OutputOwnerMap = BTreeMap<PublicKey, OwnerOnce>;
 
-/// A builder to create a RingCt transaction from
+/// A builder to create a DBC transaction from
 /// inputs and outputs.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
@@ -104,8 +104,7 @@ impl TransactionBuilder {
 
     /// add an output
     pub fn add_output(mut self, output: Output, owner: OwnerOnce) -> Self {
-        self.output_owner_map
-            .insert(output.public_key().into(), owner);
+        self.output_owner_map.insert(output.public_key(), owner);
         self.revealed_tx.outputs.push(output);
         self
     }
@@ -143,7 +142,7 @@ impl TransactionBuilder {
         self.revealed_tx
             .inputs
             .iter()
-            .map(|t| t.public_key().into())
+            .map(|t| t.public_key())
             .collect()
     }
 
@@ -225,7 +224,7 @@ impl DbcBuilder {
         self.transaction
             .inputs
             .iter()
-            .map(|input| (input.public_key().into(), self.transaction.clone()))
+            .map(|input| (input.public_key(), self.transaction.clone()))
             .collect()
     }
 
@@ -300,7 +299,7 @@ impl DbcBuilder {
         let output_commitments: Vec<(Commitment, RevealedCommitment)> = self
             .revealed_commitments
             .iter()
-            .map(|r| (r.commit(&pc_gens).to_affine(), *r))
+            .map(|r| (r.commit(&pc_gens), *r))
             .collect();
 
         let owner_once_list: Vec<&OwnerOnce> = self
@@ -309,7 +308,7 @@ impl DbcBuilder {
             .iter()
             .map(|output| {
                 self.output_owner_map
-                    .get(&(*output.public_key()).into())
+                    .get(output.public_key())
                     .ok_or(Error::PublicKeyNotFound)
             })
             .collect::<Result<_>>()?;

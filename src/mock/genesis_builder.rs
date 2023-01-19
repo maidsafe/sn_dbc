@@ -78,8 +78,6 @@ impl GenesisBuilder {
         GenesisMaterial,
         AmountSecrets,
     )> {
-        // note: rng is necessary for RingCtMaterial::sign().
-
         let genesis_material = GenesisMaterial::default();
         let mut dbc_builder = TransactionBuilder::default()
             .add_input(genesis_material.revealed_tx.inputs[0].clone())
