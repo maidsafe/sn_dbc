@@ -5,13 +5,13 @@
 // Please see the LICENSE file for more details.
 
 use bls_bulletproofs::{group::GroupEncoding, rand::RngCore, PedersenGens};
-
-use super::{Error, Result, RevealedCommitment};
-use crate::Commitment;
 use blsttc::{PublicKey, SecretKey, Signature};
 
 #[cfg(feature = "serde")]
 use serde::{self, Deserialize, Serialize};
+
+use super::{Error, Result, RevealedCommitment};
+use crate::Commitment;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]

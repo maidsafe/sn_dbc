@@ -6,20 +6,18 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::{
-    output::{DbcTransaction, OutputProof},
-    {RevealedCommitment, RevealedInput},
-};
-use crate::{
-    AmountSecrets, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
-    SpentProofKeyVerifier, TransactionVerifier,
-};
 use blsttc::{PublicKey, SecretKey};
 use std::{collections::BTreeSet, convert::TryFrom};
 use tiny_keccak::{Hasher, Sha3};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
+use crate::transaction::{DbcTransaction, OutputProof, RevealedCommitment, RevealedInput};
+use crate::{
+    AmountSecrets, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
+    SpentProofKeyVerifier, TransactionVerifier,
+};
 
 /// Represents a Digital Bearer Certificate (Dbc).
 ///
@@ -318,16 +316,16 @@ impl Dbc {
 pub(crate) mod tests {
     use super::*;
 
-    use quickcheck_macros::quickcheck;
-
     use crate::tests::{NonZeroTinyInt, TinyInt};
-    use crate::transaction::{bls_bulletproofs::PedersenGens, output::RevealedTransaction, Output};
+    use crate::transaction::{Output, RevealedTransaction};
     use crate::{
         mock,
         rand::{CryptoRng, RngCore},
         AmountSecrets, DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent, Token,
     };
+    use bls_bulletproofs::PedersenGens;
     use blsttc::PublicKey;
+    use quickcheck_macros::quickcheck;
     use std::convert::TryInto;
 
     fn divide(amount: Token, n_ways: u8) -> impl Iterator<Item = Token> {

@@ -6,10 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::{
-    bls_bulletproofs::PedersenGens,
-    output::{DbcTransaction, OutputProof},
-};
+use crate::transaction::{DbcTransaction, OutputProof};
+use bls_bulletproofs::PedersenGens;
 use blsttc::PublicKey;
 use std::collections::{BTreeMap, HashMap};
 

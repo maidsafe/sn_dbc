@@ -6,13 +6,13 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{AmountSecrets, DerivationIndex, Owner};
 use blsttc::{Ciphertext, SecretKey};
 use tiny_keccak::{Hasher, Sha3};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use crate::{AmountSecrets, DerivationIndex, Owner};
 use crate::{Error, Hash, Result};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

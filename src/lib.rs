@@ -18,32 +18,28 @@ mod mint;
 mod owner;
 mod spent_proof;
 mod token;
+mod transaction;
 mod verification;
-
-pub mod transaction;
 
 #[cfg(feature = "mock")]
 pub mod mock;
 
 // re-export crates used in our public API
 pub use blsttc;
-// note: both transaction::rand and blsttc::rand are
+// note: both bls_bulletproofs::rand and blsttc::rand are
 // exposed in our public API.  Here, by choosing
 // just one, we are making an implicit promise that
 // the two versions will remain compatible, or that
 // our API will reconcile the difference.  We do
 // this knowingly and pledge to uphold that promise.
-pub use transaction::rand;
+pub use bls_bulletproofs::rand;
 
 pub use blsttc::{PublicKey, PublicKeySet, Signature, SignatureShare};
 
 pub use crate::{
     amount_secrets::AmountSecrets,
     blst::{BlindingFactor, Commitment},
-    builder::{
-        DbcBuilder, DbcTransaction, Output, OutputOwnerMap, RevealedCommitment, RevealedInput,
-        RevealedTransaction, TransactionBuilder,
-    },
+    builder::{DbcBuilder, OutputOwnerMap, TransactionBuilder},
     dbc::Dbc,
     dbc_content::DbcContent,
     error::{Error, Result},
@@ -53,6 +49,10 @@ pub use crate::{
         SpentProofShare,
     },
     token::Token,
+    transaction::{
+        Amount, DbcTransaction, Input, Output, OutputProof, RevealedCommitment, RevealedInput,
+        RevealedTransaction,
+    },
     verification::{get_public_commitments_from_transaction, TransactionVerifier},
 };
 
