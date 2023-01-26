@@ -64,7 +64,7 @@ use crate::{
 /// from the user (owned).  Subsequent code is then the same for both
 /// types.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Dbc {
     pub content: DbcContent,
     pub transaction: DbcTransaction,
