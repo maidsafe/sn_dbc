@@ -20,13 +20,10 @@ Some key properties of these DBCs:
 * sharded mint means that the system scales indefinitely
 * transactions are settled immmediately
 * privacy by default.  all transactions use privacy features.
-* incorporates RingCT to obfuscate the transaction history
-* utilizes a one-time key for each payment (aka stealh address)
+* utilizes a one-time key for each payment (aka stealth address)
 * use BLS cryptography
 
 At present DBC ownership is single signature only.   Multi-sig support is planned.
-Older versions of this crates supported multi-sig, but that support was
-temporarily removed when RingCT was incorporated.
 
 Some writeups about the technology can be found at:
 
