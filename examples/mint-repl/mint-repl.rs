@@ -701,9 +701,7 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
     let max_outputs: usize =
         readline_prompt_default("\nMax number of outputs [2]: ", "2")?.parse()?;
 
-    println!(
-        "\ninputs to outputs.  value                  wallet     sb::random_decoys  sb::log_spent  total"
-    );
+    println!("\ninputs to outputs.  value                  wallet            sb::log_spent  total");
 
     for _i in 1..=num_reissues {
         let iter_time_start = SystemTime::now();
@@ -761,10 +759,15 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
                 let log_spent_start = SystemTime::now();
                 let spent_proof_share = spentbook_node.log_spent(public_key, tx.clone())?;
                 log_spent_duration += log_spent_start.elapsed().unwrap();
-                dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
+                dbc_builder = dbc_builder
+                    .add_spent_proof_share(spent_proof_share)
+                    .add_spent_transaction(tx.clone());
             }
         }
-        let outputs = dbc_builder.build(&mintinfo.spentbook()?.key_manager)?;
+        let outputs = match &input_dbcs[..] {
+            [dbc] if dbc == &mintinfo.genesis => dbc_builder.build_without_verifying()?,
+            _ => dbc_builder.build(&mintinfo.spentbook()?.key_manager)?,
+        };
         let output_dbcs: Vec<Dbc> = outputs.into_iter().map(|(dbc, ..)| dbc).collect();
 
         for dbc in input_dbcs.iter() {
