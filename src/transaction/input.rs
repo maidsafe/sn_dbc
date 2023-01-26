@@ -4,7 +4,7 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use bls_bulletproofs::{group::GroupEncoding, rand::RngCore, PedersenGens};
+use bls_bulletproofs::{group::GroupEncoding, PedersenGens};
 use blsttc::{PublicKey, SecretKey, Signature};
 
 #[cfg(feature = "serde")]
@@ -37,30 +37,18 @@ impl RevealedInput {
         &self.revealed_commitment
     }
 
-    /// Generate a pseudo-commitment to the input amount
-    pub fn random_pseudo_commitment(&self, rng: impl RngCore) -> RevealedCommitment {
-        RevealedCommitment::from_value(self.revealed_commitment.value, rng)
-    }
-
     pub fn commitment(&self, pc_gens: &PedersenGens) -> Commitment {
         self.revealed_commitment.commit(pc_gens)
     }
 
-    pub fn sign(
-        &self,
-        msg: &[u8],
-        revealed_pseudo_commitment: &RevealedCommitment,
-        pc_gens: &PedersenGens,
-    ) -> Input {
+    pub fn sign(&self, msg: &[u8], pc_gens: &PedersenGens) -> Input {
         let public_key = self.public_key();
         let commitment = self.commitment(pc_gens);
-        let pseudo_commitment = revealed_pseudo_commitment.commit(pc_gens);
         let signature = self.secret_key.sign(msg);
 
         Input {
             public_key,
             commitment,
-            pseudo_commitment,
             signature,
         }
     }
@@ -71,7 +59,6 @@ impl RevealedInput {
 pub struct Input {
     pub public_key: PublicKey,
     pub commitment: Commitment,
-    pub pseudo_commitment: Commitment,
     pub signature: Signature,
 }
 
@@ -80,13 +67,8 @@ impl Input {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.public_key.to_bytes().as_ref());
         v.extend(self.commitment.to_bytes().as_ref());
-        v.extend(self.pseudo_commitment.to_bytes().as_ref());
         v.extend(self.signature.to_bytes().as_ref());
         v
-    }
-
-    pub fn pseudo_commitment(&self) -> Commitment {
-        self.pseudo_commitment
     }
 
     pub fn public_key(&self) -> PublicKey {
