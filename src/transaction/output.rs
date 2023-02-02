@@ -303,12 +303,15 @@ impl Ord for DbcTransaction {
 impl DbcTransaction {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
+        v.extend("inputs".as_bytes());
         for m in self.inputs.iter() {
             v.extend(&m.to_bytes());
         }
+        v.extend("outputs".as_bytes());
         for o in self.outputs.iter() {
             v.extend(&o.to_bytes());
         }
+        v.extend("end".as_bytes());
         v
     }
 
