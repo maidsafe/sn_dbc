@@ -235,15 +235,19 @@ fn gen_message_for_signing(
 ) -> Vec<u8> {
     // Generate message to sign.
     let mut msg: Vec<u8> = Default::default();
+    msg.extend("public_keys".as_bytes());
     for pk in public_keys.iter() {
         msg.extend(pk.to_bytes().as_ref());
     }
+    msg.extend("commitments".as_bytes());
     for r in input_commitments.iter() {
         msg.extend(r.to_bytes().as_ref());
     }
+    msg.extend("output_proofs".as_bytes());
     for o in output_proofs.iter() {
         msg.extend(o.to_bytes());
     }
+    msg.extend("end".as_bytes());
     msg
 }
 
