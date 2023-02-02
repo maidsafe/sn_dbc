@@ -93,7 +93,7 @@ impl Display for Token {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         let unit = self.0 / TOKEN_TO_RAW_CONVERSION;
         let remainder = self.0 % TOKEN_TO_RAW_CONVERSION;
-        write!(formatter, "{}.{:09}", unit, remainder)
+        write!(formatter, "{unit}.{remainder:09}")
     }
 }
 

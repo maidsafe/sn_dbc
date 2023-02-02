@@ -49,7 +49,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
     let spent_proofs = dbc_builder.spent_proofs().unwrap();
     let tx = &dbc_builder.transaction;
 
-    c.bench_function(&format!("reissue split 1 to {}", N_OUTPUTS), |b| {
+    c.bench_function(&format!("reissue split 1 to {N_OUTPUTS}"), |b| {
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
@@ -59,7 +59,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 
         if let Ok(report) = guard.report().build() {
             let file =
-                std::fs::File::create(format!("reissue_split_1_to_{}.svg", N_OUTPUTS)).unwrap();
+                std::fs::File::create(format!("reissue_split_1_to_{N_OUTPUTS}.svg")).unwrap();
             report.flamegraph(file).unwrap();
         };
     });
@@ -117,7 +117,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let spent_proofs = merge_dbc_builder.spent_proofs().unwrap();
     let tx = &merge_dbc_builder.transaction;
 
-    c.bench_function(&format!("reissue merge {} to 1", N_OUTPUTS), |b| {
+    c.bench_function(&format!("reissue merge {N_OUTPUTS} to 1"), |b| {
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
@@ -127,7 +127,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
         if let Ok(report) = guard.report().build() {
             let file =
-                std::fs::File::create(format!("reissue_merge_{}_to_1.svg", N_OUTPUTS)).unwrap();
+                std::fs::File::create(format!("reissue_merge_{N_OUTPUTS}_to_1.svg")).unwrap();
             report.flamegraph(file).unwrap();
         };
     });

@@ -117,12 +117,12 @@ fn main() -> Result<()> {
                     _ => Err(anyhow!("Unknown command")),
                 };
                 if let Err(msg) = result {
-                    println!("\nError: {:?}\n", msg);
+                    println!("\nError: {msg:?}\n");
                 }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => break,
             Err(e) => {
-                println!("Error reading line: {}", e);
+                println!("Error reading line: {e}");
             }
         }
     }
@@ -278,7 +278,7 @@ fn newkeys() -> Result<()> {
         println!("\n");
         let (_poly, sks) = mk_secret_key_set(num_signers - 1)?;
 
-        println!("-- KeyPair #{} --", idx);
+        println!("-- KeyPair #{idx} --");
         println!(
             "  SecretKey: {}",
             to_be_hex(&SerdeSecret(sks.secret_key()))?
@@ -355,7 +355,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     print_dbc_human(&mintinfo.genesis, true, None)?;
 
     for (i, spentbook) in mintinfo.spentbook_nodes.iter().enumerate() {
-        println!("\n-- SpentBook Node {} --\n", i);
+        println!("\n-- SpentBook Node {i} --\n");
         for (public_key, _tx) in spentbook.iter() {
             println!("  {}", encode(public_key.to_bytes()));
         }
@@ -546,7 +546,7 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
             false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
         },
-        Err(e) => println!("\nInvalid DBC.  {}", e),
+        Err(e) => println!("\nInvalid DBC.  {e}"),
     }
 
     Ok(())
@@ -595,13 +595,10 @@ fn prepare_tx() -> Result<DbcBuilder> {
     while let Some(remaining) = inputs_amount_sum.checked_sub(tx_builder.outputs_amount_sum()) {
         println!();
         println!("------------");
-        println!("Output #{}", i);
+        println!("Output #{i}");
         println!("------------\n");
 
-        println!(
-            "Inputs total: {}.  Remaining: {}",
-            inputs_amount_sum, remaining
-        );
+        println!("Inputs total: {inputs_amount_sum}.  Remaining: {remaining}");
         let line = readline_prompt("Token, or '[c]ancel': ")?;
         let amount: Token = if line == "c" {
             println!("\nprepare_tx cancelled\n");
@@ -611,8 +608,7 @@ fn prepare_tx() -> Result<DbcBuilder> {
         };
         if amount > remaining || amount == Token::zero() {
             let answer = readline_prompt(&format!(
-                "\nThe amount should normally be in the range 1..{}. Change it? [y/n]: ",
-                remaining
+                "\nThe amount should normally be in the range 1..{remaining}. Change it? [y/n]: "
             ))?;
             if answer.to_ascii_lowercase() != "n" {
                 continue;
@@ -665,7 +661,7 @@ fn write_to_spentbook(mintinfo: &mut MintInfo, mut dbc_builder: DbcBuilder) -> R
     println!("\nWriting to Spentbook...\n\n");
     for (public_key, tx) in dbc_builder.inputs() {
         for (sp_idx, sb_node) in mintinfo.spentbook_nodes.iter_mut().enumerate() {
-            println!("logging input {:?}, spentbook {}", public_key, sp_idx);
+            println!("logging input {public_key:?}, spentbook {sp_idx}");
             dbc_builder =
                 dbc_builder.add_spent_proof_share(sb_node.log_spent(public_key, tx.clone())?);
         }
@@ -863,7 +859,7 @@ fn from_be_hex<T: for<'de> Deserialize<'de>>(s: &str) -> Result<T> {
 fn readline_prompt(prompt: &str) -> Result<String> {
     use std::io::Write;
     loop {
-        print!("{}", prompt);
+        print!("{prompt}");
         std::io::stdout().flush()?;
         let line = readline()?;
         if !line.is_empty() {
@@ -874,7 +870,7 @@ fn readline_prompt(prompt: &str) -> Result<String> {
 
 fn readline_prompt_default(prompt: &str, default: &str) -> Result<String> {
     use std::io::Write;
-    print!("{}", prompt);
+    print!("{prompt}");
     std::io::stdout().flush()?;
     let line = readline()?;
     match line.is_empty() {
@@ -887,7 +883,7 @@ fn readline_prompt_default(prompt: &str, default: &str) -> Result<String> {
 /// Re-prompts in a loop if input is empty.
 fn readline_prompt_nl(prompt: &str) -> Result<String> {
     loop {
-        println!("{}", prompt);
+        println!("{prompt}");
         let line = readline()?;
         if !line.is_empty() {
             return Ok(line);
@@ -897,7 +893,7 @@ fn readline_prompt_nl(prompt: &str) -> Result<String> {
 
 #[allow(dead_code)]
 fn readline_prompt_nl_default(prompt: &str, default: &str) -> Result<String> {
-    println!("{}", prompt);
+    println!("{prompt}");
     let line = readline()?;
     match line.is_empty() {
         true => Ok(default.to_string()),
