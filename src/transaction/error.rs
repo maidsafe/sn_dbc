@@ -6,12 +6,10 @@
 
 use thiserror::Error;
 
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub enum Error {
+    #[error("Failed to decompress commitment")]
+    FailedToDecompressCommitment,
     #[error("The commitment in the input doesn't match the public commitment")]
     InvalidCommitment,
     #[error("InputPseudoCommitmentsDoNotSumToOutputCommitments")]
@@ -19,7 +17,7 @@ pub enum Error {
     #[error("The signature is not valid")]
     InvalidSignature,
     #[error("BulletProofs Error: {0}")]
-    BulletProofs(#[from] bls_bulletproofs::ProofError),
+    BulletProofs(#[from] bulletproofs::ProofError),
     #[error("The DBC transaction must have at least one input")]
     TransactionMustHaveAnInput,
     #[error("public key is not unique across all transaction inputs")]

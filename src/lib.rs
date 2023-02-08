@@ -26,14 +26,7 @@ pub mod mock;
 
 // re-export crates used in our public API
 pub use blsttc;
-// note: both bls_bulletproofs::rand and blsttc::rand are
-// exposed in our public API.  Here, by choosing
-// just one, we are making an implicit promise that
-// the two versions will remain compatible, or that
-// our API will reconcile the difference.  We do
-// this knowingly and pledge to uphold that promise.
-pub use bls_bulletproofs::rand;
-
+pub use blsttc::rand;
 pub use blsttc::{PublicKey, PublicKeySet, Signature, SignatureShare};
 
 pub use crate::{

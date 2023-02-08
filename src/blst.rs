@@ -15,7 +15,7 @@
 //! sn_dbc internally uses the type aliases rather than directly using the blstrs types.
 
 /// a Commitment
-pub type Commitment = bls_bulletproofs::blstrs::G1Affine;
+pub type Commitment = curve25519_dalek::ristretto::RistrettoPoint;
 
 /// a BlindingFactor
-pub type BlindingFactor = bls_bulletproofs::blstrs::Scalar;
+pub type BlindingFactor = curve25519_dalek::scalar::Scalar;

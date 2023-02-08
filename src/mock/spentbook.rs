@@ -7,8 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::transaction::{DbcTransaction, OutputProof};
-use bls_bulletproofs::PedersenGens;
 use blsttc::PublicKey;
+use bulletproofs::PedersenGens;
 use std::collections::{BTreeMap, HashMap};
 
 use super::GenesisMaterial;
