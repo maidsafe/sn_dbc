@@ -52,7 +52,7 @@ impl Default for GenesisMaterial {
             input_sk,
             RevealedCommitment {
                 value: Self::GENESIS_AMOUNT,
-                blinding: 42.into(), // just a random number
+                blinding: 42u32.into(), // just a random number
             },
         );
         let input_public_key: PublicKey = revealed_input.public_key();

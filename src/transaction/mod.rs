@@ -10,11 +10,9 @@ mod output;
 
 use crate::{BlindingFactor, Commitment};
 
-use bls_bulletproofs::{
-    group::{ff::Field, Curve},
-    rand::RngCore,
-    PedersenGens,
-};
+use crate::rand::RngCore;
+use blsttc::rand::CryptoRng;
+use bulletproofs::PedersenGens;
 
 pub(crate) use error::Error;
 pub use input::{Input, RevealedInput};
@@ -36,12 +34,12 @@ impl RevealedCommitment {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.value.to_le_bytes());
-        v.extend(self.blinding.to_bytes_le());
+        v.extend(self.blinding.to_bytes());
         v
     }
 
     /// Construct a revealed commitment from a value, generating a blinding randomly
-    pub fn from_value(value: u64, mut rng: impl RngCore) -> Self {
+    pub fn from_value(value: u64, mut rng: impl RngCore + CryptoRng) -> Self {
         Self {
             value,
             blinding: BlindingFactor::random(&mut rng),
@@ -49,9 +47,7 @@ impl RevealedCommitment {
     }
 
     pub fn commit(&self, pc_gens: &PedersenGens) -> Commitment {
-        pc_gens
-            .commit(BlindingFactor::from(self.value), self.blinding)
-            .to_affine()
+        pc_gens.commit(BlindingFactor::from(self.value), self.blinding)
     }
 
     pub fn value(&self) -> u64 {

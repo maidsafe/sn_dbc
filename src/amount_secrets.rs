@@ -8,6 +8,7 @@
 
 use crate::transaction::{Amount, RevealedCommitment};
 use crate::{rand::RngCore, BlindingFactor, Error, Token};
+use blsttc::rand::CryptoRng;
 use blsttc::{
     Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
     SecretKeyShare,
@@ -57,11 +58,10 @@ impl AmountSecrets {
             b
         });
         let mut b = [0u8; BF_SIZE];
-        let blinding_factor = BlindingFactor::from_bytes_le({
+        let blinding_factor = BlindingFactor::from_bytes_mod_order({
             b.copy_from_slice(&bytes[AMT_SIZE..]);
-            &b
-        })
-        .unwrap();
+            b
+        });
 
         Self(RevealedCommitment {
             value: amount,
@@ -80,11 +80,11 @@ impl AmountSecrets {
             b
         });
         let mut b = [0u8; BF_SIZE];
-        let blinding_factor = BlindingFactor::from_bytes_le({
+        let blinding_factor = BlindingFactor::from_bytes_mod_order({
             b.copy_from_slice(&bytes[AMT_SIZE..]);
-            &b
-        })
-        .unwrap();
+            b
+        });
+
         Ok(Self(RevealedCommitment {
             value: amount,
             blinding: blinding_factor,
@@ -93,7 +93,7 @@ impl AmountSecrets {
 
     /// build AmountSecrets from an Amount.
     /// A blinding factor will be randomly generated.
-    pub fn from_amount(amount: Amount, rng: &mut impl RngCore) -> Self {
+    pub fn from_amount(amount: Amount, rng: &mut (impl RngCore + CryptoRng)) -> Self {
         Self(RevealedCommitment::from_value(amount, rng))
     }
 

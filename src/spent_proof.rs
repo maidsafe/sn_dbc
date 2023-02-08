@@ -34,7 +34,7 @@ impl SpentProofContent {
 
         bytes.extend(self.public_key.to_bytes());
         bytes.extend(self.transaction_hash.as_ref());
-        bytes.extend(self.public_commitment.to_compressed());
+        bytes.extend(self.public_commitment.compress().to_bytes());
         bytes
     }
 

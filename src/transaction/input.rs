@@ -4,8 +4,8 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use bls_bulletproofs::{group::GroupEncoding, PedersenGens};
 use blsttc::{PublicKey, SecretKey, Signature};
+use bulletproofs::PedersenGens;
 
 #[cfg(feature = "serde")]
 use serde::{self, Deserialize, Serialize};
@@ -66,7 +66,7 @@ impl Input {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.public_key.to_bytes().as_ref());
-        v.extend(self.commitment.to_bytes().as_ref());
+        v.extend(self.commitment.compress().as_bytes());
         v.extend(self.signature.to_bytes().as_ref());
         v
     }

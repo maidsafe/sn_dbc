@@ -4,15 +4,11 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use bls_bulletproofs::{
-    blstrs::{G1Projective, Scalar},
-    group::ff::Field,
-    group::GroupEncoding,
-    merlin::Transcript,
-    rand::{CryptoRng, RngCore},
-    BulletproofGens, PedersenGens, RangeProof,
-};
 use blsttc::PublicKey;
+use bulletproofs::{BulletproofGens, PedersenGens, RangeProof};
+use curve25519_dalek::ristretto::RistrettoPoint;
+use curve25519_dalek::scalar::Scalar;
+use merlin::Transcript;
 use std::{cmp::Ordering, collections::BTreeSet};
 use tiny_keccak::{Hasher, Sha3};
 
@@ -25,6 +21,7 @@ pub(super) const RANGE_PROOF_BITS: usize = 64; // note: Range Proof max-bits is 
 pub(super) const RANGE_PROOF_PARTIES: usize = 1; // The maximum number of parties that can produce an aggregated proof
 pub(super) const MERLIN_TRANSCRIPT_LABEL: &[u8] = b"SN_DBC";
 
+use crate::rand::{CryptoRng, RngCore};
 use crate::Commitment;
 
 /// Represents a Dbc's value.
@@ -54,7 +51,7 @@ impl Output {
     }
 
     /// Generate a commitment to the input amount
-    pub fn random_commitment(&self, rng: impl RngCore) -> RevealedCommitment {
+    pub fn random_commitment(&self, rng: impl RngCore + CryptoRng) -> RevealedCommitment {
         RevealedCommitment::from_value(self.amount, rng)
     }
 }
@@ -149,7 +146,7 @@ impl RevealedTransaction {
     fn revealed_output_commitments(
         &self,
         revealed_input_commitments: &[RevealedCommitment],
-        mut rng: impl RngCore,
+        mut rng: impl RngCore + CryptoRng,
     ) -> Vec<RevealedOutputCommitment> {
         // avoid subtraction underflow in next step.
         if self.outputs.is_empty() {
@@ -206,7 +203,7 @@ impl RevealedTransaction {
         revealed_output_commitments
             .iter()
             .map(|c| {
-                let (range_proof, commitment) = RangeProof::prove_single_with_rng(
+                let (range_proof, compressed_commitment) = RangeProof::prove_single_with_rng(
                     &bp_gens,
                     &Self::pc_gens(),
                     &mut prover_ts,
@@ -215,6 +212,9 @@ impl RevealedTransaction {
                     RANGE_PROOF_BITS,
                     &mut rng,
                 )?;
+                let commitment = compressed_commitment
+                    .decompress()
+                    .ok_or(Error::FailedToDecompressCommitment)?;
 
                 Ok(OutputProof {
                     public_key: c.public_key,
@@ -241,7 +241,7 @@ fn gen_message_for_signing(
     }
     msg.extend("commitments".as_bytes());
     for r in input_commitments.iter() {
-        msg.extend(r.to_bytes().as_ref());
+        msg.extend(r.compress().as_bytes());
     }
     msg.extend("output_proofs".as_bytes());
     for o in output_proofs.iter() {
@@ -252,7 +252,7 @@ fn gen_message_for_signing(
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct OutputProof {
     public_key: PublicKey,
     range_proof: RangeProof,
@@ -264,7 +264,7 @@ impl OutputProof {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.public_key.to_bytes().as_ref());
         v.extend(&self.range_proof.to_bytes());
-        v.extend(self.commitment.to_bytes().as_ref());
+        v.extend(self.commitment.compress().as_bytes());
         v
     }
 
@@ -282,11 +282,19 @@ impl OutputProof {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct DbcTransaction {
     pub inputs: Vec<Input>,
     pub outputs: Vec<OutputProof>,
 }
+
+impl PartialEq for DbcTransaction {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash().eq(&other.hash())
+    }
+}
+
+impl Eq for DbcTransaction {}
 
 impl PartialOrd for DbcTransaction {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -352,7 +360,7 @@ impl DbcTransaction {
                 &bp_gens,
                 &RevealedTransaction::pc_gens(),
                 &mut prover_ts,
-                &output.commitment,
+                &output.commitment.compress(),
                 RANGE_PROOF_BITS,
             )?;
         }
@@ -370,17 +378,17 @@ impl DbcTransaction {
         }
 
         // check that the inputs equal the outputs (with commitments)
-        let input_sum: G1Projective = self
+        let input_sum: RistrettoPoint = self
             .inputs
             .iter()
             .map(|i| i.commitment)
-            .map(G1Projective::from)
+            .map(RistrettoPoint::from)
             .sum();
-        let output_sum: G1Projective = self
+        let output_sum: RistrettoPoint = self
             .outputs
             .iter()
             .map(OutputProof::commitment)
-            .map(G1Projective::from)
+            .map(RistrettoPoint::from)
             .sum();
 
         if input_sum != output_sum {
@@ -393,34 +401,27 @@ impl DbcTransaction {
 
 #[cfg(test)]
 mod tests {
+    use blsttc::rand::rngs::OsRng;
+    use blsttc::IntoFr;
     use std::{collections::BTreeMap, iter::FromIterator};
 
-    use bls_bulletproofs::{
-        blstrs::G1Affine,
-        group::Group,
-        rand::{self, rngs::OsRng},
-    };
-    use blsttc::{IntoFr, SecretKey};
-
-    use crate::RevealedInput;
-
     use super::*;
+    use crate::blsttc::SecretKey;
+    use crate::rand;
+    use crate::RevealedInput;
 
     #[derive(Default)]
     struct TestLedger {
-        commitments: BTreeMap<[u8; 48], Commitment>, // Compressed public keys -> Commitments
+        commitments: BTreeMap<PublicKey, Commitment>, // Compressed public keys -> Commitments
     }
 
     impl TestLedger {
-        fn log(&mut self, public_key: impl Into<G1Affine>, commitment: impl Into<G1Affine>) {
-            self.commitments
-                .insert(public_key.into().to_compressed(), commitment.into());
+        fn log(&mut self, public_key: PublicKey, commitment: Commitment) {
+            self.commitments.insert(public_key, commitment);
         }
 
-        fn lookup(&self, public_key: impl Into<G1Affine>) -> Option<G1Affine> {
-            self.commitments
-                .get(&public_key.into().to_compressed())
-                .copied()
+        fn lookup(&self, public_key: PublicKey) -> Option<Commitment> {
+            self.commitments.get(&public_key).copied()
         }
     }
 
@@ -434,7 +435,7 @@ mod tests {
             secret_key: SecretKey::from_mut(&mut input_sk_seed.into_fr()),
             revealed_commitment: RevealedCommitment {
                 value: 3,
-                blinding: 5.into(),
+                blinding: 5u32.into(),
             },
         };
 
@@ -444,12 +445,12 @@ mod tests {
             true_input.revealed_commitment.commit(&pc_gens),
         );
         ledger.log(
-            G1Projective::random(&mut rng),
-            G1Projective::random(&mut rng),
+            SecretKey::random().public_key(),
+            RistrettoPoint::random(&mut rng),
         );
         ledger.log(
-            G1Projective::random(&mut rng),
-            G1Projective::random(&mut rng),
+            SecretKey::random().public_key(),
+            RistrettoPoint::random(&mut rng),
         );
 
         let output_sk_seed: u64 = rand::random();
