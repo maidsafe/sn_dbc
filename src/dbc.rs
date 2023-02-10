@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::transaction::{DbcTransaction, OutputProof, RevealedCommitment, RevealedInput};
 use crate::{
-    AmountSecrets, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
+    AmountSecrets, DbcContent, DerivationIndex, Error, Owner, Result, SpentProof,
     SpentProofKeyVerifier, TransactionVerifier,
 };
 
@@ -141,7 +141,7 @@ impl Dbc {
     /// returns PublicKey for the owner's derived public key
     /// This is useful for checking if a Dbc has been spent.
     /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn key_image_bearer(&self) -> Result<PublicKey> {
+    pub fn public_key_bearer(&self) -> Result<PublicKey> {
         self.public_key(&self.owner_base().secret_key()?)
     }
 
