@@ -46,9 +46,6 @@ pub enum Error {
     #[error("OutputProof not found in transaction outputs")]
     OutputProofNotFound,
 
-    #[error("Missing spent transaction for at least one of the spent proofs")]
-    MissingSpentTransaction,
-
     #[error("public key is not unique across all transaction outputs")]
     PublicKeyNotUniqueAcrossOutputs,
 

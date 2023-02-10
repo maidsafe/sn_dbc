@@ -272,14 +272,6 @@ impl DbcBuilder {
         // note that we do this just once for entire Tx, not once per output Dbc.
         TransactionVerifier::verify(verifier, &self.transaction, &spent_proofs)?;
 
-        // verify there is a matching spent transaction for each spent_proof
-        if !spent_proofs.iter().all(|proof| {
-            self.spent_transactions
-                .contains_key(&proof.transaction_hash())
-        }) {
-            return Err(Error::MissingSpentTransaction);
-        }
-
         // build output DBCs
         self.build_output_dbcs(spent_proofs)
     }
@@ -335,7 +327,6 @@ impl DbcBuilder {
                     )),
                     transaction: self.transaction.clone(),
                     spent_proofs: spent_proofs.clone(),
-                    spent_transactions: self.spent_transactions.values().cloned().collect(),
                 };
                 (dbc, owner_once.clone(), amount_secrets_list[0].clone())
             })

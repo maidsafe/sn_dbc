@@ -69,7 +69,6 @@ pub struct Dbc {
     pub content: DbcContent,
     pub transaction: DbcTransaction,
     pub spent_proofs: BTreeSet<SpentProof>,
-    pub spent_transactions: BTreeSet<DbcTransaction>,
 }
 
 impl Dbc {
@@ -172,10 +171,6 @@ impl Dbc {
             sha3.update(&sp.to_bytes());
         }
 
-        for st in self.spent_transactions.iter() {
-            sha3.update(&st.to_bytes());
-        }
-
         let mut hash = [0u8; 32];
         sha3.finalize(&mut hash);
         hash
@@ -185,8 +180,7 @@ impl Dbc {
     ///
     /// A Dbc recipient should call this immediately upon receipt.
     ///
-    /// important: this will verify there is a matching transaction provided
-    /// for each SpentProof, although this does not check if the Dbc has been spent.
+    /// important: this does not check if the Dbc has been spent.
     /// For that, one must query the SpentBook.
     ///
     /// Note that the spentbook cannot perform this check.  Only the Dbc
@@ -213,15 +207,6 @@ impl Dbc {
             .any(|o| owner.eq(o.public_key()))
         {
             return Err(Error::DbcContentNotPresentInTransactionOutput);
-        }
-
-        // verify there is a maching transaction for each spent proof
-        if !self.spent_proofs.iter().all(|proof| {
-            self.spent_transactions
-                .iter()
-                .any(|tx| Hash::from(tx.hash()) == proof.transaction_hash())
-        }) {
-            return Err(Error::MissingSpentTransaction);
         }
 
         self.verify_amount_matches_commitment(base_sk)
@@ -394,7 +379,6 @@ pub(crate) mod tests {
             content: input_content,
             transaction,
             spent_proofs: Default::default(),
-            spent_transactions: Default::default(),
         };
 
         let hex = dbc.to_hex()?;
@@ -489,7 +473,6 @@ pub(crate) mod tests {
             content: input_content,
             transaction,
             spent_proofs: Default::default(),
-            spent_transactions: Default::default(),
         };
 
         let id = crate::bls_dkg_id(&mut rng);
@@ -693,7 +676,6 @@ pub(crate) mod tests {
             }
         }
 
-        let spent_transactions = dbc_builder.spent_transactions.values().cloned().collect();
         let dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
         let (dbc_valid, ..) = &dbcs[0];
 
@@ -701,7 +683,6 @@ pub(crate) mod tests {
             content: fuzzed_content,
             transaction: dbc_valid.transaction.clone(),
             spent_proofs: fuzzed_spent_proofs,
-            spent_transactions,
         };
 
         let key_manager = &spentbook_node.key_manager;

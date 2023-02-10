@@ -761,7 +761,9 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             }
         }
         let outputs = match &input_dbcs[..] {
-            [dbc] if dbc == &mintinfo.genesis => dbc_builder.build_without_verifying()?,
+            [dbc] if dbc == &mintinfo.genesis => {
+                dbc_builder.build(&mintinfo.spentbook()?.key_manager)?
+            }
             _ => dbc_builder.build(&mintinfo.spentbook()?.key_manager)?,
         };
         let output_dbcs: Vec<Dbc> = outputs.into_iter().map(|(dbc, ..)| dbc).collect();
