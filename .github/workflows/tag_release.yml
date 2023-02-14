@@ -28,10 +28,8 @@ jobs:
         - run: echo $RELEASE_VERSION
         - run: git tag $RELEASE_VERSION
 
-        - name: Setup git for push
-          run: |
-            git remote add github "$REPO"
-            git config --local user.email "action@github.com"
-            git config --local user.name "GitHub Action"
-        - name: Push tags to master
-          run: git push "https://$GITHUB_ACTOR:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY" HEAD:master --tags
+        - name: push version bump commit and tags
+          uses: ad-m/github-push-action@master
+          with:
+            branch: master
+            tags: true
