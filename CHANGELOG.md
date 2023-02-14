@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [8.2.0](https://github.com/maidsafe/sn_dbc/compare/v8.1.1...v8.2.0) (2023-02-14)
+
+
+### Features
+
+* add domain separators to msg encoding ([34348f3](https://github.com/maidsafe/sn_dbc/commit/34348f30c69b1a3588166e50b33e3ecc1dbde874))
+* domain separators for DbcTransaction encoding ([6ac9400](https://github.com/maidsafe/sn_dbc/commit/6ac9400c3e2d95f91527e3ae1875ba419acb015e))
+* remove hand wavy crypto, use blsttc ([c25ef94](https://github.com/maidsafe/sn_dbc/commit/c25ef94f3c5ec61f0cf6640ba23398472687e6e7))
+* remove ringct ([e06e9f0](https://github.com/maidsafe/sn_dbc/commit/e06e9f01a7b8a3b746b694dcdc7124dbcf7d1ff1))
+* remove ringct dependency ([746cec3](https://github.com/maidsafe/sn_dbc/commit/746cec33c017c65b2bac87233f55dca4604cd6f9))
+* revamp input commitment code ([423e3dc](https://github.com/maidsafe/sn_dbc/commit/423e3dc6499e1898410f5f00866b330d22cc408b))
+* use safer bulletproofs instead of bls_bulletproofs ([e6cb255](https://github.com/maidsafe/sn_dbc/commit/e6cb2554f770046256520a05b5f6ddda9593b696))
+
+
+### Bug Fixes
+
+* broken test ([0d391e3](https://github.com/maidsafe/sn_dbc/commit/0d391e36f78f73aa52f66f888fd1281fbcfbe7de))
+* genesis reissue failure in mint_repl ([6e501fe](https://github.com/maidsafe/sn_dbc/commit/6e501fea2166d58f4debf6d04026ab9baf598f6a))
+* serde flag ([985170f](https://github.com/maidsafe/sn_dbc/commit/985170fb30e633b8728bf71f0e69e587582ff5eb))
+
 ## [8.2.0](https://github.com/maidsafe/sn_dbc/compare/v8.1.1...v8.2.0) (2023-02-08)
 
 
