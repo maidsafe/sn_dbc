@@ -28,6 +28,7 @@ pub mod mock;
 pub use blsttc;
 pub use blsttc::rand;
 pub use blsttc::{PublicKey, PublicKeySet, Signature, SignatureShare};
+pub use bulletproofs::PedersenGens;
 
 pub use crate::{
     amount_secrets::AmountSecrets,
