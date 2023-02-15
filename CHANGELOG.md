@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [8.2.2](https://github.com/maidsafe/sn_dbc/compare/v8.2.1...v8.2.2) (2023-02-15)
+
+
+### Bug Fixes
+
+* cargo keywords ([5bf3f33](https://github.com/maidsafe/sn_dbc/commit/5bf3f338aade0b0ea4a03c065aed3531bbddbc3f))
+
 ### [8.2.1](https://github.com/maidsafe/sn_dbc/compare/v8.2.0...v8.2.1) (2023-02-15)
 
 
