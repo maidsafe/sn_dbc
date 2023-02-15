@@ -9,8 +9,7 @@ keywords = [
   "Safe",
   "Network",
   "SafeNetwork",
-  "DBC",
-  "DigitalBearerCertificates"
+  "DBC"
 ]
 authors = [ "MaidSafe Developers <dev@maidsafe.net>" ]
 edition = "2018"
