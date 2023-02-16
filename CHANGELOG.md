@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [8.3.0](https://github.com/maidsafe/sn_dbc/compare/v8.2.2...v8.3.0) (2023-02-16)
+
+
+### Features
+
+* expose PedersenGens ([fc7b40e](https://github.com/maidsafe/sn_dbc/commit/fc7b40e27f8519a35959fd5eaee5c09756a31fce))
+
+
+### Bug Fixes
+
+* forgotten rename ([4b17ebf](https://github.com/maidsafe/sn_dbc/commit/4b17ebfa9ae52a92f7be06dc6a46ac497cf0e77d))
+
 ### [8.2.2](https://github.com/maidsafe/sn_dbc/compare/v8.2.1...v8.2.2) (2023-02-15)
 
 
