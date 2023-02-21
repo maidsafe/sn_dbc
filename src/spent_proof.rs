@@ -10,6 +10,8 @@ use crate::{Commitment, Error, Hash, PublicKey, PublicKeySet, Result, Signature,
 
 use std::cmp::Ordering;
 
+use custom_debug::Debug;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +25,7 @@ pub struct SpentProofContent {
     /// Hash of transaction that input Dbc is being spent in.
     pub transaction_hash: Hash,
 
+    #[debug(skip)]
     /// public commitment for the transaction
     pub public_commitment: Commitment,
 }
