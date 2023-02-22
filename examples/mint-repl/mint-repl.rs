@@ -23,8 +23,8 @@ use sn_dbc::{
     },
     mock,
     rand::{seq::IteratorRandom, Rng},
-    rng, Dbc, DbcBuilder, DbcTransaction, OutputOwnerMap, Owner, OwnerOnce, RevealedCommitment,
-    RevealedTransaction, Token, TransactionBuilder,
+    rng, Dbc, DbcBuilder, DbcTransaction, Hash, OutputOwnerMap, Owner, OwnerOnce,
+    RevealedCommitment, RevealedTransaction, Token, TransactionBuilder,
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -662,8 +662,11 @@ fn write_to_spentbook(mintinfo: &mut MintInfo, mut dbc_builder: DbcBuilder) -> R
     for (public_key, tx) in dbc_builder.inputs() {
         for (sp_idx, sb_node) in mintinfo.spentbook_nodes.iter_mut().enumerate() {
             println!("logging input {public_key:?}, spentbook {sp_idx}");
-            dbc_builder =
-                dbc_builder.add_spent_proof_share(sb_node.log_spent(public_key, tx.clone())?);
+            dbc_builder = dbc_builder.add_spent_proof_share(sb_node.log_spent(
+                public_key,
+                tx.clone(),
+                Hash::default(),
+            )?);
         }
         dbc_builder = dbc_builder.add_spent_transaction(tx);
     }
@@ -753,7 +756,8 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
         for (public_key, tx) in dbc_builder.inputs() {
             for spentbook_node in mintinfo.spentbook_nodes.iter_mut() {
                 let log_spent_start = SystemTime::now();
-                let spent_proof_share = spentbook_node.log_spent(public_key, tx.clone())?;
+                let spent_proof_share =
+                    spentbook_node.log_spent(public_key, tx.clone(), Hash::default())?;
                 log_spent_duration += log_spent_start.elapsed().unwrap();
                 dbc_builder = dbc_builder
                     .add_spent_proof_share(spent_proof_share)

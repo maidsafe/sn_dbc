@@ -10,7 +10,7 @@ use super::GenesisMaterial;
 use crate::{
     mock,
     rand::{CryptoRng, RngCore},
-    AmountSecrets, Dbc, Result, TransactionBuilder,
+    AmountSecrets, Dbc, Hash, Result, TransactionBuilder,
 };
 use blsttc::SecretKeySet;
 
@@ -87,10 +87,13 @@ impl GenesisBuilder {
             )
             .build(rng)?;
 
-        for (key_image, tx) in dbc_builder.inputs() {
+        for (public_key, tx) in dbc_builder.inputs() {
             for spentbook_node in self.spentbook_nodes.iter_mut() {
-                dbc_builder = dbc_builder
-                    .add_spent_proof_share(spentbook_node.log_spent(key_image, tx.clone())?);
+                dbc_builder = dbc_builder.add_spent_proof_share(spentbook_node.log_spent(
+                    public_key,
+                    tx.clone(),
+                    Hash::default(),
+                )?);
             }
             dbc_builder = dbc_builder.add_spent_transaction(tx);
         }

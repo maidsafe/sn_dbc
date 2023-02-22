@@ -11,7 +11,7 @@
 use sn_dbc::{
     mock,
     rand::{CryptoRng, RngCore},
-    rng, Dbc, Owner, OwnerOnce, Result, Token, TransactionVerifier,
+    rng, Dbc, Hash, Owner, OwnerOnce, Result, Token, TransactionVerifier,
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
@@ -41,8 +41,10 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .build(&mut rng)
         .unwrap();
 
-    for (key_image, tx) in dbc_builder.inputs() {
-        let spent_proof_share = spentbook.log_spent(key_image, tx).unwrap();
+    for (public_key, tx) in dbc_builder.inputs() {
+        let spent_proof_share = spentbook
+            .log_spent(public_key, tx, Hash::default())
+            .unwrap();
         dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
     }
 
@@ -88,8 +90,10 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build(&mut rng)
         .unwrap();
 
-    for (key_image, tx) in dbc_builder.inputs() {
-        let spent_proof_share = spentbook_node.log_spent(key_image, tx).unwrap();
+    for (public_key, tx) in dbc_builder.inputs() {
+        let spent_proof_share = spentbook_node
+            .log_spent(public_key, tx, Hash::default())
+            .unwrap();
         dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
     }
     let dbcs = dbc_builder.build(&spentbook_node.key_manager).unwrap();
@@ -109,8 +113,10 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build(&mut rng)
         .unwrap();
 
-    for (key_image, tx) in merge_dbc_builder.inputs() {
-        let spent_proof_share = spentbook_node.log_spent(key_image, tx).unwrap();
+    for (public_key, tx) in merge_dbc_builder.inputs() {
+        let spent_proof_share = spentbook_node
+            .log_spent(public_key, tx, Hash::default())
+            .unwrap();
         merge_dbc_builder = merge_dbc_builder.add_spent_proof_share(spent_proof_share);
     }
 
@@ -156,8 +162,8 @@ fn generate_dbc_of_value(
         }))
         .build(rng)?;
 
-    for (key_image, tx) in dbc_builder.inputs() {
-        let spent_proof_share = spentbook_node.log_spent(key_image, tx)?;
+    for (public_key, tx) in dbc_builder.inputs() {
+        let spent_proof_share = spentbook_node.log_spent(public_key, tx, Hash::default())?;
         dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
     }
 

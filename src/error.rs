@@ -69,6 +69,9 @@ pub enum Error {
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
     MissingSpentProofShare(PublicKey),
 
+    #[error("SpentProofShares for {0:?} have mismatching reasons")]
+    SpentProofShareReasonMismatch(PublicKey),
+
     #[error("Decryption failed")]
     DecryptionBySecretKeyFailed,
 

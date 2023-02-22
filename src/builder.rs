@@ -357,8 +357,8 @@ impl DbcBuilder {
         let spent_proofs: BTreeSet<SpentProof> = self
             .spent_proof_shares
             .iter()
-            .map(|(key_image, shares)| {
-                SpentProof::try_from_proof_shares(*key_image, transaction_hash, shares.iter())
+            .map(|(public_key, shares)| {
+                SpentProof::try_from_proof_shares(*public_key, transaction_hash, shares.iter())
             })
             .chain(self.spent_proofs.iter().cloned().map(Ok))
             .collect::<Result<_>>()?;
