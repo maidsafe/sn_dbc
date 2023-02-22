@@ -131,6 +131,16 @@ impl Dbc {
         self.amount_secrets(&self.owner_base().secret_key()?)
     }
 
+    /// returns the reason (if any) why this dbc was spent
+    pub fn reason(&self) -> Option<Hash> {
+        let reason = self.spent_proofs.iter().next()?.reason();
+        if reason == Hash::default() {
+            None
+        } else {
+            Some(reason)
+        }
+    }
+
     /// returns PublicKey for the owner's derived public key
     /// This is useful for checking if a Dbc has been spent.
     pub fn public_key(&self, base_sk: &SecretKey) -> Result<PublicKey> {
@@ -222,6 +232,16 @@ impl Dbc {
                 .any(|tx| Hash::from(tx.hash()) == proof.transaction_hash())
         }) {
             return Err(Error::MissingSpentTransaction);
+        }
+
+        // verify that all spent_proofs reasons are equal
+        let reason = self.reason();
+        let reasons_are_equal = |s: &SpentProof| match reason {
+            Some(r) => r == s.reason(),
+            None => s.reason() == Hash::default(),
+        };
+        if !self.spent_proofs.iter().all(reasons_are_equal) {
+            return Err(Error::SpentProofShareReasonMismatch(owner));
         }
 
         self.verify_amount_matches_commitment(base_sk)
@@ -357,7 +377,11 @@ pub(crate) mod tests {
 
         for (public_key, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook_node.log_spent(public_key, tx.clone())?)
+                .add_spent_proof_share(spentbook_node.log_spent(
+                    public_key,
+                    tx.clone(),
+                    Hash::default(),
+                )?)
                 .add_spent_transaction(tx);
         }
 
@@ -580,7 +604,11 @@ pub(crate) mod tests {
 
         for (public_key, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook_node.log_spent(public_key, tx.clone())?)
+                .add_spent_proof_share(spentbook_node.log_spent(
+                    public_key,
+                    tx.clone(),
+                    Hash::default(),
+                )?)
                 .add_spent_transaction(tx);
         }
 
@@ -674,6 +702,7 @@ pub(crate) mod tests {
                 let content = SpentProofContent {
                     public_key: secret_key.public_key(),
                     transaction_hash: spent_proof.transaction_hash(),
+                    reason: Hash::default(),
                     public_commitment: *spent_proof.public_commitment(),
                 };
 
@@ -824,7 +853,11 @@ pub(crate) mod tests {
 
         for (public_key, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook_node.log_spent(public_key, tx.clone())?)
+                .add_spent_proof_share(spentbook_node.log_spent(
+                    public_key,
+                    tx.clone(),
+                    Hash::default(),
+                )?)
                 .add_spent_transaction(tx);
         }
 

@@ -40,7 +40,8 @@ deploy/
 cargo-all.sh
 bindings
 tmp
-
+reissue_merge_100_to_1.svg
+reissue_split_1_to_100.svg
 
 # Added by cargo
 

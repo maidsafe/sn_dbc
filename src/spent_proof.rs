@@ -25,6 +25,9 @@ pub struct SpentProofContent {
     /// Hash of transaction that input Dbc is being spent in.
     pub transaction_hash: Hash,
 
+    /// Reason why this DBC was spent
+    pub reason: Hash,
+
     #[debug(skip)]
     /// public commitment for the transaction
     pub public_commitment: Commitment,
@@ -37,6 +40,7 @@ impl SpentProofContent {
 
         bytes.extend(self.public_key.to_bytes());
         bytes.extend(self.transaction_hash.as_ref());
+        bytes.extend(self.reason.as_ref());
         bytes.extend(self.public_commitment.compress().to_bytes());
         bytes
     }
@@ -127,6 +131,11 @@ impl SpentProofShare {
         self.content.transaction_hash
     }
 
+    /// get reason
+    pub fn reason(&self) -> Hash {
+        self.content.reason
+    }
+
     /// get public commitments
     pub fn public_commitment(&self) -> &Commitment {
         &self.content.public_commitment
@@ -178,7 +187,7 @@ pub struct SpentProof {
 impl SpentProof {
     /// Attempts to build a SpentProof by combining a given set of proof shares
     pub fn try_from_proof_shares<'a>(
-        key_image: PublicKey,
+        public_key: PublicKey,
         transaction_hash: Hash,
         shares: impl Iterator<Item = &'a SpentProofShare>,
     ) -> Result<Self> {
@@ -186,7 +195,12 @@ impl SpentProof {
         let any_share = peekable_shares
             .peek()
             .cloned()
-            .ok_or(Error::MissingSpentProofShare(key_image))?;
+            .ok_or(Error::MissingSpentProofShare(public_key))?;
+
+        let reason = any_share.reason();
+        if !peekable_shares.all(|s| s.reason() == reason) {
+            return Err(Error::SpentProofShareReasonMismatch(public_key));
+        }
 
         let spentbook_pub_key = any_share.spentbook_pks().public_key();
         let spentbook_sig = any_share.spentbook_pks.combine_signatures(
@@ -199,9 +213,10 @@ impl SpentProof {
 
         Ok(SpentProof {
             content: SpentProofContent {
-                public_key: key_image,
+                public_key,
                 transaction_hash,
                 public_commitment,
+                reason,
             },
             spentbook_pub_key,
             spentbook_sig,
@@ -221,6 +236,11 @@ impl SpentProof {
     /// get public commitments
     pub fn public_commitment(&self) -> &Commitment {
         &self.content.public_commitment
+    }
+
+    /// get reason
+    pub fn reason(&self) -> Hash {
+        self.content.reason
     }
 
     /// represent this SpentProof as bytes

@@ -86,8 +86,9 @@ impl SpentBookNode {
         &mut self,
         public_key: PublicKey,
         tx: DbcTransaction,
+        reason: Hash,
     ) -> Result<SpentProofShare> {
-        self.log_spent_worker(public_key, tx, true)
+        self.log_spent_worker(public_key, tx, reason, true)
     }
 
     // This is invalid behavior, however we provide this method for test cases
@@ -97,15 +98,17 @@ impl SpentBookNode {
     pub fn log_spent_and_skip_tx_verification(
         &mut self,
         public_key: PublicKey,
+        reason: Hash,
         tx: DbcTransaction,
     ) -> Result<SpentProofShare> {
-        self.log_spent_worker(public_key, tx, false)
+        self.log_spent_worker(public_key, tx, reason, false)
     }
 
     fn log_spent_worker(
         &mut self,
         public_key: PublicKey,
         tx: DbcTransaction,
+        reason: Hash,
         verify_tx: bool,
     ) -> Result<SpentProofShare> {
         let tx_hash = Hash::from(tx.hash());
@@ -175,6 +178,7 @@ impl SpentBookNode {
             let sp_content = SpentProofContent {
                 public_key,
                 transaction_hash: tx_hash,
+                reason,
                 public_commitment: public_commitments,
             };
 

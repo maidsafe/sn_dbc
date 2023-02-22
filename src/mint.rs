@@ -8,8 +8,10 @@
 
 #[cfg(test)]
 mod tests {
-
-    use crate::tests::{TinyInt, TinyVec};
+    use crate::{
+        tests::{TinyInt, TinyVec},
+        Hash,
+    };
     use blsttc::{PublicKey, SecretKey, SecretKeySet};
     use quickcheck_macros::quickcheck;
     use std::collections::BTreeSet;
@@ -85,10 +87,11 @@ mod tests {
         };
 
         for (public_key, tx) in dbc_builder.inputs() {
-            let spent_proof_share = match spentbook_node.log_spent(public_key, tx.clone()) {
-                Ok(s) => s,
-                Err(e) => return check_error(e),
-            };
+            let spent_proof_share =
+                match spentbook_node.log_spent(public_key, tx.clone(), Hash::default()) {
+                    Ok(s) => s,
+                    Err(e) => return check_error(e),
+                };
             dbc_builder = dbc_builder
                 .add_spent_proof_share(spent_proof_share)
                 .add_spent_transaction(tx);
@@ -187,11 +190,14 @@ mod tests {
 
         for (public_key, tx) in dbc_builder.inputs() {
             // normally spentbook verifies the tx, but here we skip it in order check reissue results.
-            let spent_proof_share =
-                match spentbook_node.log_spent_and_skip_tx_verification(public_key, tx.clone()) {
-                    Ok(s) => s,
-                    Err(e) => return check_tx_error(e),
-                };
+            let spent_proof_share = match spentbook_node.log_spent_and_skip_tx_verification(
+                public_key,
+                Hash::default(),
+                tx.clone(),
+            ) {
+                Ok(s) => s,
+                Err(e) => return check_tx_error(e),
+            };
             dbc_builder = dbc_builder
                 .add_spent_proof_share(spent_proof_share)
                 .add_spent_transaction(tx);
@@ -284,14 +290,16 @@ mod tests {
                 }
                 1 if is_invalid_spent_proof => {
                     // spentbook verifies the tx.  If an error, we need to check it
-                    let spent_proof_share = match spentbook_node.log_spent(public_key, tx.clone()) {
-                        Ok(s) => s,
-                        Err(e) => return check_error(e),
-                    };
+                    let spent_proof_share =
+                        match spentbook_node.log_spent(public_key, tx.clone(), Hash::default()) {
+                            Ok(s) => s,
+                            Err(e) => return check_error(e),
+                        };
                     SpentProofShare {
                         content: SpentProofContent {
                             public_key: *spent_proof_share.public_key(),
                             transaction_hash: spent_proof_share.transaction_hash(),
+                            reason: Hash::default(),
                             public_commitment: *spent_proof_share.public_commitment(),
                         },
                         spentbook_pks: spent_proof_share.spentbook_pks,
@@ -305,7 +313,7 @@ mod tests {
                 }
                 _ => {
                     // spentbook verifies the tx.
-                    match spentbook_node.log_spent(public_key, tx.clone()) {
+                    match spentbook_node.log_spent(public_key, tx.clone(), Hash::default()) {
                         Ok(s) => s,
                         Err(e) => return check_error(e),
                     }
@@ -458,7 +466,11 @@ mod tests {
 
         for (public_key, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook.log_spent(public_key, tx.clone())?)
+                .add_spent_proof_share(spentbook.log_spent(
+                    public_key,
+                    tx.clone(),
+                    Hash::default(),
+                )?)
                 .add_spent_transaction(tx);
         }
 
@@ -541,7 +553,7 @@ mod tests {
         // ----------
 
         for (public_key, tx) in dbc_builder_fudged.inputs() {
-            match spentbook.log_spent(public_key, tx) {
+            match spentbook.log_spent(public_key, tx, Hash::default()) {
                 Err(Error::Transaction(crate::transaction::Error::InvalidCommitment)) => {}
                 _ => panic!("Expecting Transaction Error::InvalidCommitment"),
             }
@@ -555,8 +567,11 @@ mod tests {
         // normally spentbook verifies the tx, but here we skip it in order to obtain
         // a spentproof with an invalid tx.
         for (public_key, tx) in dbc_builder_fudged.inputs() {
-            let spent_proof_share =
-                spentbook.log_spent_and_skip_tx_verification(public_key, tx.clone())?;
+            let spent_proof_share = spentbook.log_spent_and_skip_tx_verification(
+                public_key,
+                Hash::default(),
+                tx.clone(),
+            )?;
             dbc_builder_fudged = dbc_builder_fudged
                 .add_spent_proof_share(spent_proof_share)
                 .add_spent_transaction(tx);
@@ -595,7 +610,8 @@ mod tests {
 
         let dbc_builder_bad_proof = dbc_builder_true.clone();
         for (public_key, tx) in dbc_builder_bad_proof.inputs() {
-            let result = spentbook.log_spent_and_skip_tx_verification(public_key, tx);
+            let result =
+                spentbook.log_spent_and_skip_tx_verification(public_key, Hash::default(), tx);
 
             // The builder should return an error because the spentproof does not match the tx.
             match result {
@@ -625,18 +641,22 @@ mod tests {
         let _genesis_spent_proof_share = new_spentbook.log_spent(
             genesis_dbc.transaction.inputs[0].public_key,
             genesis_dbc.transaction.clone(),
+            Hash::default(),
         )?;
         let _starting_spent_proof_share = new_spentbook.log_spent(
             starting_dbc.transaction.inputs[0].public_key,
             starting_dbc.transaction.clone(),
+            Hash::default(),
         )?;
         let _spent_proof_share = new_spentbook.log_spent(
             b_dbc.transaction.inputs[0].public_key,
             b_dbc.transaction.clone(),
+            Hash::default(),
         )?;
 
         for (public_key, tx) in dbc_builder_true.inputs() {
-            let spent_proof_share = new_spentbook.log_spent(public_key, tx.clone())?;
+            let spent_proof_share =
+                new_spentbook.log_spent(public_key, tx.clone(), Hash::default())?;
             dbc_builder_true = dbc_builder_true
                 .add_spent_proof_share(spent_proof_share)
                 .add_spent_transaction(tx);
