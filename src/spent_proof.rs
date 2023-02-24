@@ -8,7 +8,7 @@
 
 use crate::{Commitment, Error, Hash, PublicKey, PublicKeySet, Result, Signature, SignatureShare};
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::HashSet};
 
 use custom_debug::Debug;
 
@@ -186,19 +186,19 @@ pub struct SpentProof {
 
 impl SpentProof {
     /// Attempts to build a SpentProof by combining a given set of proof shares
-    pub fn try_from_proof_shares<'a>(
+    pub fn try_from_proof_shares(
         public_key: PublicKey,
         transaction_hash: Hash,
-        shares: impl Iterator<Item = &'a SpentProofShare>,
+        shares: &HashSet<SpentProofShare>,
     ) -> Result<Self> {
-        let mut peekable_shares = shares.peekable();
+        let mut peekable_shares = shares.iter().peekable();
         let any_share = peekable_shares
             .peek()
             .cloned()
             .ok_or(Error::MissingSpentProofShare(public_key))?;
 
         let reason = any_share.reason();
-        if !peekable_shares.all(|s| s.reason() == reason) {
+        if !shares.iter().all(|s| s.reason() == reason) {
             return Err(Error::SpentProofShareReasonMismatch(public_key));
         }
 
