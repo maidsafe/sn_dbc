@@ -358,7 +358,7 @@ impl DbcBuilder {
             .spent_proof_shares
             .iter()
             .map(|(public_key, shares)| {
-                SpentProof::try_from_proof_shares(*public_key, transaction_hash, shares.iter())
+                SpentProof::try_from_proof_shares(*public_key, transaction_hash, shares)
             })
             .chain(self.spent_proofs.iter().cloned().map(Ok))
             .collect::<Result<_>>()?;
