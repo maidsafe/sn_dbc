@@ -162,7 +162,7 @@ pub trait SpentProofKeyVerifier {
 
 /// SpentProof's are constructed when a DBC is logged to the spentbook.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialOrd, Ord)]
 pub struct SpentProof {
     /// data to be signed
     pub content: SpentProofContent,
@@ -260,5 +260,23 @@ impl SpentProof {
         proof_key_verifier
             .verify_known_key(pub_key)
             .map_err(|err| Error::FailedKnownKeyCheck(err.to_string()))
+    }
+}
+
+// impl manually to avoid clippy complaint about Hash conflict.
+impl PartialEq for SpentProof {
+    fn eq(&self, other: &Self) -> bool {
+        self.content == other.content
+            && self.spentbook_pub_key == other.spentbook_pub_key
+            && self.spentbook_sig == other.spentbook_sig
+    }
+}
+
+impl Eq for SpentProof {}
+
+impl std::hash::Hash for SpentProof {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let bytes = self.to_bytes();
+        bytes.hash(state);
     }
 }

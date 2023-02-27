@@ -195,7 +195,7 @@ pub struct DbcBuilder {
     pub revealed_commitments: Vec<RevealedCommitment>,
     pub output_owner_map: OutputOwnerMap,
     pub revealed_tx: RevealedTransaction,
-
+    pub spent_proofs: HashSet<SpentProof>,
     pub spent_proof_shares: BTreeMap<PublicKey, HashSet<SpentProofShare>>,
     pub spent_transactions: BTreeMap<Hash, DbcTransaction>,
 }
@@ -213,6 +213,7 @@ impl DbcBuilder {
             revealed_commitments,
             output_owner_map,
             revealed_tx,
+            spent_proofs: Default::default(),
             spent_proof_shares: Default::default(),
             spent_transactions: Default::default(),
         }
@@ -226,6 +227,12 @@ impl DbcBuilder {
             .iter()
             .map(|input| (input.public_key(), self.transaction.clone()))
             .collect()
+    }
+
+    /// Add a SpentProof.
+    pub fn add_spent_proof(mut self, proof: SpentProof) -> Self {
+        let _ = self.spent_proofs.insert(proof);
+        self
     }
 
     /// Add a SpentProofShare for the given input index
@@ -353,6 +360,7 @@ impl DbcBuilder {
             .map(|(key_image, shares)| {
                 SpentProof::try_from_proof_shares(*key_image, transaction_hash, shares.iter())
             })
+            .chain(self.spent_proofs.iter().cloned().map(Ok))
             .collect::<Result<_>>()?;
 
         Ok(spent_proofs)
