@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [8.4.0](https://github.com/maidsafe/sn_dbc/compare/v8.3.1...v8.4.0) (2023-02-28)
+
+
+### Features
+
+* **builder:** add api for adding spentproof ([3cfb58d](https://github.com/maidsafe/sn_dbc/commit/3cfb58de45e46b32209a470d3aad3a10d09c3080))
+
 ### [8.3.1](https://github.com/maidsafe/sn_dbc/compare/v8.3.0...v8.3.1) (2023-02-21)
 
 ## [8.3.0](https://github.com/maidsafe/sn_dbc/compare/v8.2.2...v8.3.0) (2023-02-16)
