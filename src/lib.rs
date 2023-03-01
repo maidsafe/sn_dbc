@@ -7,6 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use std::fmt;
+use std::str::FromStr;
 
 mod amount_secrets;
 mod blst;
@@ -62,6 +63,34 @@ impl Hash {
     /// sha3 256 hash
     pub fn hash(input: &[u8]) -> Self {
         Self::from(sha3_256(input))
+    }
+
+    /// Deserializes a `Hash` represented as a hex string to a `Hash`.
+    #[cfg(feature = "serde")]
+    pub fn from_hex(hex: &str) -> Result<Self, Error> {
+        let mut bytes =
+            hex::decode(hex).map_err(|e| Error::HexDeserializationFailed(e.to_string()))?;
+        bytes.reverse();
+        let h: Hash = bincode::deserialize(&bytes)
+            .map_err(|e| Error::HexDeserializationFailed(e.to_string()))?;
+        Ok(h)
+    }
+
+    /// Serialize this `Hash` instance to a hex string.
+    #[cfg(feature = "serde")]
+    pub fn to_hex(&self) -> Result<String, Error> {
+        let mut serialized =
+            bincode::serialize(&self).map_err(|e| Error::HexSerializationFailed(e.to_string()))?;
+        serialized.reverse();
+        Ok(hex::encode(serialized))
+    }
+}
+
+impl FromStr for Hash {
+    type Err = Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Hash::from_hex(s)
     }
 }
 
