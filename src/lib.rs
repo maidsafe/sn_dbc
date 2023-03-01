@@ -7,6 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use std::fmt;
+
+#[cfg(feature = "serde")]
 use std::str::FromStr;
 
 mod amount_secrets;
@@ -86,6 +88,7 @@ impl Hash {
     }
 }
 
+#[cfg(feature = "serde")]
 impl FromStr for Hash {
     type Err = Error;
 
