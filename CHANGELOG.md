@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [9.0.0](https://github.com/maidsafe/sn_dbc/compare/v8.4.0...v9.0.0) (2023-03-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* Changes the SpentProofs
+
+### Features
+
+* dbc reasons in SpentProof ([6a6eeea](https://github.com/maidsafe/sn_dbc/commit/6a6eeead49494f6bc76d36d9b31f2560869db209))
+* to from hex string for Hash ([f20e23c](https://github.com/maidsafe/sn_dbc/commit/f20e23c5fae065674373f99dad80b239fe6fcdef))
+
+
+### Bug Fixes
+
+* fix iterator misuse ([1c9d701](https://github.com/maidsafe/sn_dbc/commit/1c9d701518ca5bcb63ccdf23540c3c2f07ce1bdb))
+* serde flag ([d309251](https://github.com/maidsafe/sn_dbc/commit/d309251c40f8ae0f5a8e1ef25d7c6527b125a2ce))
+
 ## [8.4.0](https://github.com/maidsafe/sn_dbc/compare/v8.3.1...v8.4.0) (2023-02-28)
 
 
