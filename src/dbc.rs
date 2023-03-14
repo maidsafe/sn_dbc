@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::transaction::{DbcTransaction, OutputProof, RevealedCommitment, RevealedInput};
 use crate::{
-    AmountSecrets, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
+    AmountSecrets, Commitment, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
     SpentProofKeyVerifier, TransactionVerifier,
 };
 
@@ -66,9 +66,15 @@ use crate::{
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Dbc {
+    /// Encrypted information for and about this DBC's owner
     pub content: DbcContent,
+    /// The public key (owner) of this DBC, used for SpentProofs
+    pub public_key: PublicKey,
+    /// The transaction where this DBC was created
     pub transaction: DbcTransaction,
+    /// The transaction's input's SpentProofs
     pub spent_proofs: BTreeSet<SpentProof>,
+    /// The transactions for each inputs
     pub spent_transactions: BTreeSet<DbcTransaction>,
 }
 
@@ -143,16 +149,33 @@ impl Dbc {
 
     /// returns PublicKey for the owner's derived public key
     /// This is useful for checking if a Dbc has been spent.
-    pub fn public_key(&self, base_sk: &SecretKey) -> Result<PublicKey> {
+    /// This should return the same thing as the public_key() method
+    pub fn public_key_from_base(&self, base_sk: &SecretKey) -> Result<PublicKey> {
         let secret_key = self.owner_once(base_sk)?.secret_key()?;
         Ok(secret_key.public_key())
+    }
+
+    /// returns PublicKey of the DBC
+    pub fn public_key(&self) -> PublicKey {
+        self.public_key
+    }
+
+    /// returns the amount commitment for this DBC
+    pub fn commitment(&self) -> Result<Commitment> {
+        Ok(self
+            .transaction
+            .outputs
+            .iter()
+            .find(|o| &self.public_key() == o.public_key())
+            .ok_or(Error::OutputProofNotFound)?
+            .commitment())
     }
 
     /// returns PublicKey for the owner's derived public key
     /// This is useful for checking if a Dbc has been spent.
     /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn public_key_bearer(&self) -> Result<PublicKey> {
-        self.public_key(&self.owner_base().secret_key()?)
+    pub fn public_key_from_base_bearer(&self) -> Result<PublicKey> {
+        self.public_key_from_base(&self.owner_base().secret_key()?)
     }
 
     /// returns a TrueInput that represents this Dbc for use as
@@ -349,7 +372,7 @@ pub(crate) mod tests {
     use std::convert::TryInto;
 
     fn divide(amount: Token, n_ways: u8) -> impl Iterator<Item = Token> {
-        (0..n_ways).into_iter().map(move |i| {
+        (0..n_ways).map(move |i| {
             let equal_parts = amount.as_nano() / n_ways as u64;
             let leftover = amount.as_nano() % n_ways as u64;
 
@@ -357,8 +380,6 @@ pub(crate) mod tests {
             Token::from_nano(equal_parts + odd_compensation)
         })
     }
-
-    const DBC_WITH_1_530_000_000: &str = "0000000000000000000000000000000025eb68773f856c5ff656e2f289cdce64228153754f733b753a3de2ddffd7af50077b2553ba337185d995753ebadf332a4173294a2776e2f36abd358c67f19e520e099a59502e76d6c7f71b436c3907464dc6aad4be7df774dc0c53cf3571c119244eddf689f66a51cac72bfe02277567e797751d090b6a53f07c2f0e1e78490a591349167bb1d5468fbf3c5be46040ee607a6ba5d84fd636fc73eaf8eb37b7141a574dff81b8f1ebae78107c3bd448cb18e79465cc280206379333aad73024e67b51e6eab0f1b4bf2c6545726bd4189047b68738b57eb3f188e882adb9f1e1b6275b12303bc37f01398a3599ccb6e4f4863c3723c3ed06255e488d4d0ca47a886895bf6fc208b5f2a5eaae27f2acbf77778e9b93be252f446c9a99621560ca724fb372a72883006a2d5a77894b41ff5fd44eb947cc4603febe9a463e1a944d0625c02b538baec65ac0a53d4cdf53b01f355f4a16f42132c432871b467cef1dd42c5d01f553ca77042f5d8438f8686328b62fd41f31ad3c0820827c24e703f3c24655cda7554621adf9dbbdb6f24640c8c71587848424f76bc9806414fc1a9454799a11d29318818a3c0ee6c8b9d9919a0205b78dee47658c6a364df07ebec59222e6700ccab6319649f7693f4af4c5c338e8131083a05d69dcba0f7c6c2692a40835058f6dfd23de1084343a2499ee6cbef872e960e7984aefdef93c645462c1037c62fdb1807fe19ce81c9340350913c957a613bef5592bc4cad21e45f3e14b0820b926e05b0ea11aad2b47a261ee7ce89c119f106dd9b235fc1b84323599a74b3c824ec8e300c3e3c2755af2af01b4b23046fa44d62cd36e5faa7c7d8b870a09be1cf1cc22682abf6fbfcb08d29562c9538d077c4a018a68a7254ce9cf44ac14aac406df62a31a49f0356485340733422c1027ee253c52287267b361d0404472821f7cf3d086b5fa8877f1d918699c368a6f5588452d517f436213d0104cb000000000000002a0e1efaa9f098cf6af927d2a03b6b6735e23725f60a6412123f4b7c08c42e8d8067a2e00fd8c3b3af67d2929e1f7c739a300000000000000010000000000000000a766ef7f2bdde5e7ccfb0cbb48e7efe8fb481bcebf1038242941ceedc9f4d2b9f486ca4ace93568c85abddb768219a0180abf10f3cb52422b019c2d750220ce841ca1c95d18b08b842fa64f627fce44a1aa506b0bcceea2b548a259db10555b879e5af5f3789f50da03334ed5ff263fb448386d140ad5343e41706b0f22b8c6b406202d50bb3babf00000000000000282c952c35ddc9af689cb0930c9ed8e8bda6aef8601f5650cddb9f8d60ae6ac1a8f4a3f2f9b66e20d864e4d0fcc5ebd8b5104926e3ff9a703f0525b46a42c91df892902cf2b28e6369e7b966dbdb6753f11aaa63bef27e79f4b453ee32bbb2c60bd9c328f79fefd147973bc842119c6f88ee60ec9060eb3e7f3727972411bb1f4ae744462baf8374a1c50893aea2dfa78c4271a698c25092c88577a0e815f511147a5ea1b41d50e73640035974a90e4f8400000000000000209c83fb66a1d6f0f7747dd902159faa4ab7bbbc2c847e904999b2c71349f5fa556a3fa9f3930a97f4eef81000ccb4ecac9bf49a6a0755f953811fce125f2683d50429c3bb49e074147e0089a52eae155f00000000";
 
     fn prepare_even_split(
         dbc_owner: SecretKey,
@@ -390,7 +411,37 @@ pub(crate) mod tests {
 
     #[test]
     fn from_hex_should_deserialize_a_hex_encoded_string_to_a_dbc() -> Result<(), Error> {
-        let dbc = Dbc::from_hex(DBC_WITH_1_530_000_000)?;
+        let mut rng = crate::rng::from_seed([0u8; 32]);
+        let amount = 1_530_000_000;
+        let owner_once =
+            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+        let tx_material = RevealedTransaction {
+            inputs: vec![],
+            outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
+        };
+        let (transaction, revealed_commitments) = tx_material
+            .sign(&mut rng)
+            .expect("Failed to sign transaction");
+        let input_content = DbcContent::from((
+            owner_once.owner_base.clone(),
+            owner_once.derivation_index,
+            AmountSecrets::from(revealed_commitments[0]),
+        ));
+        let public_key = owner_once
+            .owner_base
+            .derive(&owner_once.derivation_index)
+            .public_key();
+        let dbc = Dbc {
+            content: input_content,
+            public_key,
+            transaction,
+            spent_proofs: Default::default(),
+            spent_transactions: Default::default(),
+        };
+
+        let hex = dbc.to_hex()?;
+
+        let dbc = Dbc::from_hex(&hex)?;
         let amount = dbc.amount_secrets_bearer()?.amount();
         assert_eq!(amount, Token::from_nano(1_530_000_000));
         Ok(())
@@ -414,8 +465,13 @@ pub(crate) mod tests {
             owner_once.derivation_index,
             AmountSecrets::from(revealed_commitments[0]),
         ));
+        let public_key = owner_once
+            .owner_base
+            .derive(&owner_once.derivation_index)
+            .public_key();
         let dbc = Dbc {
             content: input_content,
+            public_key,
             transaction,
             spent_proofs: Default::default(),
             spent_transactions: Default::default(),
@@ -509,8 +565,13 @@ pub(crate) mod tests {
             AmountSecrets::from(revealed_commitments[0]),
         ));
 
+        let public_key = owner_once
+            .owner_base
+            .derive(&owner_once.derivation_index)
+            .public_key();
         let dbc = Dbc {
             content: input_content,
+            public_key,
             transaction,
             spent_proofs: Default::default(),
             spent_transactions: Default::default(),
@@ -616,7 +677,7 @@ pub(crate) mod tests {
         // know the correct blinding factor when creating fuzzed_amt_secrets.
         let output = dbc_builder.transaction.outputs.get(0).unwrap();
         let pc_gens = PedersenGens::default();
-        let output_commitments: Vec<(crate::Commitment, RevealedCommitment)> = dbc_builder
+        let output_commitments: Vec<(Commitment, RevealedCommitment)> = dbc_builder
             .revealed_commitments
             .iter()
             .map(|r| (r.commit(&pc_gens), *r))
@@ -726,8 +787,13 @@ pub(crate) mod tests {
         let dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
         let (dbc_valid, ..) = &dbcs[0];
 
+        let public_key = owner_once
+            .owner_base
+            .derive(&owner_once.derivation_index)
+            .public_key();
         let dbc = Dbc {
             content: fuzzed_content,
+            public_key,
             transaction: dbc_valid.transaction.clone(),
             spent_proofs: fuzzed_spent_proofs,
             spent_transactions,

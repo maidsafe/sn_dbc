@@ -33,7 +33,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
                 .unwrap(),
             starting_dbc.amount_secrets_bearer().unwrap(),
         )
-        .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
+        .add_outputs_by_amount((0..N_OUTPUTS).map(|_| {
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
             (Token::from_nano(1), owner_once)
@@ -82,7 +82,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                 .unwrap(),
             starting_dbc.amount_secrets_bearer().unwrap(),
         )
-        .add_outputs_by_amount((0..N_OUTPUTS).into_iter().map(|_| {
+        .add_outputs_by_amount((0..N_OUTPUTS).map(|_| {
             let owner_once =
                 OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
             (Token::from_nano(1), owner_once)

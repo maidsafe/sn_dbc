@@ -30,7 +30,7 @@ pub mod mock;
 // re-export crates used in our public API
 pub use blsttc;
 pub use blsttc::rand;
-pub use blsttc::{PublicKey, PublicKeySet, Signature, SignatureShare};
+pub use blsttc::{Ciphertext, PublicKey, PublicKeySet, Signature, SignatureShare};
 pub use bulletproofs::PedersenGens;
 
 pub use crate::{
@@ -184,7 +184,7 @@ mod tests {
         }
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new((0..(self.0)).into_iter().rev().map(Self))
+            Box::new((0..(self.0)).rev().map(Self))
         }
     }
 
@@ -213,7 +213,6 @@ mod tests {
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
             Box::new(
                 (1..(self.0.get()))
-                    .into_iter()
                     .rev()
                     .filter_map(NonZeroU8::new)
                     .map(Self),
