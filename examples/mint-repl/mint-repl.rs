@@ -540,7 +540,7 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
         }
     };
 
-    let pk = &dbc.public_key(&secret_key)?;
+    let pk = &dbc.public_key_from_base(&secret_key)?;
     match dbc.verify(&secret_key, &mintinfo.spentbook()?.key_manager) {
         Ok(_) => match mintinfo.spentbook()?.is_spent(pk) {
             true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),

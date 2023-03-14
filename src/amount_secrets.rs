@@ -7,12 +7,13 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::transaction::{Amount, RevealedCommitment};
-use crate::{rand::RngCore, BlindingFactor, Error, Token};
+use crate::{rand::RngCore, BlindingFactor, Commitment, Error, Token};
 use blsttc::rand::CryptoRng;
 use blsttc::{
     Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
     SecretKeyShare,
 };
+use bulletproofs::PedersenGens;
 use std::{collections::BTreeMap, convert::TryFrom};
 
 #[cfg(feature = "serde")]
@@ -43,6 +44,11 @@ impl AmountSecrets {
     /// blinding factor getter
     pub fn blinding_factor(&self) -> BlindingFactor {
         self.0.blinding
+    }
+
+    /// commitment
+    pub fn commitment(&self) -> Commitment {
+        self.0.commit(&PedersenGens::default())
     }
 
     /// Convert to bytes

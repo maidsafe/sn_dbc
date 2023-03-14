@@ -334,12 +334,18 @@ impl DbcBuilder {
                     .collect();
                 assert_eq!(amount_secrets_list.len(), 1);
 
+                let content = DbcContent::from((
+                    owner_once.owner_base.clone(),
+                    owner_once.derivation_index,
+                    amount_secrets_list[0].clone(),
+                ));
+                let public_key = owner_once
+                    .owner_base
+                    .derive(&owner_once.derivation_index)
+                    .public_key();
                 let dbc = Dbc {
-                    content: DbcContent::from((
-                        owner_once.owner_base.clone(),
-                        owner_once.derivation_index,
-                        amount_secrets_list[0].clone(),
-                    )),
+                    content,
+                    public_key,
                     transaction: self.transaction.clone(),
                     spent_proofs: spent_proofs.clone(),
                     spent_transactions: self.spent_transactions.values().cloned().collect(),
