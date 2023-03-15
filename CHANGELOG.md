@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [10.0.0](https://github.com/maidsafe/sn_dbc/compare/v9.0.0...v10.0.0) (2023-03-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* changes the API of DBCs
+
+### Features
+
+* add public key and commitment easy access to dbc api ([294431e](https://github.com/maidsafe/sn_dbc/commit/294431e11218a1a5ec111e857da41f474f28f5de))
+
 ## [9.0.0](https://github.com/maidsafe/sn_dbc/compare/v8.4.0...v9.0.0) (2023-03-02)
 
 
