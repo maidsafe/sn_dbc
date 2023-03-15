@@ -347,8 +347,8 @@ impl DbcBuilder {
                     content,
                     public_key,
                     transaction: self.transaction.clone(),
-                    spent_proofs: spent_proofs.clone(),
-                    spent_transactions: self.spent_transactions.values().cloned().collect(),
+                    inputs_spent_proofs: spent_proofs.clone(),
+                    inputs_spent_transactions: self.spent_transactions.values().cloned().collect(),
                 };
                 (dbc, owner_once.clone(), amount_secrets_list[0].clone())
             })
