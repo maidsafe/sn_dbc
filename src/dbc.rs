@@ -73,9 +73,9 @@ pub struct Dbc {
     /// The transaction where this DBC was created
     pub transaction: DbcTransaction,
     /// The transaction's input's SpentProofs
-    pub spent_proofs: BTreeSet<SpentProof>,
+    pub inputs_spent_proofs: BTreeSet<SpentProof>,
     /// The transactions for each inputs
-    pub spent_transactions: BTreeSet<DbcTransaction>,
+    pub inputs_spent_transactions: BTreeSet<DbcTransaction>,
 }
 
 impl Dbc {
@@ -139,7 +139,7 @@ impl Dbc {
 
     /// returns the reason (if any) why this dbc was spent
     pub fn reason(&self) -> Option<Hash> {
-        let reason = self.spent_proofs.iter().next()?.reason();
+        let reason = self.inputs_spent_proofs.iter().next()?.reason();
         if reason == Hash::default() {
             None
         } else {
@@ -201,11 +201,11 @@ impl Dbc {
         sha3.update(&self.content.to_bytes());
         sha3.update(&self.transaction.hash());
 
-        for sp in self.spent_proofs.iter() {
+        for sp in self.inputs_spent_proofs.iter() {
             sha3.update(&sp.to_bytes());
         }
 
-        for st in self.spent_transactions.iter() {
+        for st in self.inputs_spent_transactions.iter() {
             sha3.update(&st.to_bytes());
         }
 
@@ -235,7 +235,7 @@ impl Dbc {
         base_sk: &SecretKey,
         verifier: &K,
     ) -> Result<(), Error> {
-        TransactionVerifier::verify(verifier, &self.transaction, &self.spent_proofs)?;
+        TransactionVerifier::verify(verifier, &self.transaction, &self.inputs_spent_proofs)?;
 
         let owner = self.owner_once(base_sk)?.public_key();
 
@@ -249,8 +249,8 @@ impl Dbc {
         }
 
         // verify there is a maching transaction for each spent proof
-        if !self.spent_proofs.iter().all(|proof| {
-            self.spent_transactions
+        if !self.inputs_spent_proofs.iter().all(|proof| {
+            self.inputs_spent_transactions
                 .iter()
                 .any(|tx| Hash::from(tx.hash()) == proof.transaction_hash())
         }) {
@@ -263,7 +263,7 @@ impl Dbc {
             Some(r) => r == s.reason(),
             None => s.reason() == Hash::default(),
         };
-        if !self.spent_proofs.iter().all(reasons_are_equal) {
+        if !self.inputs_spent_proofs.iter().all(reasons_are_equal) {
             return Err(Error::SpentProofShareReasonMismatch(owner));
         }
 
@@ -435,8 +435,8 @@ pub(crate) mod tests {
             content: input_content,
             public_key,
             transaction,
-            spent_proofs: Default::default(),
-            spent_transactions: Default::default(),
+            inputs_spent_proofs: Default::default(),
+            inputs_spent_transactions: Default::default(),
         };
 
         let hex = dbc.to_hex()?;
@@ -473,8 +473,8 @@ pub(crate) mod tests {
             content: input_content,
             public_key,
             transaction,
-            spent_proofs: Default::default(),
-            spent_transactions: Default::default(),
+            inputs_spent_proofs: Default::default(),
+            inputs_spent_transactions: Default::default(),
         };
 
         let hex = dbc.to_hex()?;
@@ -573,8 +573,8 @@ pub(crate) mod tests {
             content: input_content,
             public_key,
             transaction,
-            spent_proofs: Default::default(),
-            spent_transactions: Default::default(),
+            inputs_spent_proofs: Default::default(),
+            inputs_spent_transactions: Default::default(),
         };
 
         let id = crate::bls_dkg_id(&mut rng);
@@ -639,7 +639,7 @@ pub(crate) mod tests {
 
         let spent_proofs = output_dbcs
             .iter()
-            .map(|x| x.0.spent_proofs.clone())
+            .map(|x| x.0.inputs_spent_proofs.clone())
             .next()
             .unwrap();
         let sp_first = spent_proofs.iter().next().unwrap();
@@ -783,7 +783,7 @@ pub(crate) mod tests {
             }
         }
 
-        let spent_transactions = dbc_builder.spent_transactions.values().cloned().collect();
+        let inputs_spent_transactions = dbc_builder.spent_transactions.values().cloned().collect();
         let dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
         let (dbc_valid, ..) = &dbcs[0];
 
@@ -795,8 +795,8 @@ pub(crate) mod tests {
             content: fuzzed_content,
             public_key,
             transaction: dbc_valid.transaction.clone(),
-            spent_proofs: fuzzed_spent_proofs,
-            spent_transactions,
+            inputs_spent_proofs: fuzzed_spent_proofs,
+            inputs_spent_transactions,
         };
 
         let key_manager = &spentbook_node.key_manager;
@@ -823,8 +823,8 @@ pub(crate) mod tests {
                 assert_eq!(extra_output_amount.coerce::<u8>(), 0);
             }
             Err(Error::SpentProofInputLenMismatch { current, expected }) => {
-                assert_ne!(dbc.spent_proofs.len(), dbc.transaction.inputs.len());
-                assert_eq!(dbc.spent_proofs.len(), current);
+                assert_ne!(dbc.inputs_spent_proofs.len(), dbc.transaction.inputs.len());
+                assert_eq!(dbc.inputs_spent_proofs.len(), current);
                 assert_eq!(dbc.transaction.inputs.len(), expected);
             }
             Err(Error::SpentProofInputPublicKeyMismatch) => {
@@ -851,11 +851,11 @@ pub(crate) mod tests {
                 // if we are certain it was wrong signer, then we can verify spentbook's key manager
                 // does not trust the signer.
                 if n_wrong_signer_sigs.coerce::<u8>() > 0 && n_wrong_msg_sigs.coerce::<u8>() == 0 {
-                    for sp in dbc.spent_proofs.iter() {
+                    for sp in dbc.inputs_spent_proofs.iter() {
                         println!("pk: {:?}", sp.spentbook_pub_key);
                     }
                     assert!(dbc
-                        .spent_proofs
+                        .inputs_spent_proofs
                         .iter()
                         .any(|sp| key_manager.verify_known_key(&sp.spentbook_pub_key).is_err()));
                 }

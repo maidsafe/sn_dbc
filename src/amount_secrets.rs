@@ -46,7 +46,6 @@ impl AmountSecrets {
         self.0.blinding
     }
 
-    /// commitment
     pub fn commitment(&self) -> Commitment {
         self.0.commit(&PedersenGens::default())
     }
