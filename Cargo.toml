@@ -1,6 +1,6 @@
 [package]
 name = "sn_dbc"
-version = "10.0.0"
+version = "11.0.0"
 description = "Safe Network DBC"
 license = "MIT OR BSD-3-Clause"
 repository = "https://github.com/maidsafe/sn_dbc"

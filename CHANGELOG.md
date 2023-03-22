@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [11.0.0](https://github.com/maidsafe/sn_dbc/compare/v10.0.0...v11.0.0) (2023-03-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename commitment to blinded amount
+
+* rename commitment to blinded amount ([59c21f8](https://github.com/maidsafe/sn_dbc/commit/59c21f8541abcfad79c1654d162b0e5d14b6793d))
+
 ## [10.0.0](https://github.com/maidsafe/sn_dbc/compare/v9.0.0...v10.0.0) (2023-03-15)
 
 
