@@ -10,7 +10,7 @@
 mod tests {
     use crate::{
         tests::{TinyInt, TinyVec},
-        Hash,
+        Hash, RevealedAmount,
     };
     use blsttc::{PublicKey, SecretKey, SecretKeySet};
     use quickcheck_macros::quickcheck;
@@ -18,15 +18,15 @@ mod tests {
     use std::iter::FromIterator;
 
     use crate::{
-        mock, AmountSecrets, Dbc, DbcContent, Error, IndexedSignatureShare, Owner, OwnerOnce,
-        Result, SpentProofContent, SpentProofShare, Token, TransactionBuilder,
+        mock, Dbc, DbcContent, Error, IndexedSignatureShare, Owner, OwnerOnce, Result,
+        SpentProofContent, SpentProofShare, Token, TransactionBuilder,
     };
 
     #[test]
     fn issue_genesis() -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
 
-        let (spentbook_node, genesis_dbc, genesis, _amount_secrets) =
+        let (spentbook_node, genesis_dbc, genesis, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
         let verified = genesis_dbc.verify(
@@ -50,7 +50,7 @@ mod tests {
         let n_outputs = output_amounts.len();
         let output_amount: u64 = output_amounts.iter().sum();
 
-        let (mut spentbook_node, genesis_dbc, _genesis, _amount_secrets) =
+        let (mut spentbook_node, genesis_dbc, _genesis, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
         let owners: Vec<OwnerOnce> = (0..output_amounts.len())
@@ -70,14 +70,12 @@ mod tests {
         // We make this a closure to keep the spentbook loop readable.
         let check_error = |error: Error| -> Result<()> {
             match error {
-                Error::Transaction(
-                    crate::transaction::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
-                ) => {
+                Error::Transaction(crate::transaction::Error::InconsistentDbcTransaction) => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
                 }
-                Error::Transaction(crate::transaction::Error::InvalidCommitment) => {
+                Error::Transaction(crate::transaction::Error::InvalidInputBlindedAmount) => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
@@ -98,11 +96,9 @@ mod tests {
         }
         let output_dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
 
-        for (dbc, owner_once, amount_secrets) in output_dbcs.iter() {
-            let dbc_amount = amount_secrets.amount();
-            assert!(output_amounts
-                .iter()
-                .any(|a| Token::from_nano(*a) == dbc_amount));
+        for (dbc, owner_once, revealed_amount) in output_dbcs.iter() {
+            let dbc_amount = revealed_amount.value();
+            assert!(output_amounts.iter().any(|amount| *amount == dbc_amount));
             assert!(dbc
                 .verify(
                     &owner_once.owner_base().secret_key().unwrap(),
@@ -115,12 +111,11 @@ mod tests {
             {
                 let mut sum: u64 = 0;
                 for (dbc, owner_once, _) in output_dbcs.iter() {
-                    // note: we could just use amount_secrets provided by DbcBuilder::build()
+                    // note: we could just use revealed amount provided by DbcBuilder::build()
                     // but we go further to verify the correct value is encrypted in the Dbc.
                     sum += dbc
-                        .amount_secrets(&owner_once.owner_base().secret_key()?)?
-                        .amount()
-                        .as_nano()
+                        .revealed_amount(&owner_once.owner_base().secret_key()?)?
+                        .value()
                 }
                 sum
             },
@@ -162,7 +157,7 @@ mod tests {
                 .map(TinyInt::coerce::<usize>),
         );
 
-        let (mut spentbook_node, genesis_dbc, _genesis, _amount_secrets) =
+        let (mut spentbook_node, genesis_dbc, _genesis, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
         let mut dbc_builder = TransactionBuilder::default()
@@ -177,9 +172,7 @@ mod tests {
         // note: we make this a closure to keep the spentbook loop readable.
         let check_tx_error = |error: Error| -> Result<()> {
             match error {
-                Error::Transaction(
-                    crate::transaction::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
-                ) => {
+                Error::Transaction(crate::transaction::Error::InconsistentDbcTransaction) => {
                     // Verify that no inputs were present and we got correct verification error.
                     assert!(input_amounts.is_empty());
                     Ok(())
@@ -208,7 +201,7 @@ mod tests {
         // The outputs become inputs for next tx.
         let inputs_dbcs: Vec<(Dbc, SecretKey)> = output_dbcs
             .into_iter()
-            .map(|(dbc, owner_once, _amount_secrets)| {
+            .map(|(dbc, owner_once, _revealed_amount)| {
                 (dbc, owner_once.owner_base().secret_key().unwrap())
             })
             .collect();
@@ -247,14 +240,12 @@ mod tests {
                 Error::SpentProofInputPublicKeyMismatch => {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
-                Error::Transaction(
-                    crate::transaction::Error::InputPseudoCommitmentsDoNotSumToOutputCommitments,
-                ) => {
+                Error::Transaction(crate::transaction::Error::InconsistentDbcTransaction) => {
                     if mock::GenesisMaterial::GENESIS_AMOUNT == output_total_amount {
                         // This can correctly occur if there are 0 outputs and inputs sum to zero.
                         //
-                        // The error occurs because there is no output with a commitment
-                        // to match against the input commitment, and also no way to
+                        // The error occurs because there is no output
+                        // to match against the input amount, and also no way to
                         // know that the input amount is zero.
                         assert!(output_amounts.is_empty());
                         assert_eq!(input_amounts.iter().sum::<u64>(), 0);
@@ -300,7 +291,7 @@ mod tests {
                             public_key: *spent_proof_share.public_key(),
                             transaction_hash: spent_proof_share.transaction_hash(),
                             reason: Hash::default(),
-                            public_commitment: *spent_proof_share.public_commitment(),
+                            blinded_amount: *spent_proof_share.blinded_amount(),
                         },
                         spentbook_pks: spent_proof_share.spentbook_pks,
                         spentbook_sig_share: IndexedSignatureShare::new(
@@ -338,7 +329,7 @@ mod tests {
                     BTreeSet::from_iter(output_amounts)
                 );
 
-                for (dbc, owner_once, _amount_secrets) in output_dbcs.iter() {
+                for (dbc, owner_once, _revealed_amount) in output_dbcs.iter() {
                     let dbc_confirm_result = dbc.verify(
                         &owner_once.owner_base().secret_key()?,
                         &spentbook_node.key_manager,
@@ -376,7 +367,7 @@ mod tests {
     fn test_inputs_are_verified() -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
 
-        let (spentbook_node, _genesis_dbc, _genesis, _amount_secrets) =
+        let (spentbook_node, _genesis_dbc, _genesis, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
         let output1_owner =
@@ -386,14 +377,14 @@ mod tests {
             .add_output_by_amount(Token::from_nano(100), output1_owner.clone())
             .build(&mut rng)?;
 
-        let amount_secrets = AmountSecrets::from(dbc_builder.revealed_commitments[0]);
+        let revealed_amount = dbc_builder.revealed_amounts[0];
         let secret_key = output1_owner.as_owner().secret_key()?;
 
         let output2_owner =
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
 
         let fraud_dbc_builder = TransactionBuilder::default()
-            .add_input_by_secrets(secret_key, amount_secrets)
+            .add_input_by_secrets(secret_key, revealed_amount)
             .add_output_by_amount(Token::from_nano(100), output2_owner)
             .build(&mut rng)?;
 
@@ -405,14 +396,14 @@ mod tests {
     }
 
     /// This tests (and demonstrates) how the system handles a mis-match between the
-    /// committed amount and amount encrypted in AmountSecrets.
+    /// blinded amount and the encrypted revealed amount.
     ///
     /// Normally these should be the same, however a malicious user or buggy
     /// implementation could produce different values.  The spentbook never sees the
-    /// AmountSecrets and thus cannot detect or prevent this this situation.
+    /// RevealedAmount and thus cannot detect or prevent this this situation.
     ///
     /// A correct spentbook implementation must verify the transaction before
-    /// writing, including checking that commitments match. So the spentbook
+    /// writing, including checking that (blinded) amounts are equal. So the spentbook
     /// will reject a tx with an output using an invalid amount, thereby preventing
     /// the input from becoming burned (unspendable).
     ///
@@ -423,22 +414,22 @@ mod tests {
     ///
     /// 1. produce a standard genesis DBC (a) with value 1000
     /// 2. reissue genesis DBC (a) to Dbc (b)  with value 1000.
-    /// 3. modify b's amount secrets.amount to 2000, thereby creating b_fudged
+    /// 3. modify b's revealed_amount.value to 2000, thereby creating b_fudged
     ///    (which a bad actor could pass to innocent recipient).
     /// 4. Check if the amounts match, using the provided API.
     ///      assert that APIs report they do not match.
     /// 5. create a tx with (b_fudged) as input, and Dbc (c) with amount 2000 as output.
     /// 6. Attempt to write this tx to the spentbook.
-    ///    This will fail because the input and output commitments do not match.
+    ///    This will fail because the input and output amounts are not equal.
     /// 7. Force an invalid write to the spentbook
     /// 8. Attempt to write to spentbook again using the correct amount (1000).
     ///    This will fail because b was already marked as spent in the spentbook.
     ///    This demonstrates how an input can become burned if spentbook does
     ///    not verify tx.
-    /// 9. Re-write spentbook log correctly using the correct amount that was
-    ///    committed to.  Verify that the write succeeds.
+    /// 9. Re-write spentbook log correctly using the correct amount.
+    ///   Verify that the write succeeds.
     #[test]
-    fn test_mismatched_amount_and_commitment() -> Result<(), Error> {
+    fn test_mismatched_amount_and_blinded_amount() -> Result<(), Error> {
         // ----------
         // 1. produce a standard genesis DBC (a) with value 1000
         // ----------
@@ -479,16 +470,16 @@ mod tests {
         let (b_dbc, ..) = &output_dbcs[0];
 
         // ----------
-        // 3. modify b's amount secrets.amount to AMOUNT/2, thereby creating b_fudged
+        // 3. modify b's revealed_amount.value to AMOUNT/2, thereby creating b_fudged
         //    (which a bad actor could pass to innocent recipient).
         // ----------
 
         // Replace the encrypted secret amount with an encrypted secret claiming
-        // twice the committed value.
-        let starting_amount_secrets = starting_dbc.amount_secrets_bearer()?;
-        let fudged_amount_secrets = AmountSecrets::from((
-            starting_amount_secrets.amount().as_nano() * 2, // Claim we are paying twice the committed value
-            starting_amount_secrets.blinding_factor(),      // Use the real blinding factor
+        // twice the amount.
+        let starting_revealed_amount = starting_dbc.revealed_amount_bearer()?;
+        let fudged_revealed_amount = RevealedAmount::from((
+            starting_revealed_amount.value() * 2, // Claim we are paying twice the amount
+            starting_revealed_amount.blinding_factor(), // Use the real blinding factor
         ));
 
         let (true_output_dbc, ..) = output_dbcs[0].clone();
@@ -498,17 +489,17 @@ mod tests {
         fudged_output_dbc.content = DbcContent::from((
             c.owner_base.clone(),
             output_owner.derivation_index,
-            fudged_amount_secrets,
+            fudged_revealed_amount,
         ));
 
-        // obtain amount secrets (true and fudged)
-        let true_secrets =
-            true_output_dbc.amount_secrets(&output_owner.owner_base().secret_key()?)?;
-        let fudged_secrets =
-            fudged_output_dbc.amount_secrets(&output_owner.owner_base().secret_key()?)?;
+        // obtain revealed amount (true and fudged)
+        let true_amount =
+            true_output_dbc.revealed_amount(&output_owner.owner_base().secret_key()?)?;
+        let fudged_amount =
+            fudged_output_dbc.revealed_amount(&output_owner.owner_base().secret_key()?)?;
 
-        // confirm the secret amount is 2000.
-        assert_eq!(fudged_secrets.amount(), Token::from_nano(output_amount * 2));
+        // confirm the amount is 2000.
+        assert_eq!(fudged_amount.value(), output_amount * 2);
 
         // ----------
         // 4. Check if the amounts match, using the provided API.
@@ -521,15 +512,15 @@ mod tests {
                 &output_owner.owner_base().secret_key()?,
                 &spentbook.key_manager
             ),
-            Err(Error::AmountCommitmentsDoNotMatch)
+            Err(Error::BlindedAmountsDoNotMatch)
         ));
 
-        // confirm that the sum of output secrets does not match the committed amount.
+        // confirm that the sum of output revealed does not match the blinded amount.
         assert_ne!(
             fudged_output_dbc
-                .amount_secrets(&output_owner.owner_base().secret_key()?)?
-                .amount(),
-            Token::from_nano(output_amount)
+                .revealed_amount(&output_owner.owner_base().secret_key()?)?
+                .value(),
+            output_amount
         );
 
         // ----------
@@ -544,18 +535,23 @@ mod tests {
                 &fudged_output_dbc,
                 &fudged_output_dbc.owner_base().secret_key()?,
             )?
-            .add_output_by_amount(fudged_secrets.amount(), output_owner.clone())
+            .add_output_by_amount(
+                Token::from_nano(fudged_amount.value()),
+                output_owner.clone(),
+            )
             .build(&mut rng)?;
 
         // ----------
         // 6. Attempt to write this tx to the spentbook.
-        //    This will fail because the input and output commitments do not match.
+        //    This will fail because the input and output amounts are not equal.
         // ----------
 
         for (public_key, tx) in dbc_builder_fudged.inputs() {
             match spentbook.log_spent(public_key, tx, Hash::default()) {
-                Err(Error::Transaction(crate::transaction::Error::InvalidCommitment)) => {}
-                _ => panic!("Expecting Transaction Error::InvalidCommitment"),
+                Err(Error::Transaction(crate::transaction::Error::InvalidInputBlindedAmount)) => {}
+                _ => panic!(
+                    "Expecting `Error::Transaction(transaction::Error::InvalidInputBlindedAmount)`"
+                ),
             }
         }
 
@@ -581,8 +577,10 @@ mod tests {
         let result_fudged = dbc_builder_fudged.build(&spentbook.key_manager);
 
         match result_fudged {
-            Err(Error::Transaction(crate::transaction::Error::InvalidCommitment)) => {}
-            _ => panic!("Expecting Transaction Error::InvalidCommitment"),
+            Err(Error::Transaction(crate::transaction::Error::InvalidInputBlindedAmount)) => {}
+            _ => panic!(
+                "Expecting `Error::Transaction(transaction::Error::InvalidInputBlindedAmount)`"
+            ),
         }
 
         // ----------
@@ -603,9 +601,9 @@ mod tests {
         let mut dbc_builder_true = TransactionBuilder::default()
             .add_input_by_secrets(
                 fudged_output_dbc.owner_once_bearer()?.secret_key()?,
-                true_secrets.clone(),
+                true_amount,
             )
-            .add_output_by_amount(true_secrets.amount(), output_owner)
+            .add_output_by_amount(Token::from_nano(true_amount.value()), output_owner)
             .build(&mut rng)?;
 
         let dbc_builder_bad_proof = dbc_builder_true.clone();
@@ -616,13 +614,13 @@ mod tests {
             // The builder should return an error because the spentproof does not match the tx.
             match result {
                 Err(Error::Mock(mock::Error::PublicKeyAlreadySpent)) => {}
-                _ => panic!("Expected Error::Mock::Error::PublicKeyAlreadySpent"),
+                _ => panic!("Expected `Error::Mock(mock::Error::PublicKeyAlreadySpent)`"),
             }
         }
 
         // ----------
         // 9. Re-write spentbook log correctly and attempt to spend using the
-        //    correct amount that was committed to.
+        //    correct amount.
         //      Verify that this spend succeeds.
         // ----------
 

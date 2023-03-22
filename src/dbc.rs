@@ -13,9 +13,9 @@ use tiny_keccak::{Hasher, Sha3};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::transaction::{DbcTransaction, OutputProof, RevealedCommitment, RevealedInput};
+use crate::transaction::{DbcTransaction, OutputProof, RevealedAmount, RevealedInput};
 use crate::{
-    AmountSecrets, Commitment, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
+    BlindedAmount, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
     SpentProofKeyVerifier, TransactionVerifier,
 };
 
@@ -50,13 +50,13 @@ use crate::{
 ///
 /// To spend or work with a Bearer Dbc, wallet software can either:
 ///  1. use the bearer API methods that do not require a SecretKey, eg:
-///        `dbc.amount_secrets_bearer()`
+///        `dbc.revealed_amount_bearer()`
 ///
 ///  -- or --
 ///
 ///  2. obtain the Owner Base SecretKey from the Dbc and then call
 ///     the Owner API methods that require a SecretKey.   eg:
-///       `dbc.amount_secrets(&dbc.dbc.owner_base().secret_key()?)`
+///       `dbc.revealed_amount(&dbc.dbc.owner_base().secret_key()?)`
 ///
 /// Sometimes the latter method can be better when working with mixed
 /// types of Dbcs.  A useful pattern is to check up-front if the Dbc is bearer
@@ -125,16 +125,16 @@ impl Dbc {
         self.owner_base().has_secret_key()
     }
 
-    /// decypts and returns the AmountSecrets
-    pub fn amount_secrets(&self, base_sk: &SecretKey) -> Result<AmountSecrets> {
+    /// Decrypt and return the revealed amount.
+    pub fn revealed_amount(&self, base_sk: &SecretKey) -> Result<RevealedAmount> {
         let sk = self.owner_once(base_sk)?.secret_key()?;
-        AmountSecrets::try_from((&sk, &self.content.amount_secrets_cipher))
+        RevealedAmount::try_from((&sk, &self.content.revealed_amount_cipher))
     }
 
-    /// decypts and returns the AmountSecrets
-    /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn amount_secrets_bearer(&self) -> Result<AmountSecrets> {
-        self.amount_secrets(&self.owner_base().secret_key()?)
+    /// Decrypt and return the RevealedAmount, only if this Dbc is a bearer.
+    /// Thus, it will return an error if a SecretKey is not available.
+    pub fn revealed_amount_bearer(&self) -> Result<RevealedAmount> {
+        self.revealed_amount(&self.owner_base().secret_key()?)
     }
 
     /// returns the reason (if any) why this dbc was spent
@@ -155,20 +155,20 @@ impl Dbc {
         Ok(secret_key.public_key())
     }
 
-    /// returns PublicKey of the DBC
+    /// Return public key of this Dbc.
     pub fn public_key(&self) -> PublicKey {
         self.public_key
     }
 
-    /// returns the amount commitment for this DBC
-    pub fn commitment(&self) -> Result<Commitment> {
+    /// Return the blinded amount for this Dbc.
+    pub fn blinded_amount(&self) -> Result<BlindedAmount> {
         Ok(self
             .transaction
             .outputs
             .iter()
             .find(|o| &self.public_key() == o.public_key())
             .ok_or(Error::OutputProofNotFound)?
-            .commitment())
+            .blinded_amount())
     }
 
     /// returns PublicKey for the owner's derived public key
@@ -183,7 +183,7 @@ impl Dbc {
     pub fn as_revealed_input(&self, base_sk: &SecretKey) -> Result<RevealedInput> {
         Ok(RevealedInput::new(
             self.owner_once(base_sk)?.secret_key()?,
-            self.amount_secrets(base_sk)?.into(),
+            self.revealed_amount(base_sk)?,
         ))
     }
 
@@ -228,8 +228,8 @@ impl Dbc {
     /// see TransactionVerifier::verify() for a description of
     /// verifier requirements.
     ///
-    /// see comments for Dbc::verify_amount_matches_commitment() for a
-    /// description of how to handle Error::AmountCommitmentsDoNotMatch
+    /// see comments for Dbc::verify_amounts() for a
+    /// description of how to handle Error::BlindedAmountsDoNotMatch
     pub fn verify<K: SpentProofKeyVerifier>(
         &self,
         base_sk: &SecretKey,
@@ -267,7 +267,7 @@ impl Dbc {
             return Err(Error::SpentProofShareReasonMismatch(owner));
         }
 
-        self.verify_amount_matches_commitment(base_sk)
+        self.verify_amounts(base_sk)
     }
 
     /// bearer version of verify()
@@ -317,35 +317,41 @@ impl Dbc {
         Ok(())
     }
 
-    /// Checks if the provided AmountSecrets matches the amount commitment.
-    /// note that both the amount and blinding_factor must be correct.
+    /// Checks if the encrypted amount + blinding factor in the Dbc equals
+    /// the blinded amount in the transaction.
+    /// This is done by
+    /// 1. Decrypting the `revealed_amount_cipher` into a RevealedAmount.
+    /// 2. Forming a BlindedAmount out of the RevealedAmount.
+    /// 3. Comparing that instance with the one in the dbc output proof in the tx.
     ///
-    /// If the commitments do not match, then the Dbc cannot be spent
-    /// using the AmountSecrets provided.
+    /// If the blinded amounts do not match, then the Dbc cannot be spent
+    /// using the RevealedAmount provided.
     ///
     /// To clarify, the Dbc is still spendable, however the correct
-    /// AmountSecrets need to be obtained from the sender somehow.
+    /// RevealedAmount need to be obtained from the sender somehow.
     ///
     /// As an example, if the Dbc recipient is a merchant, they typically
     /// would not provide goods to the purchaser if this check fails.
     /// However the purchaser may still be able to remedy the situation by
-    /// providing the correct AmountSecrets to the merchant.
+    /// providing the correct RevealedAmount to the merchant.
     ///
     /// If the merchant were to send the goods without first performing
     /// this check, then they could be stuck with an unspendable Dbc
     /// and no recourse.
-    pub(crate) fn verify_amount_matches_commitment(&self, base_sk: &SecretKey) -> Result<()> {
-        let rc: RevealedCommitment = self.amount_secrets(base_sk)?.into();
-        let secrets_commitment = rc.commit(&Default::default());
-        let tx_commitment = self.my_output_proof(base_sk)?.commitment();
+    pub(crate) fn verify_amounts(&self, base_sk: &SecretKey) -> Result<()> {
+        let revealed_amount: RevealedAmount = self.revealed_amount(base_sk)?;
+        let blinded_amount = revealed_amount.blinded_amount(&Default::default());
+        let blinded_amount_in_tx = self.output_proof(base_sk)?.blinded_amount();
 
-        match secrets_commitment == tx_commitment {
+        match blinded_amount == blinded_amount_in_tx {
             true => Ok(()),
-            false => Err(Error::AmountCommitmentsDoNotMatch),
+            false => Err(Error::BlindedAmountsDoNotMatch),
         }
     }
 
-    fn my_output_proof(&self, base_sk: &SecretKey) -> Result<&OutputProof> {
+    /// The output proof for this Dbc, is found in
+    /// the transaction that gave rise to this Dbc.
+    fn output_proof(&self, base_sk: &SecretKey) -> Result<&OutputProof> {
         let owner = self.owner_once(base_sk)?.public_key();
         self.transaction
             .outputs
@@ -364,7 +370,7 @@ pub(crate) mod tests {
     use crate::{
         mock,
         rand::{CryptoRng, RngCore},
-        AmountSecrets, DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent, Token,
+        DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent, Token,
     };
     use blsttc::PublicKey;
     use bulletproofs::PedersenGens;
@@ -383,16 +389,16 @@ pub(crate) mod tests {
 
     fn prepare_even_split(
         dbc_owner: SecretKey,
-        amount_secrets: AmountSecrets,
+        revealed_amount: RevealedAmount,
         n_ways: u8,
         output_owners: Vec<OwnerOnce>,
         spentbook_node: &mut mock::SpentBookNode,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<DbcBuilder> {
-        let amount = amount_secrets.amount();
+        let amount = Token::from_nano(revealed_amount.value());
 
         let mut dbc_builder = crate::TransactionBuilder::default()
-            .add_input_by_secrets(dbc_owner, amount_secrets)
+            .add_input_by_secrets(dbc_owner, revealed_amount)
             .add_outputs_by_amount(divide(amount, n_ways).zip(output_owners.into_iter()))
             .build(rng)?;
 
@@ -419,13 +425,13 @@ pub(crate) mod tests {
             inputs: vec![],
             outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
         };
-        let (transaction, revealed_commitments) = tx_material
+        let (transaction, revealed_amounts) = tx_material
             .sign(&mut rng)
             .expect("Failed to sign transaction");
         let input_content = DbcContent::from((
             owner_once.owner_base.clone(),
             owner_once.derivation_index,
-            AmountSecrets::from(revealed_commitments[0]),
+            revealed_amounts[0],
         ));
         let public_key = owner_once
             .owner_base
@@ -442,8 +448,8 @@ pub(crate) mod tests {
         let hex = dbc.to_hex()?;
 
         let dbc = Dbc::from_hex(&hex)?;
-        let amount = dbc.amount_secrets_bearer()?.amount();
-        assert_eq!(amount, Token::from_nano(1_530_000_000));
+        let amount = dbc.revealed_amount_bearer()?.value();
+        assert_eq!(amount, 1_530_000_000);
         Ok(())
     }
 
@@ -457,13 +463,13 @@ pub(crate) mod tests {
             inputs: vec![],
             outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
         };
-        let (transaction, revealed_commitments) = tx_material
+        let (transaction, revealed_amounts) = tx_material
             .sign(&mut rng)
             .expect("Failed to sign transaction");
         let input_content = DbcContent::from((
             owner_once.owner_base.clone(),
             owner_once.derivation_index,
-            AmountSecrets::from(revealed_commitments[0]),
+            revealed_amounts[0],
         ));
         let public_key = owner_once
             .owner_base
@@ -480,8 +486,8 @@ pub(crate) mod tests {
         let hex = dbc.to_hex()?;
 
         let dbc_from_hex = Dbc::from_hex(&hex)?;
-        let left = dbc.amount_secrets_bearer()?.amount();
-        let right = dbc_from_hex.amount_secrets_bearer()?.amount();
+        let left = dbc.revealed_amount_bearer()?.value();
+        let right = dbc_from_hex.revealed_amount_bearer()?.value();
         assert_eq!(left, right);
         Ok(())
     }
@@ -553,16 +559,16 @@ pub(crate) mod tests {
             outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
         };
 
-        let (transaction, revealed_commitments) = tx_material
+        let (transaction, revealed_amounts) = tx_material
             .sign(&mut rng)
             .expect("Failed to sign transaction");
 
-        assert_eq!(revealed_commitments.len(), 1);
+        assert_eq!(revealed_amounts.len(), 1);
 
         let input_content = DbcContent::from((
             owner_once.owner_base.clone(),
             owner_once.derivation_index,
-            AmountSecrets::from(revealed_commitments[0]),
+            revealed_amounts[0],
         ));
 
         let public_key = owner_once
@@ -628,7 +634,7 @@ pub(crate) mod tests {
 
         let dbc_builder = prepare_even_split(
             starting_dbc.owner_once_bearer()?.secret_key()?,
-            starting_dbc.amount_secrets_bearer()?,
+            starting_dbc.revealed_amount_bearer()?,
             n_inputs.coerce(),
             input_owners,
             &mut spentbook_node,
@@ -650,7 +656,7 @@ pub(crate) mod tests {
         // The outputs become inputs for next tx.
         let inputs: Vec<(Dbc, SecretKey)> = output_dbcs
             .into_iter()
-            .map(|(dbc, owner_once, _amount_secrets)| {
+            .map(|(dbc, owner_once, _revealed_amount)| {
                 (dbc, owner_once.owner_base().secret_key().unwrap())
             })
             .collect();
@@ -673,31 +679,31 @@ pub(crate) mod tests {
                 .add_spent_transaction(tx);
         }
 
-        // We must obtain the RevealedCommitment for our output in order to
+        // We must obtain the RevealedAmount for our output in order to
         // know the correct blinding factor when creating fuzzed_amt_secrets.
         let output = dbc_builder.transaction.outputs.get(0).unwrap();
         let pc_gens = PedersenGens::default();
-        let output_commitments: Vec<(Commitment, RevealedCommitment)> = dbc_builder
-            .revealed_commitments
+        let output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> = dbc_builder
+            .revealed_amounts
             .iter()
-            .map(|r| (r.commit(&pc_gens), *r))
+            .map(|r| (r.blinded_amount(&pc_gens), *r))
             .collect();
-        let amount_secrets_list: Vec<AmountSecrets> = output_commitments
+        let revealed_amount_list: Vec<RevealedAmount> = output_blinded_and_revealed_amounts
             .iter()
-            .filter(|(c, _)| *c == output.commitment())
-            .map(|(_, r)| AmountSecrets::from(*r))
+            .filter(|(c, _)| *c == output.blinded_amount())
+            .map(|(_, r)| *r)
             .collect();
 
-        let fuzzed_amt_secrets = AmountSecrets::from((
+        let fuzzed_revealed_amount = RevealedAmount::from((
             amount + extra_output_amount.coerce::<u64>(),
-            amount_secrets_list[0].blinding_factor(),
+            revealed_amount_list[0].blinding_factor(),
         ));
-        let dbc_amount = fuzzed_amt_secrets.amount();
+        let dbc_amount = fuzzed_revealed_amount.value();
 
         let fuzzed_content = DbcContent::from((
             owner_once.owner_base.clone(),
             owner_once.derivation_index,
-            fuzzed_amt_secrets,
+            fuzzed_revealed_amount,
         ));
 
         let mut fuzzed_spent_proofs: BTreeSet<SpentProof> = BTreeSet::new();
@@ -764,7 +770,7 @@ pub(crate) mod tests {
                     public_key: secret_key.public_key(),
                     transaction_hash: spent_proof.transaction_hash(),
                     reason: Hash::default(),
-                    public_commitment: *spent_proof.public_commitment(),
+                    blinded_amount: *spent_proof.blinded_amount(),
                 };
 
                 let sig_share = spentbook_node.key_manager.sign(&content.hash());
@@ -819,7 +825,7 @@ pub(crate) mod tests {
                 assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
                 assert_eq!(n_wrong_msg_sigs.coerce::<u8>(), 0);
 
-                assert_eq!(dbc_amount, Token::from_nano(amount));
+                assert_eq!(dbc_amount, amount);
                 assert_eq!(extra_output_amount.coerce::<u8>(), 0);
             }
             Err(Error::SpentProofInputLenMismatch { current, expected }) => {
@@ -840,8 +846,8 @@ pub(crate) mod tests {
             Err(Error::Transaction(crate::transaction::Error::TransactionMustHaveAnInput)) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
             }
-            Err(Error::AmountCommitmentsDoNotMatch) => {
-                assert_ne!(Token::from_nano(amount), dbc_amount);
+            Err(Error::BlindedAmountsDoNotMatch) => {
+                assert_ne!(amount, dbc_amount);
                 assert_ne!(extra_output_amount, TinyInt(0));
             }
             Err(Error::InvalidSpentProofSignature(_) | Error::FailedKnownKeyCheck(_)) => {
@@ -897,7 +903,7 @@ pub(crate) mod tests {
         owner: Owner,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
-        let (mut spentbook_node, genesis_dbc, _genesis_material, _amount_secrets) =
+        let (mut spentbook_node, genesis_dbc, _genesis_material, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(rng)?;
 
         let output_amounts = vec![
@@ -908,7 +914,7 @@ pub(crate) mod tests {
         let mut dbc_builder = crate::TransactionBuilder::default()
             .add_input_by_secrets(
                 genesis_dbc.owner_once_bearer()?.secret_key()?,
-                genesis_dbc.amount_secrets_bearer()?,
+                genesis_dbc.revealed_amount_bearer()?,
             )
             .add_outputs_by_amount(
                 output_amounts

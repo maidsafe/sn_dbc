@@ -11,7 +11,6 @@ use std::fmt;
 #[cfg(feature = "serde")]
 use std::str::FromStr;
 
-mod amount_secrets;
 mod blst;
 mod builder;
 mod dbc;
@@ -34,8 +33,7 @@ pub use blsttc::{Ciphertext, PublicKey, PublicKeySet, Signature, SignatureShare}
 pub use bulletproofs::PedersenGens;
 
 pub use crate::{
-    amount_secrets::AmountSecrets,
-    blst::{BlindingFactor, Commitment},
+    blst::{BlindedAmount, BlindingFactor},
     builder::{DbcBuilder, OutputOwnerMap, TransactionBuilder},
     dbc::Dbc,
     dbc_content::DbcContent,
@@ -47,10 +45,10 @@ pub use crate::{
     },
     token::Token,
     transaction::{
-        Amount, DbcTransaction, Input, Output, OutputProof, RevealedCommitment, RevealedInput,
+        Amount, DbcTransaction, Input, Output, OutputProof, RevealedAmount, RevealedInput,
         RevealedTransaction,
     },
-    verification::{get_public_commitments_from_transaction, TransactionVerifier},
+    verification::{get_blinded_amounts_from_transaction, TransactionVerifier},
 };
 
 #[cfg(feature = "serde")]

@@ -5,6 +5,7 @@
 // under the GPL Licence is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
+
 use thiserror::Error;
 
 use crate::transaction;
@@ -57,11 +58,13 @@ pub enum Error {
     )]
     SpentProofInputLenMismatch { current: usize, expected: usize },
 
-    #[error("Missing commitment for public key: {0:?}")]
-    MissingCommitmentForPubkey(PublicKey),
+    #[error(
+        "Missing amount for public key: {0:?}. There must be exactly one amount per public key."
+    )]
+    MissingAmountForPubkey(PublicKey),
 
-    #[error("Multiple commitments found for public key: {0:?}")]
-    MultipleCommitmentsForPubkey(PublicKey),
+    #[error("Multiple amounts found for public key: {0:?}. There must be exactly one amount per public key.")]
+    MultipleAmountsForPubkey(PublicKey),
 
     #[error("A SpentProof PublicKey does not match an MlsagSignature PublicKey")]
     SpentProofInputPublicKeyMismatch,
@@ -75,11 +78,11 @@ pub enum Error {
     #[error("Decryption failed")]
     DecryptionBySecretKeyFailed,
 
-    #[error("Invalid AmountSecret bytes")]
-    AmountSecretsBytesInvalid,
+    #[error("Invalid RevealedAmount bytes")]
+    InvalidRevealedAmountBytes,
 
-    #[error("Amount Commitments do not match")]
-    AmountCommitmentsDoNotMatch,
+    #[error("Blinded amounts do not match")]
+    BlindedAmountsDoNotMatch,
 
     #[error("Secret key unavailable")]
     SecretKeyUnavailable,

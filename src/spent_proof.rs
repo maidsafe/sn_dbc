@@ -6,7 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Commitment, Error, Hash, PublicKey, PublicKeySet, Result, Signature, SignatureShare};
+use crate::{
+    BlindedAmount, Error, Hash, PublicKey, PublicKeySet, Result, Signature, SignatureShare,
+};
 
 use std::{cmp::Ordering, collections::HashSet};
 
@@ -21,16 +23,13 @@ use serde::{Deserialize, Serialize};
 pub struct SpentProofContent {
     /// PublicKey of input Dbc that this SpentProof is proving to be spent.
     pub public_key: PublicKey,
-
-    /// Hash of transaction that input Dbc is being spent in.
+    /// Hash of transaction that the input Dbc is being spent in.
     pub transaction_hash: Hash,
-
-    /// Reason why this DBC was spent
+    /// Reason why this Dbc was spent.
     pub reason: Hash,
-
     #[debug(skip)]
-    /// public commitment for the transaction
-    pub public_commitment: Commitment,
+    /// The amount of the input Dbc.
+    pub blinded_amount: BlindedAmount,
 }
 
 impl SpentProofContent {
@@ -41,7 +40,7 @@ impl SpentProofContent {
         bytes.extend(self.public_key.to_bytes());
         bytes.extend(self.transaction_hash.as_ref());
         bytes.extend(self.reason.as_ref());
-        bytes.extend(self.public_commitment.compress().to_bytes());
+        bytes.extend(self.blinded_amount.compress().to_bytes());
         bytes
     }
 
@@ -121,37 +120,37 @@ impl std::hash::Hash for SpentProofShare {
 }
 
 impl SpentProofShare {
-    /// get PublicKey of input Dbc
+    /// Get the public key of input Dbc that this SpentProof is proving to be spent.
     pub fn public_key(&self) -> &PublicKey {
         &self.content.public_key
     }
 
-    /// get transaction hash
+    /// Get the hash of the transaction that the input Dbc is spent in.
     pub fn transaction_hash(&self) -> Hash {
         self.content.transaction_hash
     }
 
-    /// get reason
+    /// Get the specified reason that the input Dbc was spent.
     pub fn reason(&self) -> Hash {
         self.content.reason
     }
 
-    /// get public commitments
-    pub fn public_commitment(&self) -> &Commitment {
-        &self.content.public_commitment
+    /// Get the (blinded) amount of the input Dbc.
+    pub fn blinded_amount(&self) -> &BlindedAmount {
+        &self.content.blinded_amount
     }
 
-    /// get spentbook's signature share
+    /// Get the spentbook's signature share.
     pub fn spentbook_sig_share(&self) -> &IndexedSignatureShare {
         &self.spentbook_sig_share
     }
 
-    /// get spentbook's PublicKeySet
+    /// Get the spentbook's PublicKeySet.
     pub fn spentbook_pks(&self) -> &PublicKeySet {
         &self.spentbook_pks
     }
 
-    /// represent this SpentProofShare as bytes
+    /// Represent this SpentProofShare as bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = self.content.to_bytes();
 
@@ -173,14 +172,11 @@ pub trait SpentProofKeyVerifier {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialOrd, Ord)]
 pub struct SpentProof {
-    /// data to be signed
+    /// The details of the spend, which together with signature over it, constitutes the proof.
     pub content: SpentProofContent,
-
-    /// The Spentbook who notarized that this DBC was spent.
+    /// The Spentbook who notarized that this Dbc was spent.
     pub spentbook_pub_key: PublicKey,
-
-    /// The Spentbook's signature notarizing the DBC was spent.
-    /// signing over SpentProofContent. (PublicKey, DbcTransaction, and public_commitment).
+    /// The Spentbook's signature over (the hash of) SpentProofContent, notarizing that the Dbc was spent.
     pub spentbook_sig: Signature,
 }
 
@@ -209,13 +205,13 @@ impl SpentProof {
                 .map(IndexedSignatureShare::threshold_crypto),
         )?;
 
-        let public_commitment = *any_share.public_commitment();
+        let blinded_amount = *any_share.blinded_amount();
 
         Ok(SpentProof {
             content: SpentProofContent {
                 public_key,
                 transaction_hash,
-                public_commitment,
+                blinded_amount,
                 reason,
             },
             spentbook_pub_key,
@@ -223,27 +219,27 @@ impl SpentProof {
         })
     }
 
-    /// get PublicKey of input Dbc
+    /// Get public key of input Dbc.
     pub fn public_key(&self) -> &PublicKey {
         &self.content.public_key
     }
 
-    /// get transaction hash
+    /// Get transaction hash.
     pub fn transaction_hash(&self) -> Hash {
         self.content.transaction_hash
     }
 
-    /// get public commitments
-    pub fn public_commitment(&self) -> &Commitment {
-        &self.content.public_commitment
+    /// Get blinded amount.
+    pub fn blinded_amount(&self) -> &BlindedAmount {
+        &self.content.blinded_amount
     }
 
-    /// get reason
+    /// Get reason.
     pub fn reason(&self) -> Hash {
         self.content.reason
     }
 
-    /// represent this SpentProof as bytes
+    /// Represent this SpentProof as bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
@@ -254,19 +250,19 @@ impl SpentProof {
         bytes
     }
 
-    /// verify this SpentProof
+    /// Verify this SpentProof
     ///
-    /// checks that the input transaction hash matches the tx_hash that was
+    /// Checks that the input transaction hash matches the tx_hash that was
     /// signed by the spentbook and verifies that spentbook signature is
     /// valid for this SpentProof.
     ///
-    /// note that the verifier must already hold (trust) the spentbook's public key.
+    /// Note that the verifier must already hold (trust) the spentbook's public key.
     pub fn verify<K: SpentProofKeyVerifier>(
         &self,
         tx_hash: Hash,
         proof_key_verifier: &K,
     ) -> Result<()> {
-        // verify input tx_hash matches our tx_hash which was signed by spentbook.
+        // Verify that input tx_hash matches our tx_hash which was signed by spentbook.
         if tx_hash != self.content.transaction_hash {
             return Err(Error::InvalidTransactionHash);
         }
@@ -283,7 +279,7 @@ impl SpentProof {
     }
 }
 
-// impl manually to avoid clippy complaint about Hash conflict.
+// Impl manually to avoid clippy complaint about Hash conflict.
 impl PartialEq for SpentProof {
     fn eq(&self, other: &Self) -> bool {
         self.content == other.content
