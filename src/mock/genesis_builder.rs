@@ -10,7 +10,7 @@ use super::GenesisMaterial;
 use crate::{
     mock,
     rand::{CryptoRng, RngCore},
-    AmountSecrets, Dbc, Hash, Result, TransactionBuilder,
+    Dbc, Hash, Result, RevealedAmount, TransactionBuilder,
 };
 use blsttc::SecretKeySet;
 
@@ -76,7 +76,7 @@ impl GenesisBuilder {
         Vec<mock::SpentBookNode>,
         Dbc,
         GenesisMaterial,
-        AmountSecrets,
+        RevealedAmount,
     )> {
         let genesis_material = GenesisMaterial::default();
         let mut dbc_builder = TransactionBuilder::default()
@@ -102,7 +102,7 @@ impl GenesisBuilder {
         // have the same public key.  (in the same section)
         let spentbook_node_arbitrary = &self.spentbook_nodes[0];
 
-        let (genesis_dbc, _owner_once, amount_secrets) = dbc_builder
+        let (genesis_dbc, _owner_once, revealed_amount) = dbc_builder
             .build(&spentbook_node_arbitrary.key_manager)?
             .into_iter()
             .next()
@@ -111,7 +111,7 @@ impl GenesisBuilder {
             self.spentbook_nodes,
             genesis_dbc,
             genesis_material,
-            amount_secrets,
+            revealed_amount,
         ))
     }
 
@@ -125,21 +125,21 @@ impl GenesisBuilder {
         Vec<mock::SpentBookNode>,
         Dbc,
         GenesisMaterial,
-        AmountSecrets,
+        RevealedAmount,
     )> {
         Self::default()
             .gen_spentbook_nodes(num_spentbook_nodes, rng)?
             .build(rng)
     }
 
-    /// builds and returns a single spentbook, single genesis_dbc_shares,
+    /// Builds and returns a single spentbook, single genesis_dbc_shares,
     /// and genesis dbc.
-    /// the spentbook node uses a shared randomly generated SecretKeySet
+    /// The spentbook node uses a shared randomly generated SecretKeySet.
     #[allow(clippy::type_complexity)]
     pub fn init_genesis_single(
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(mock::SpentBookNode, Dbc, GenesisMaterial, AmountSecrets)> {
-        let (spentbook_nodes, genesis_dbc, genesis_material, amount_secrets) =
+    ) -> Result<(mock::SpentBookNode, Dbc, GenesisMaterial, RevealedAmount)> {
+        let (spentbook_nodes, genesis_dbc, genesis_material, revealed_amount) =
             Self::default().gen_spentbook_nodes(1, rng)?.build(rng)?;
 
         // Note: these unwraps are safe because the above call returned Ok.
@@ -151,7 +151,7 @@ impl GenesisBuilder {
             spentbook_nodes.into_iter().next().unwrap(),
             genesis_dbc,
             genesis_material,
-            amount_secrets,
+            revealed_amount,
         ))
     }
 }

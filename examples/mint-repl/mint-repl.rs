@@ -23,8 +23,8 @@ use sn_dbc::{
     },
     mock,
     rand::{seq::IteratorRandom, Rng},
-    rng, Dbc, DbcBuilder, DbcTransaction, Hash, OutputOwnerMap, Owner, OwnerOnce,
-    RevealedCommitment, RevealedTransaction, Token, TransactionBuilder,
+    rng, Dbc, DbcBuilder, DbcTransaction, Hash, OutputOwnerMap, Owner, OwnerOnce, RevealedAmount,
+    RevealedTransaction, Token, TransactionBuilder,
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -60,7 +60,7 @@ impl MintInfo {
 #[derive(Debug, Clone)]
 struct DbcTransactionRevealed {
     inner: DbcTransaction,
-    revealed_commitments: Vec<RevealedCommitment>,
+    revealed_amounts: Vec<RevealedAmount>,
     revealed_tx: RevealedTransaction,
     output_owner_map: OutputOwnerMap,
 }
@@ -183,9 +183,10 @@ fn mk_new_mint(sks: SecretKeySet, poly: Poly) -> Result<MintInfo> {
 
     let num_spentbook_nodes = sks.threshold() + 1;
 
-    let (spentbook_nodes, genesis_dbc, _genesis, _amount_secrets) = mock::GenesisBuilder::default()
-        .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
-        .build(&mut rng)?;
+    let (spentbook_nodes, genesis_dbc, _genesis, _revealed_amount) =
+        mock::GenesisBuilder::default()
+            .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
+            .build(&mut rng)?;
 
     let reissue_auto = ReissueAuto::from(vec![genesis_dbc.clone()]);
 
@@ -372,22 +373,22 @@ fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>)
 
     let result = match secret_key_base {
         // use base SecretKey from input param if available.
-        Some(key_base) => Some((dbc.owner_once(&key_base)?, dbc.amount_secrets(&key_base)?)),
+        Some(key_base) => Some((dbc.owner_once(&key_base)?, dbc.revealed_amount(&key_base)?)),
 
         // use base SecretKey from dbc if available (bearer)
-        None if dbc.is_bearer() => Some((dbc.owner_once_bearer()?, dbc.amount_secrets_bearer()?)),
+        None if dbc.is_bearer() => Some((dbc.owner_once_bearer()?, dbc.revealed_amount_bearer()?)),
 
         // Otherwise, have only the pubkey
         _ => None,
     };
 
     match result {
-        Some((ref _owner_once, ref amount_secrets)) => {
+        Some((ref _owner_once, ref revealed_amount)) => {
             println!("*** Secrets (decrypted) ***");
-            println!("     amount: {}\n", amount_secrets.amount());
+            println!("     amount: {}\n", revealed_amount.value());
             println!(
                 "     blinding_factor: {}\n",
-                to_be_hex(&amount_secrets.blinding_factor())?
+                to_be_hex(&revealed_amount.blinding_factor())?
             );
         }
         None => {
@@ -813,7 +814,7 @@ fn reissue(mintinfo: &mut MintInfo, dbc_builder: DbcBuilder) -> Result<()> {
     let output_dbcs = dbc_builder.build(&mintinfo.spentbook_nodes[0].key_manager)?;
 
     // for each output, construct Dbc and display
-    for (dbc, _owner_once, _amount_secrets) in output_dbcs.iter() {
+    for (dbc, _owner_once, _revealed_amount) in output_dbcs.iter() {
         println!("\n-- Begin DBC --");
         print_dbc_human(dbc, false, None)?;
         println!("-- End DBC --\n");

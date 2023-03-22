@@ -12,7 +12,7 @@ use bulletproofs::PedersenGens;
 use std::collections::{BTreeMap, HashMap};
 
 use super::GenesisMaterial;
-use crate::{mock, Commitment, Error, Hash, Result, SpentProofContent, SpentProofShare};
+use crate::{mock, BlindedAmount, Error, Hash, Result, SpentProofContent, SpentProofShare};
 
 /// This is a mock SpentBook used for our test cases. A proper implementation
 /// will be distributed, persistent, and auditable.
@@ -44,22 +44,22 @@ pub struct SpentBookNode {
     pub public_keys: BTreeMap<PublicKey, Hash>,
     pub outputs: BTreeMap<PublicKey, OutputProof>,
 
-    pub genesis: (PublicKey, Commitment), // genesis input (PublicKey, public_commitment)
+    pub genesis: (PublicKey, BlindedAmount), // genesis input (PublicKey, BlindedAmount)
 }
 
 impl From<mock::KeyManager> for SpentBookNode {
     fn from(key_manager: mock::KeyManager) -> Self {
         let genesis_material = GenesisMaterial::default();
-        let public_commitment = genesis_material.revealed_tx.inputs[0]
-            .revealed_commitment()
-            .commit(&PedersenGens::default());
+        let blinded_amount = genesis_material.revealed_tx.inputs[0]
+            .revealed_amount()
+            .blinded_amount(&PedersenGens::default());
 
         Self {
             key_manager,
             transactions: Default::default(),
             public_keys: Default::default(),
             outputs: Default::default(),
-            genesis: (genesis_material.input_public_key, public_commitment),
+            genesis: (genesis_material.input_public_key, blinded_amount),
         }
     }
 }
@@ -115,12 +115,12 @@ impl SpentBookNode {
 
         // If this is the very first tx logged and genesis public_key was not
         // provided, then it becomes the genesis tx.
-        let (genesis_public_key, genesis_public_commitment) = &self.genesis;
+        let (genesis_public_key, genesis_blinded_amount) = &self.genesis;
 
-        // public_commitments are not available in spentbook for genesis transaction.
-        let public_commitments_info: Vec<(PublicKey, Commitment)> =
+        // Input amounts are not available in spentbook for genesis transaction.
+        let tx_keys_and_blinded_amounts: Vec<(PublicKey, BlindedAmount)> =
             if public_key == *genesis_public_key {
-                vec![(public_key, *genesis_public_commitment)]
+                vec![(public_key, *genesis_blinded_amount)]
             } else {
                 tx.inputs
                     .iter()
@@ -129,34 +129,33 @@ impl SpentBookNode {
                         let pk = input.public_key();
                         let output_proof = self.outputs.get(&pk);
                         match output_proof {
-                            Some(p) => Ok((input.public_key, p.commitment())),
-                            None => Err(Error::MissingCommitmentForPubkey(pk)),
+                            Some(p) => Ok((input.public_key, p.blinded_amount())),
+                            None => Err(Error::MissingAmountForPubkey(pk)),
                         }
                     })
                     .collect::<Result<_>>()?
             };
 
-        // Grab all commitments, grouped by input PublicKey
+        // Grab all blinded amounts, grouped by input PublicKey
         // Needed for Tx verification.
-        let tx_public_commitments: Vec<Commitment> = public_commitments_info
+        let tx_blinded_amounts: Vec<BlindedAmount> = tx_keys_and_blinded_amounts
             .clone()
             .into_iter()
             .map(|(_, c)| c)
             .collect();
 
-        // Grab the commitment specific to the input PublicKey
+        // Grab the blinded amount specific to the input PublicKey
         // Needed for SpentProofShare
-        let public_commitments: Commitment = public_commitments_info
+        let blinded_amount: BlindedAmount = tx_keys_and_blinded_amounts
             .into_iter()
             .find(|(k, _)| k == &public_key)
-            .map_or(
-                Err(Error::MissingCommitmentForPubkey(public_key)),
-                |(_, c)| Ok(c),
-            )?;
+            .map_or(Err(Error::MissingAmountForPubkey(public_key)), |(_, c)| {
+                Ok(c)
+            })?;
 
         if verify_tx {
-            // do not permit invalid tx to be logged.
-            tx.verify(&tx_public_commitments)?;
+            // Do not permit invalid tx to be logged.
+            tx.verify(&tx_blinded_amounts)?;
         }
 
         // Add public_key:tx_hash to public_key index.
@@ -179,7 +178,7 @@ impl SpentBookNode {
                 public_key,
                 transaction_hash: tx_hash,
                 reason,
-                public_commitment: public_commitments,
+                blinded_amount,
             };
 
             let spentbook_pks = self.key_manager.public_key_set();

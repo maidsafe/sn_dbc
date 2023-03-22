@@ -79,7 +79,7 @@ ReissueTransactionUnblinded {
                             "0000000000000000000000000000000000000000000000000000000000000000",
                         ),
                     },
-                    amount_secrets_cipher: Ciphertext(
+                    revealed_amount_cipher: Ciphertext(
                         G1 {
                             x: Fq(0x130719c576b35a1b371d5382925e7dc2415e286f9f20c615b8b692a18677b1df27cb706072fc282c8390c51d113cebeb),
                             y: Fq(0x0297a358c296fa9eb03bd7a4c5b2d8c91f5ae62b93c346651cb6387f927b8a01e029a83c7f36ff4120c02432d9cf80b4),
@@ -101,7 +101,7 @@ ReissueTransactionUnblinded {
                             },
                         },
                     ),
-                    commitment: CompressedRistretto: [204, 45, 239, 130, 62, 21, 78, 203, 204, 100, 52, 129, 191, 119, 252, 229, 226, 179, 112, 117, 218, 160, 246, 253, 217, 28, 111, 200, 241, 149, 30, 41],
+                    blinded_amount: CompressedRistretto: [204, 45, 239, 130, 62, 21, 78, 203, 204, 100, 52, 129, 191, 119, 252, 229, 226, 179, 112, 117, 218, 160, 246, 253, 217, 28, 111, 200, 241, 149, 30, 41],
                     range_proof_bytes: [...],
                     output_number: 0,
                     owner: BlindedOwner(
@@ -139,7 +139,7 @@ ReissueTransactionUnblinded {
                         "21c5e168173d79fea90489226ed5ce4de64353700f5231e8bf882a0cfb391561",
                     ),
                 },
-                amount_secrets_cipher: Ciphertext(
+                revealed_amount_cipher: Ciphertext(
                     G1 {
                         x: Fq(0x07b545ec6fbe47eef82fb2d7524a1a91b4464fc6ed23578a307b73875d7b46cf6683864414e1c437db7e66ad46d16acf),
                         y: Fq(0x1580abf66f1b988873d330277f96a778b255e441650e31dff591554f26f97481dff75f65de3e7216b94ec88ac086c075),
@@ -161,7 +161,7 @@ ReissueTransactionUnblinded {
                         },
                     },
                 ),
-                commitment: CompressedRistretto: [92, 249, 1, 19, 34, 185, 36, 228, 200, 31, 127, 166, 227, 52, 94, 147, 89, 105, 121, 86, 177, 185, 251, 236, 150, 210, 244, 167, 33, 121, 239, 65],
+                blinded_amount: CompressedRistretto: [92, 249, 1, 19, 34, 185, 36, 228, 200, 31, 127, 166, 227, 52, 94, 147, 89, 105, 121, 86, 177, 185, 251, 236, 150, 210, 244, 167, 33, 121, 239, 65],
                 range_proof_bytes: [...],
                 output_number: 0,
                 owner: BlindedOwner(
@@ -176,7 +176,7 @@ ReissueTransactionUnblinded {
                         "21c5e168173d79fea90489226ed5ce4de64353700f5231e8bf882a0cfb391561",
                     ),
                 },
-                amount_secrets_cipher: Ciphertext(
+                revealed_amount_cipher: Ciphertext(
                     G1 {
                         x: Fq(0x0656e69e25038db6903e3e4d435ab94afbe84f6859b8ecf4745576ce2e18618582535919ae1d791a8434050dfcafd6f7),
                         y: Fq(0x014d885eb03664fd475558af505d2427a2390c4d73d1fd2a687169b5d326947237fe7b2589fcf91a38a1728f3b7e367b),
@@ -198,7 +198,7 @@ ReissueTransactionUnblinded {
                         },
                     },
                 ),
-                commitment: CompressedRistretto: [10, 40, 2, 63, 154, 131, 103, 22, 244, 229, 126, 227, 200, 207, 43, 177, 196, 158, 109, 247, 103, 225, 223, 37, 254, 85, 80, 245, 30, 25, 123, 10],
+                blinded_amount: CompressedRistretto: [10, 40, 2, 63, 154, 131, 103, 22, 244, 229, 126, 227, 200, 207, 43, 177, 196, 158, 109, 247, 103, 225, 223, 37, 254, 85, 80, 245, 30, 25, 123, 10],
                 range_proof_bytes: [...],
                 output_number: 1,
                 owner: BlindedOwner(
@@ -277,7 +277,7 @@ ReissueRequestUnblinded {
                                 "0000000000000000000000000000000000000000000000000000000000000000",
                             ),
                         },
-                        amount_secrets_cipher: Ciphertext(
+                        revealed_amount_cipher: Ciphertext(
                             G1 {
                                 x: Fq(0x130719c576b35a1b371d5382925e7dc2415e286f9f20c615b8b692a18677b1df27cb706072fc282c8390c51d113cebeb),
                                 y: Fq(0x0297a358c296fa9eb03bd7a4c5b2d8c91f5ae62b93c346651cb6387f927b8a01e029a83c7f36ff4120c02432d9cf80b4),
@@ -299,7 +299,7 @@ ReissueRequestUnblinded {
                                 },
                             },
                         ),
-                        commitment: CompressedRistretto: [204, 45, 239, 130, 62, 21, 78, 203, 204, 100, 52, 129, 191, 119, 252, 229, 226, 179, 112, 117, 218, 160, 246, 253, 217, 28, 111, 200, 241, 149, 30, 41],
+                        blinded_amount: CompressedRistretto: [204, 45, 239, 130, 62, 21, 78, 203, 204, 100, 52, 129, 191, 119, 252, 229, 226, 179, 112, 117, 218, 160, 246, 253, 217, 28, 111, 200, 241, 149, 30, 41],
                         range_proof_bytes: [...],
                         output_number: 0,
                         owner: BlindedOwner(
@@ -337,7 +337,7 @@ ReissueRequestUnblinded {
                             "21c5e168173d79fea90489226ed5ce4de64353700f5231e8bf882a0cfb391561",
                         ),
                     },
-                    amount_secrets_cipher: Ciphertext(
+                    revealed_amount_cipher: Ciphertext(
                         G1 {
                             x: Fq(0x0656e69e25038db6903e3e4d435ab94afbe84f6859b8ecf4745576ce2e18618582535919ae1d791a8434050dfcafd6f7),
                             y: Fq(0x014d885eb03664fd475558af505d2427a2390c4d73d1fd2a687169b5d326947237fe7b2589fcf91a38a1728f3b7e367b),
@@ -359,7 +359,7 @@ ReissueRequestUnblinded {
                             },
                         },
                     ),
-                    commitment: CompressedRistretto: [10, 40, 2, 63, 154, 131, 103, 22, 244, 229, 126, 227, 200, 207, 43, 177, 196, 158, 109, 247, 103, 225, 223, 37, 254, 85, 80, 245, 30, 25, 123, 10],
+                    blinded_amount: CompressedRistretto: [10, 40, 2, 63, 154, 131, 103, 22, 244, 229, 126, 227, 200, 207, 43, 177, 196, 158, 109, 247, 103, 225, 223, 37, 254, 85, 80, 245, 30, 25, 123, 10],
                     range_proof_bytes: [...],
                     output_number: 1,
                     owner: BlindedOwner(
@@ -374,7 +374,7 @@ ReissueRequestUnblinded {
                             "21c5e168173d79fea90489226ed5ce4de64353700f5231e8bf882a0cfb391561",
                         ),
                     },
-                    amount_secrets_cipher: Ciphertext(
+                    revealed_amount_cipher: Ciphertext(
                         G1 {
                             x: Fq(0x07b545ec6fbe47eef82fb2d7524a1a91b4464fc6ed23578a307b73875d7b46cf6683864414e1c437db7e66ad46d16acf),
                             y: Fq(0x1580abf66f1b988873d330277f96a778b255e441650e31dff591554f26f97481dff75f65de3e7216b94ec88ac086c075),
@@ -396,7 +396,7 @@ ReissueRequestUnblinded {
                             },
                         },
                     ),
-                    commitment: CompressedRistretto: [92, 249, 1, 19, 34, 185, 36, 228, 200, 31, 127, 166, 227, 52, 94, 147, 89, 105, 121, 86, 177, 185, 251, 236, 150, 210, 244, 167, 33, 121, 239, 65],
+                    blinded_amount: CompressedRistretto: [92, 249, 1, 19, 34, 185, 36, 228, 200, 31, 127, 166, 227, 52, 94, 147, 89, 105, 121, 86, 177, 185, 251, 236, 150, 210, 244, 167, 33, 121, 239, 65],
                     range_proof_bytes: [...],
                     output_number: 0,
                     owner: BlindedOwner(

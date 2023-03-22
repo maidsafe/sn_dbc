@@ -14,8 +14,8 @@
 //!
 //! sn_dbc internally uses the type aliases rather than directly using the blstrs types.
 
-/// a Commitment
-pub type Commitment = curve25519_dalek::ristretto::RistrettoPoint;
+/// An amount that is blinded, by the means of a `Pedersen commitment`.
+pub type BlindedAmount = curve25519_dalek::ristretto::RistrettoPoint;
 
 /// a BlindingFactor
 pub type BlindingFactor = curve25519_dalek::scalar::Scalar;

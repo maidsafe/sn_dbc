@@ -12,7 +12,7 @@ use tiny_keccak::{Hasher, Sha3};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{AmountSecrets, DerivationIndex, Owner};
+use crate::{DerivationIndex, Owner, RevealedAmount};
 use crate::{Error, Hash, Result};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -35,50 +35,50 @@ pub struct DbcContent {
     /// derivation index, which is stored (encrypted) in owner_derivation_cipher.
     pub owner_base: Owner,
 
-    /// This indicates which index to use when deriving the "real" owner key from
-    /// the owner_base.
+    /// This indicates which index to use when deriving the publicly visible owner key of the
+    /// Dbc, from the hidden owner key, i.e. the owner base.
     ///
-    /// This index is stored in encrypted form, and is encrypted to owner_base.public_key().
-    /// So the true owner is unknown to anyone not in posession of owner_base.secret_key().
+    /// This index is stored in encrypted form, and is encrypted to `owner_base.public_key()`.
+    /// So the true owner is unknown to anyone not in posession of `owner_base.secret_key()`.
     pub owner_derivation_cipher: Ciphertext,
 
-    /// This is the AmountSecrets (aka RevealedCommitment) encypted to the derived public key,
+    /// This is the RevealedAmount encypted to the derived public key,
     /// which can be obtained via:
     ///   self.owner_base.derive(
     ///     self.owner_base.secret_key().decrypt(self.owner_derivation.cipher()
     ///   ).public_key()
-    pub amount_secrets_cipher: Ciphertext,
+    pub revealed_amount_cipher: Ciphertext,
 }
 
 /// Represents the content of a DBC.
 impl From<(Owner, Ciphertext, Ciphertext)> for DbcContent {
     // Create a new DbcContent for signing.
     fn from(params: (Owner, Ciphertext, Ciphertext)) -> Self {
-        let (owner_base, owner_derivation_cipher, amount_secrets_cipher) = params;
+        let (owner_base, owner_derivation_cipher, revealed_amount_cipher) = params;
         Self {
             owner_base,
             owner_derivation_cipher,
-            amount_secrets_cipher,
+            revealed_amount_cipher,
         }
     }
 }
 
 /// Represents the content of a DBC.
-impl From<(Owner, DerivationIndex, AmountSecrets)> for DbcContent {
+impl From<(Owner, DerivationIndex, RevealedAmount)> for DbcContent {
     // Create a new DbcContent for signing.
-    fn from(params: (Owner, DerivationIndex, AmountSecrets)) -> Self {
-        let (owner_base, derivation_index, amount_secrets) = params;
+    fn from(params: (Owner, DerivationIndex, RevealedAmount)) -> Self {
+        let (owner_base, derivation_index, revealed_amount) = params;
 
         let owner_derivation_cipher = owner_base.public_key().encrypt(derivation_index);
-        let amount_secrets_cipher = owner_base
+        let revealed_amount_cipher = owner_base
             .derive(&derivation_index)
             .public_key()
-            .encrypt(amount_secrets.to_bytes());
+            .encrypt(revealed_amount.to_bytes());
 
         Self {
             owner_base,
             owner_derivation_cipher,
-            amount_secrets_cipher,
+            revealed_amount_cipher,
         }
     }
 }
@@ -101,7 +101,7 @@ impl DbcContent {
 
         bytes.extend(&self.owner_base.to_bytes());
         bytes.extend(&self.owner_derivation_cipher.to_bytes());
-        bytes.extend(&self.amount_secrets_cipher.to_bytes());
+        bytes.extend(&self.revealed_amount_cipher.to_bytes());
 
         bytes
     }

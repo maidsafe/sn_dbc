@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::{Amount, Output, RevealedCommitment, RevealedInput, RevealedTransaction};
+use crate::transaction::{Amount, Output, RevealedAmount, RevealedInput, RevealedTransaction};
 use crate::{Owner, OwnerOnce, PublicKey};
 use blsttc::IntoFr;
 
@@ -50,9 +50,9 @@ impl Default for GenesisMaterial {
         // build our TrueInput
         let revealed_input = RevealedInput::new(
             input_sk,
-            RevealedCommitment {
+            RevealedAmount {
                 value: Self::GENESIS_AMOUNT,
-                blinding: 42u32.into(), // just a random number
+                blinding_factor: 42u32.into(), // just a random number
             },
         );
         let input_public_key: PublicKey = revealed_input.public_key();

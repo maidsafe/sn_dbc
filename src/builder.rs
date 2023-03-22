@@ -14,11 +14,11 @@ use std::{
 };
 
 use crate::transaction::{
-    DbcTransaction, Output, RevealedCommitment, RevealedInput, RevealedTransaction,
+    DbcTransaction, Output, RevealedAmount, RevealedInput, RevealedTransaction,
 };
 use crate::{
     rand::{CryptoRng, RngCore},
-    AmountSecrets, Commitment, Dbc, DbcContent, Error, Hash, OwnerOnce, Result, SpentProof,
+    BlindedAmount, Dbc, DbcContent, Error, Hash, OwnerOnce, Result, SpentProof,
     SpentProofKeyVerifier, SpentProofShare, Token, TransactionVerifier,
 };
 
@@ -72,7 +72,7 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// add an input given a list of bearer Dbcs and associated SecretKey
+    /// Add an input given a list of bearer Dbcs and associated SecretKey.
     pub fn add_inputs_dbc_bearer<D>(mut self, dbcs: impl Iterator<Item = D>) -> Result<Self>
     where
         D: Borrow<Dbc>,
@@ -83,21 +83,21 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// add an input given a SecretKey, AmountSecrets
+    /// Add an input given a SecretKey and a RevealedAmount.
     pub fn add_input_by_secrets(
         mut self,
         secret_key: SecretKey,
-        amount_secrets: AmountSecrets,
+        revealed_amount: RevealedAmount,
     ) -> Self {
-        let revealed_input = RevealedInput::new(secret_key, amount_secrets.into());
+        let revealed_input = RevealedInput::new(secret_key, revealed_amount);
         self = self.add_input(revealed_input);
         self
     }
 
-    /// add an input given a list of (SecretKey, AmountSecrets, and list of decoys)
-    pub fn add_inputs_by_secrets(mut self, secrets: Vec<(SecretKey, AmountSecrets)>) -> Self {
-        for (secret_key, amount_secrets) in secrets.into_iter() {
-            self = self.add_input_by_secrets(secret_key, amount_secrets);
+    /// Add an input given a list of (SecretKey, RevealedAmount).
+    pub fn add_inputs_by_secrets(mut self, secrets: Vec<(SecretKey, RevealedAmount)>) -> Self {
+        for (secret_key, revealed_amount) in secrets.into_iter() {
+            self = self.add_input_by_secrets(secret_key, revealed_amount);
         }
         self
     }
@@ -152,7 +152,7 @@ impl TransactionBuilder {
             .revealed_tx
             .inputs
             .iter()
-            .map(|t| t.revealed_commitment.value)
+            .map(|t| t.revealed_amount.value)
             .sum();
 
         Token::from_nano(amount)
@@ -176,11 +176,11 @@ impl TransactionBuilder {
 
     /// build a DbcTransaction and associated secrets
     pub fn build(self, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
-        let (transaction, revealed_commitments) = self.revealed_tx.sign(rng)?;
+        let (transaction, revealed_amounts) = self.revealed_tx.sign(rng)?;
 
         Ok(DbcBuilder::new(
             transaction,
-            revealed_commitments,
+            revealed_amounts,
             self.output_owner_map,
             self.revealed_tx,
         ))
@@ -192,7 +192,7 @@ impl TransactionBuilder {
 #[derive(Debug, Clone)]
 pub struct DbcBuilder {
     pub transaction: DbcTransaction,
-    pub revealed_commitments: Vec<RevealedCommitment>,
+    pub revealed_amounts: Vec<RevealedAmount>,
     pub output_owner_map: OutputOwnerMap,
     pub revealed_tx: RevealedTransaction,
     pub spent_proofs: HashSet<SpentProof>,
@@ -204,13 +204,13 @@ impl DbcBuilder {
     /// Create a new DbcBuilder
     pub fn new(
         transaction: DbcTransaction,
-        revealed_commitments: Vec<RevealedCommitment>,
+        revealed_amounts: Vec<RevealedAmount>,
         output_owner_map: OutputOwnerMap,
         revealed_tx: RevealedTransaction,
     ) -> Self {
         Self {
             transaction,
-            revealed_commitments,
+            revealed_amounts,
             output_owner_map,
             revealed_tx,
             spent_proofs: Default::default(),
@@ -272,7 +272,7 @@ impl DbcBuilder {
     pub fn build<K: SpentProofKeyVerifier>(
         self,
         verifier: &K,
-    ) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
+    ) -> Result<Vec<(Dbc, OwnerOnce, RevealedAmount)>> {
         let spent_proofs = self.spent_proofs()?;
 
         // verify the Tx, along with spent proofs.
@@ -292,7 +292,7 @@ impl DbcBuilder {
     }
 
     /// Build the output DBCs (no verification over Tx or spentproof is performed).
-    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
+    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, OwnerOnce, RevealedAmount)>> {
         let spent_proofs = self.spent_proofs()?;
         self.build_output_dbcs(spent_proofs)
     }
@@ -301,12 +301,12 @@ impl DbcBuilder {
     fn build_output_dbcs(
         self,
         spent_proofs: BTreeSet<SpentProof>,
-    ) -> Result<Vec<(Dbc, OwnerOnce, AmountSecrets)>> {
+    ) -> Result<Vec<(Dbc, OwnerOnce, RevealedAmount)>> {
         let pc_gens = PedersenGens::default();
-        let output_commitments: Vec<(Commitment, RevealedCommitment)> = self
-            .revealed_commitments
+        let output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> = self
+            .revealed_amounts
             .iter()
-            .map(|r| (r.commit(&pc_gens), *r))
+            .map(|r| (r.blinded_amount(&pc_gens), *r))
             .collect();
 
         let owner_once_list: Vec<&OwnerOnce> = self
@@ -321,23 +321,23 @@ impl DbcBuilder {
             .collect::<Result<_>>()?;
 
         // Form the final output DBCs
-        let output_dbcs: Vec<(Dbc, OwnerOnce, AmountSecrets)> = self
+        let output_dbcs: Vec<(Dbc, OwnerOnce, RevealedAmount)> = self
             .transaction
             .outputs
             .iter()
             .zip(owner_once_list)
             .map(|(output, owner_once)| {
-                let amount_secrets_list: Vec<AmountSecrets> = output_commitments
+                let revealed_amounts: Vec<RevealedAmount> = output_blinded_and_revealed_amounts
                     .iter()
-                    .filter(|(c, _)| *c == output.commitment())
-                    .map(|(_, r)| AmountSecrets::from(*r))
+                    .filter(|(c, _)| *c == output.blinded_amount())
+                    .map(|(_, r)| *r)
                     .collect();
-                assert_eq!(amount_secrets_list.len(), 1);
+                assert_eq!(revealed_amounts.len(), 1);
 
                 let content = DbcContent::from((
                     owner_once.owner_base.clone(),
                     owner_once.derivation_index,
-                    amount_secrets_list[0].clone(),
+                    revealed_amounts[0],
                 ));
                 let public_key = owner_once
                     .owner_base
@@ -350,7 +350,7 @@ impl DbcBuilder {
                     inputs_spent_proofs: spent_proofs.clone(),
                     inputs_spent_transactions: self.spent_transactions.values().cloned().collect(),
                 };
-                (dbc, owner_once.clone(), amount_secrets_list[0].clone())
+                (dbc, owner_once.clone(), revealed_amounts[0])
             })
             .collect();
 
