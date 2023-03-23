@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [11.0.1](https://github.com/maidsafe/sn_dbc/compare/v11.0.0...v11.0.1) (2023-03-23)
+
+
+### Bug Fixes
+
+* **benches:** place unix dep under compiler flag ([3ccac46](https://github.com/maidsafe/sn_dbc/commit/3ccac4647c1c79a5998b637c520d741f4a45d773))
+
 ## [11.0.0](https://github.com/maidsafe/sn_dbc/compare/v10.0.0...v11.0.0) (2023-03-22)
 
 
