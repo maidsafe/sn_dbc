@@ -11,7 +11,7 @@ mod revealed_amount;
 
 pub(crate) use error::Error;
 pub use input::{Input, RevealedInput};
-pub use output::{Amount, DbcTransaction, Output, OutputProof, RevealedTransaction};
+pub use output::{Amount, BlindedOutput, DbcTransaction, Output, RevealedTransaction};
 pub use revealed_amount::RevealedAmount;
 
 type Result<T> = std::result::Result<T, Error>;
