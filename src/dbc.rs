@@ -13,7 +13,7 @@ use tiny_keccak::{Hasher, Sha3};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::transaction::{DbcTransaction, OutputProof, RevealedAmount, RevealedInput};
+use crate::transaction::{BlindedOutput, DbcTransaction, RevealedAmount, RevealedInput};
 use crate::{
     BlindedAmount, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
     SpentProofKeyVerifier, TransactionVerifier,
@@ -167,7 +167,7 @@ impl Dbc {
             .outputs
             .iter()
             .find(|o| &self.public_key() == o.public_key())
-            .ok_or(Error::OutputProofNotFound)?
+            .ok_or(Error::BlindedOutputNotFound)?
             .blinded_amount())
     }
 
@@ -351,13 +351,13 @@ impl Dbc {
 
     /// The output proof for this Dbc, is found in
     /// the transaction that gave rise to this Dbc.
-    fn output_proof(&self, base_sk: &SecretKey) -> Result<&OutputProof> {
+    fn output_proof(&self, base_sk: &SecretKey) -> Result<&BlindedOutput> {
         let owner = self.owner_once(base_sk)?.public_key();
         self.transaction
             .outputs
             .iter()
             .find(|o| owner.eq(o.public_key()))
-            .ok_or(Error::OutputProofNotFound)
+            .ok_or(Error::BlindedOutputNotFound)
     }
 }
 

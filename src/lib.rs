@@ -45,7 +45,7 @@ pub use crate::{
     },
     token::Token,
     transaction::{
-        Amount, DbcTransaction, Input, Output, OutputProof, RevealedAmount, RevealedInput,
+        Amount, BlindedOutput, DbcTransaction, Input, Output, RevealedAmount, RevealedInput,
         RevealedOutput, RevealedTransaction,
     },
     verification::{get_blinded_amounts_from_transaction, TransactionVerifier},

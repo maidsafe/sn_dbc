@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::{DbcTransaction, OutputProof};
+use crate::transaction::{BlindedOutput, DbcTransaction};
 use blsttc::PublicKey;
 use bulletproofs::PedersenGens;
 use std::collections::{BTreeMap, HashMap};
@@ -21,18 +21,18 @@ use crate::{mock, BlindedAmount, Error, Hash, Result, SpentProofContent, SpentPr
 /// it stores only a single copy of each Tx and includes indexes:
 ///     tx_hash    --> Tx
 ///     public_key  --> tx_hash
-///     public_key --> OutputProof
+///     public_key --> BlindedOutput
 ///
 /// The public_key map eliminates a full table scan when matching
-/// public keys for each input of logged Tx to public key of OutputProof in
+/// public keys for each input of logged Tx to public key of BlindedOutput in
 /// already-spent Txs.
 ///
-/// This impl does duplicate the OutputProofs in the public_key index, which
+/// This impl does duplicate the BlindedOutputs in the public_key index, which
 /// is not ideal and should not be done for a "real" system.
 ///
 /// Another approach would be to map public_key --> tx_hash. This eliminates
-/// the need to store duplicate OutputProof. One could lookup the Tx with
-/// the desired OutputProof, and then iterate through outputs to actually find it.
+/// the need to store duplicate BlindedOutput. One could lookup the Tx with
+/// the desired BlindedOutput, and then iterate through outputs to actually find it.
 ///
 /// See the very first commit of this file For a naive impl that uses only
 /// a single map<public_key, tx>.
@@ -42,7 +42,7 @@ pub struct SpentBookNode {
 
     pub transactions: HashMap<Hash, DbcTransaction>,
     pub public_keys: BTreeMap<PublicKey, Hash>,
-    pub outputs: BTreeMap<PublicKey, OutputProof>,
+    pub outputs: BTreeMap<PublicKey, BlindedOutput>,
 
     pub genesis: (PublicKey, BlindedAmount), // genesis input (PublicKey, BlindedAmount)
 }
@@ -125,7 +125,7 @@ impl SpentBookNode {
                 tx.inputs
                     .iter()
                     .map(|input| {
-                        // look up matching OutputProof
+                        // look up matching BlindedOutput
                         let pk = input.public_key();
                         let output_proof = self.outputs.get(&pk);
                         match output_proof {

@@ -100,7 +100,7 @@ impl RevealedTransaction {
         //
         //   notes:
         //     1. output blinded amounts, range_proofs, and public_keys are bundled
-        //        together in OutputProofs
+        //        together in BlindedOutputs
         let revealed_input_amounts = self.revealed_input_amounts();
         let input_amounts = self.blinded_input_amounts();
 
@@ -207,7 +207,7 @@ impl RevealedTransaction {
         &self,
         blinding_outputs: &[RevealedOutput],
         mut rng: impl RngCore + CryptoRng,
-    ) -> Result<Vec<OutputProof>> {
+    ) -> Result<Vec<BlindedOutput>> {
         let mut prover_ts = Transcript::new(MERLIN_TRANSCRIPT_LABEL);
 
         let bp_gens = Self::bp_gens();
@@ -228,7 +228,7 @@ impl RevealedTransaction {
                     .decompress()
                     .ok_or(Error::FailedToDecompressBlindedAmount)?;
 
-                Ok(OutputProof {
+                Ok(BlindedOutput {
                     public_key: c.public_key,
                     range_proof,
                     blinded_amount,
@@ -243,7 +243,7 @@ impl RevealedTransaction {
 fn gen_message_for_signing(
     public_keys: &[PublicKey],
     input_amounts: &[BlindedAmount],
-    output_proofs: &[OutputProof],
+    output_proofs: &[BlindedOutput],
 ) -> Vec<u8> {
     // Generate message to sign.
     let mut msg: Vec<u8> = Default::default();
@@ -265,13 +265,13 @@ fn gen_message_for_signing(
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-pub struct OutputProof {
+pub struct BlindedOutput {
     public_key: PublicKey,
     range_proof: RangeProof,
     blinded_amount: BlindedAmount,
 }
 
-impl OutputProof {
+impl BlindedOutput {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.public_key.to_bytes().as_ref());
@@ -297,7 +297,7 @@ impl OutputProof {
 #[derive(Debug, Clone)]
 pub struct DbcTransaction {
     pub inputs: Vec<Input>,
-    pub outputs: Vec<OutputProof>,
+    pub outputs: Vec<BlindedOutput>,
 }
 
 impl PartialEq for DbcTransaction {
@@ -402,7 +402,7 @@ impl DbcTransaction {
         let output_sum: RistrettoPoint = self
             .outputs
             .iter()
-            .map(OutputProof::blinded_amount)
+            .map(BlindedOutput::blinded_amount)
             .map(RistrettoPoint::from)
             .sum();
 
