@@ -4,10 +4,9 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use crate::{Error, Result};
-
 use crate::rand::RngCore;
-use crate::{Amount, BlindedAmount, BlindingFactor};
+use crate::{BlindedAmount, BlindingFactor};
+use crate::{Error, Result};
 
 use blsttc::{
     rand::CryptoRng, Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey,
@@ -21,6 +20,9 @@ use serde::{Deserialize, Serialize};
 
 const AMT_SIZE: usize = std::mem::size_of::<u64>(); // Amount size: 8 bytes (u64)
 const BF_SIZE: usize = std::mem::size_of::<BlindingFactor>(); // Blinding factor size: 32 bytes (BlindingFactor)
+
+/// Represents a Dbc's value.
+pub type Amount = u64;
 
 /// A RevealedAmount is a plain text value and a
 /// blinding factor, which together can create a `BlindedAmount`.
