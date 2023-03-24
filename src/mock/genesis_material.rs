@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::transaction::{Amount, Output, RevealedAmount, RevealedInput, RevealedTransaction};
-use crate::{Owner, OwnerOnce, PublicKey};
+use crate::{rng, Owner, OwnerOnce, PublicKey, RevealedOutput};
 use blsttc::IntoFr;
 
 /// represents all the inputs required to build the Genesis Dbc.
@@ -60,9 +60,9 @@ impl Default for GenesisMaterial {
         // build the genesis Transaction
         let revealed_tx = RevealedTransaction {
             inputs: vec![revealed_input],
-            outputs: vec![Output::new(
-                output_sk_once.public_key(),
-                Self::GENESIS_AMOUNT,
+            outputs: vec![RevealedOutput::new(
+                Output::new(output_sk_once.public_key(), Self::GENESIS_AMOUNT),
+                rng::thread_rng(),
             )],
         };
 

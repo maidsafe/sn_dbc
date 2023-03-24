@@ -365,12 +365,12 @@ impl Dbc {
 pub(crate) mod tests {
     use super::*;
 
-    use crate::tests::{NonZeroTinyInt, TinyInt};
-    use crate::transaction::{Output, RevealedTransaction};
     use crate::{
         mock,
         rand::{CryptoRng, RngCore},
-        DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent, Token,
+        tests::{NonZeroTinyInt, TinyInt},
+        transaction::{Output, RevealedTransaction},
+        DbcBuilder, Hash, Owner, OwnerOnce, RevealedOutput, SpentProofContent, Token,
     };
     use blsttc::PublicKey;
     use bulletproofs::PedersenGens;
@@ -423,7 +423,10 @@ pub(crate) mod tests {
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
         let tx_material = RevealedTransaction {
             inputs: vec![],
-            outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
+            outputs: vec![RevealedOutput::new(
+                Output::new(owner_once.as_owner().public_key(), amount),
+                &mut rng,
+            )],
         };
         let (transaction, revealed_amounts) = tx_material
             .sign(&mut rng)
@@ -461,7 +464,10 @@ pub(crate) mod tests {
             OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
         let tx_material = RevealedTransaction {
             inputs: vec![],
-            outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
+            outputs: vec![RevealedOutput::new(
+                Output::new(owner_once.as_owner().public_key(), amount),
+                &mut rng,
+            )],
         };
         let (transaction, revealed_amounts) = tx_material
             .sign(&mut rng)
@@ -556,7 +562,10 @@ pub(crate) mod tests {
 
         let tx_material = RevealedTransaction {
             inputs: vec![],
-            outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
+            outputs: vec![RevealedOutput::new(
+                Output::new(owner_once.as_owner().public_key(), amount),
+                &mut rng,
+            )],
         };
 
         let (transaction, revealed_amounts) = tx_material
