@@ -13,13 +13,16 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
 };
 
-use crate::transaction::{
-    DbcTransaction, Output, RevealedAmount, RevealedInput, RevealedTransaction,
-};
 use crate::{
     rand::{CryptoRng, RngCore},
-    BlindedAmount, Dbc, DbcContent, Error, Hash, OwnerOnce, Result, SpentProof,
+    rng, BlindedAmount, Dbc, DbcContent, Error, Hash, OwnerOnce, Result, SpentProof,
     SpentProofKeyVerifier, SpentProofShare, Token, TransactionVerifier,
+};
+use crate::{
+    transaction::{
+        DbcTransaction, RevealedAmount, RevealedInput, RevealedOutput, RevealedTransaction,
+    },
+    Output,
 };
 
 #[cfg(feature = "serde")]
@@ -102,15 +105,18 @@ impl TransactionBuilder {
         self
     }
 
-    /// add an output
-    pub fn add_output(mut self, output: Output, owner: OwnerOnce) -> Self {
+    /// Add an output.
+    pub fn add_output(mut self, output: RevealedOutput, owner: OwnerOnce) -> Self {
         self.output_owner_map.insert(output.public_key(), owner);
         self.revealed_tx.outputs.push(output);
         self
     }
 
     /// add a list of outputs
-    pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = (Output, OwnerOnce)>) -> Self {
+    pub fn add_outputs(
+        mut self,
+        outputs: impl IntoIterator<Item = (RevealedOutput, OwnerOnce)>,
+    ) -> Self {
         for (output, owner) in outputs.into_iter() {
             self = self.add_output(output, owner);
         }
@@ -118,15 +124,13 @@ impl TransactionBuilder {
     }
 
     /// add an output by providing Token and OwnerOnce
-    pub fn add_output_by_amount(mut self, amount: Token, owner: OwnerOnce) -> Self {
+    pub fn add_output_by_amount(self, amount: Token, owner: OwnerOnce) -> Self {
         let pk = owner.as_owner().public_key();
         let output = Output::new(pk, amount.as_nano());
-        self.output_owner_map.insert(pk, owner);
-        self.revealed_tx.outputs.push(output);
-        self
+        self.add_output(RevealedOutput::new(output, rng::thread_rng()), owner)
     }
 
-    /// add an output by providing iter of (Token, OwnerOnce)
+    /// Add an output by providing iter of (Token, OwnerOnce).
     pub fn add_outputs_by_amount(
         mut self,
         outputs: impl IntoIterator<Item = (Token, OwnerOnce)>,
@@ -137,7 +141,7 @@ impl TransactionBuilder {
         self
     }
 
-    /// get a list of input (true) owners
+    /// Get a list of input owners.
     pub fn input_owners(&self) -> Vec<PublicKey> {
         self.revealed_tx
             .inputs
@@ -160,7 +164,12 @@ impl TransactionBuilder {
 
     /// get sum of output amounts
     pub fn outputs_amount_sum(&self) -> Token {
-        let amount = self.revealed_tx.outputs.iter().map(|o| o.amount).sum();
+        let amount = self
+            .revealed_tx
+            .outputs
+            .iter()
+            .map(|o| o.revealed_amount.value())
+            .sum();
         Token::from_nano(amount)
     }
 
@@ -170,11 +179,12 @@ impl TransactionBuilder {
     }
 
     /// get outputs
-    pub fn outputs(&self) -> &Vec<Output> {
+    pub fn outputs(&self) -> &Vec<RevealedOutput> {
         &self.revealed_tx.outputs
     }
 
-    /// build a DbcTransaction and associated secrets
+    /// Build the DbcTransaction by signing the inputs,
+    /// and generating the output proofs. Return a DbcBuilder.
     pub fn build(self, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
         let (transaction, revealed_amounts) = self.revealed_tx.sign(rng)?;
 
