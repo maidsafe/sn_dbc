@@ -15,7 +15,7 @@ use tiny_keccak::{Hasher, Sha3};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::{Error, Input, Result, RevealedAmount, RevealedInput};
+use super::{BlindedInput, Error, Result, RevealedAmount, RevealedInput};
 pub(super) const RANGE_PROOF_BITS: usize = 64; // note: Range Proof max-bits is 64. allowed are: 8, 16, 32, 64 (only)
                                                //       This limits our amount field to 64 bits also.
 pub(super) const RANGE_PROOF_PARTIES: usize = 1; // The maximum number of parties that can produce an aggregated proof
@@ -101,7 +101,7 @@ impl RevealedTransaction {
         let msg = gen_message_for_signing(&self.public_keys(), &input_amounts, &blinded_outputs);
 
         // We create a signature for each input
-        let signed_inputs: Vec<Input> = self
+        let blinded_inputs: Vec<BlindedInput> = self
             .inputs
             .iter()
             .map(|input| input.sign(&msg, &Self::pc_gens()))
@@ -114,7 +114,7 @@ impl RevealedTransaction {
 
         Ok((
             DbcTransaction {
-                inputs: signed_inputs,
+                inputs: blinded_inputs,
                 outputs: blinded_outputs,
             },
             revealed_output_amounts,
@@ -295,7 +295,7 @@ impl BlindedOutput {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct DbcTransaction {
-    pub inputs: Vec<Input>,
+    pub inputs: Vec<BlindedInput>,
     pub outputs: Vec<BlindedOutput>,
 }
 
