@@ -47,7 +47,7 @@ impl Output {
 /// blinding factor included (in the revealed amount instance).
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-pub(super) struct RevealedOutput {
+pub struct RevealedOutput {
     pub public_key: PublicKey,
     pub revealed_amount: RevealedAmount,
 }
