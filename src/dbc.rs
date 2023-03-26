@@ -13,7 +13,7 @@ use tiny_keccak::{Hasher, Sha3};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::transaction::{DbcTransaction, OutputProof, RevealedAmount, RevealedInput};
+use crate::transaction::{BlindedOutput, DbcTransaction, RevealedAmount, RevealedInput};
 use crate::{
     BlindedAmount, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
     SpentProofKeyVerifier, TransactionVerifier,
@@ -167,7 +167,7 @@ impl Dbc {
             .outputs
             .iter()
             .find(|o| &self.public_key() == o.public_key())
-            .ok_or(Error::OutputProofNotFound)?
+            .ok_or(Error::BlindedOutputNotFound)?
             .blinded_amount())
     }
 
@@ -322,7 +322,7 @@ impl Dbc {
     /// This is done by
     /// 1. Decrypting the `revealed_amount_cipher` into a RevealedAmount.
     /// 2. Forming a BlindedAmount out of the RevealedAmount.
-    /// 3. Comparing that instance with the one in the dbc output proof in the tx.
+    /// 3. Comparing that instance with the one in the dbc blinded output in the tx.
     ///
     /// If the blinded amounts do not match, then the Dbc cannot be spent
     /// using the RevealedAmount provided.
@@ -341,7 +341,7 @@ impl Dbc {
     pub(crate) fn verify_amounts(&self, base_sk: &SecretKey) -> Result<()> {
         let revealed_amount: RevealedAmount = self.revealed_amount(base_sk)?;
         let blinded_amount = revealed_amount.blinded_amount(&Default::default());
-        let blinded_amount_in_tx = self.output_proof(base_sk)?.blinded_amount();
+        let blinded_amount_in_tx = self.blinded_output(base_sk)?.blinded_amount();
 
         match blinded_amount == blinded_amount_in_tx {
             true => Ok(()),
@@ -349,15 +349,15 @@ impl Dbc {
         }
     }
 
-    /// The output proof for this Dbc, is found in
+    /// The blinded output for this Dbc, is found in
     /// the transaction that gave rise to this Dbc.
-    fn output_proof(&self, base_sk: &SecretKey) -> Result<&OutputProof> {
+    fn blinded_output(&self, base_sk: &SecretKey) -> Result<&BlindedOutput> {
         let owner = self.owner_once(base_sk)?.public_key();
         self.transaction
             .outputs
             .iter()
             .find(|o| owner.eq(o.public_key()))
-            .ok_or(Error::OutputProofNotFound)
+            .ok_or(Error::BlindedOutputNotFound)
     }
 }
 

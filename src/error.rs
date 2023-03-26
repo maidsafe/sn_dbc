@@ -44,8 +44,8 @@ pub enum Error {
     #[error("Dbc Content is not a member of transaction outputs")]
     DbcContentNotPresentInTransactionOutput,
 
-    #[error("OutputProof not found in transaction outputs")]
-    OutputProofNotFound,
+    #[error("BlindedOutput not found in transaction outputs")]
+    BlindedOutputNotFound,
 
     #[error("Missing spent transaction for at least one of the spent proofs")]
     MissingSpentTransaction,

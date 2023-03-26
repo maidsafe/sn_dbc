@@ -184,7 +184,7 @@ impl TransactionBuilder {
     }
 
     /// Build the DbcTransaction by signing the inputs,
-    /// and generating the output proofs. Return a DbcBuilder.
+    /// and generating the blinded outputs. Return a DbcBuilder.
     pub fn build(self, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
         let (transaction, revealed_amounts) = self.revealed_tx.sign(rng)?;
 
