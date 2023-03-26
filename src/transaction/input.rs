@@ -41,12 +41,12 @@ impl RevealedInput {
         self.revealed_amount.blinded_amount(pc_gens)
     }
 
-    pub fn sign(&self, msg: &[u8], pc_gens: &PedersenGens) -> Input {
+    pub fn sign(&self, msg: &[u8], pc_gens: &PedersenGens) -> BlindedInput {
         let public_key = self.public_key();
         let blinded_amount = self.blinded_amount(pc_gens);
         let signature = self.secret_key.sign(msg);
 
-        Input {
+        BlindedInput {
             public_key,
             blinded_amount,
             signature,
@@ -56,13 +56,13 @@ impl RevealedInput {
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Eq, PartialEq, Debug, Clone)]
-pub struct Input {
+pub struct BlindedInput {
     pub public_key: PublicKey,
     pub blinded_amount: BlindedAmount,
     pub signature: Signature,
 }
 
-impl Input {
+impl BlindedInput {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.public_key.to_bytes().as_ref());

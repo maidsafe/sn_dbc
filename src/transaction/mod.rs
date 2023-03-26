@@ -10,7 +10,7 @@ mod output;
 mod revealed_amount;
 
 pub(crate) use error::Error;
-pub use input::{Input, RevealedInput};
+pub use input::{BlindedInput, RevealedInput};
 pub use output::{Amount, BlindedOutput, DbcTransaction, Output, RevealedTransaction};
 pub use revealed_amount::RevealedAmount;
 
