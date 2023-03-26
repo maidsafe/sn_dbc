@@ -377,7 +377,7 @@ mod tests {
             .add_output_by_amount(Token::from_nano(100), output1_owner.clone())
             .build(&mut rng)?;
 
-        let revealed_amount = dbc_builder.revealed_amounts[0];
+        let revealed_amount = dbc_builder.revealed_outputs[0].revealed_amount;
         let secret_key = output1_owner.as_owner().secret_key()?;
 
         let output2_owner =

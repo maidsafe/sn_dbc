@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::transaction::{
-    DbcTransaction, Output, RevealedAmount, RevealedInput, RevealedTransaction,
+    DbcTransaction, Output, RevealedAmount, RevealedInput, RevealedOutput, RevealedTransaction,
 };
 use crate::{
     rand::{CryptoRng, RngCore},
@@ -177,11 +177,11 @@ impl TransactionBuilder {
     /// Build the DbcTransaction by signing the inputs,
     /// and generating the blinded outputs. Return a DbcBuilder.
     pub fn build(self, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
-        let (transaction, revealed_amounts) = self.revealed_tx.sign(rng)?;
+        let (transaction, revealed_outputs) = self.revealed_tx.sign(rng)?;
 
         Ok(DbcBuilder::new(
             transaction,
-            revealed_amounts,
+            revealed_outputs,
             self.output_owner_map,
             self.revealed_tx,
         ))
@@ -193,7 +193,7 @@ impl TransactionBuilder {
 #[derive(Debug, Clone)]
 pub struct DbcBuilder {
     pub transaction: DbcTransaction,
-    pub revealed_amounts: Vec<RevealedAmount>,
+    pub revealed_outputs: Vec<RevealedOutput>,
     pub output_owner_map: OutputOwnerMap,
     pub revealed_tx: RevealedTransaction,
     pub spent_proofs: HashSet<SpentProof>,
@@ -205,13 +205,13 @@ impl DbcBuilder {
     /// Create a new DbcBuilder
     pub fn new(
         transaction: DbcTransaction,
-        revealed_amounts: Vec<RevealedAmount>,
+        revealed_outputs: Vec<RevealedOutput>,
         output_owner_map: OutputOwnerMap,
         revealed_tx: RevealedTransaction,
     ) -> Self {
         Self {
             transaction,
-            revealed_amounts,
+            revealed_outputs,
             output_owner_map,
             revealed_tx,
             spent_proofs: Default::default(),
@@ -305,9 +305,10 @@ impl DbcBuilder {
     ) -> Result<Vec<(Dbc, OwnerOnce, RevealedAmount)>> {
         let pc_gens = PedersenGens::default();
         let output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> = self
-            .revealed_amounts
+            .revealed_outputs
             .iter()
-            .map(|r| (r.blinded_amount(&pc_gens), *r))
+            .map(|output| output.revealed_amount)
+            .map(|r| (r.blinded_amount(&pc_gens), r))
             .collect();
 
         let owner_once_list: Vec<&OwnerOnce> = self

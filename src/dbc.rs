@@ -431,7 +431,7 @@ pub(crate) mod tests {
         let input_content = DbcContent::from((
             owner_once.owner_base.clone(),
             owner_once.derivation_index,
-            revealed_amounts[0],
+            revealed_amounts[0].revealed_amount,
         ));
         let public_key = owner_once
             .owner_base
@@ -469,7 +469,7 @@ pub(crate) mod tests {
         let input_content = DbcContent::from((
             owner_once.owner_base.clone(),
             owner_once.derivation_index,
-            revealed_amounts[0],
+            revealed_amounts[0].revealed_amount,
         ));
         let public_key = owner_once
             .owner_base
@@ -568,7 +568,7 @@ pub(crate) mod tests {
         let input_content = DbcContent::from((
             owner_once.owner_base.clone(),
             owner_once.derivation_index,
-            revealed_amounts[0],
+            revealed_amounts[0].revealed_amount,
         ));
 
         let public_key = owner_once
@@ -684,9 +684,10 @@ pub(crate) mod tests {
         let output = dbc_builder.transaction.outputs.get(0).unwrap();
         let pc_gens = PedersenGens::default();
         let output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> = dbc_builder
-            .revealed_amounts
+            .revealed_outputs
             .iter()
-            .map(|r| (r.blinded_amount(&pc_gens), *r))
+            .map(|output| output.revealed_amount)
+            .map(|r| (r.blinded_amount(&pc_gens), r))
             .collect();
         let revealed_amount_list: Vec<RevealedAmount> = output_blinded_and_revealed_amounts
             .iter()

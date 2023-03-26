@@ -9,8 +9,6 @@ mod error;
 mod input;
 mod output;
 
-use output::RevealedOutput;
-
 use crate::rand::{CryptoRng, RngCore};
 use crate::BlindedAmount;
 
@@ -28,7 +26,7 @@ use serde::{Deserialize, Serialize};
 pub use amount::{Amount, RevealedAmount};
 pub(crate) use error::Error;
 pub use input::{BlindedInput, RevealedInput};
-pub use output::{BlindedOutput, Output};
+pub use output::{BlindedOutput, Output, RevealedOutput};
 
 pub(super) const RANGE_PROOF_BITS: usize = 64; // note: Range Proof max-bits is 64. allowed are: 8, 16, 32, 64 (only)
                                                //       This limits our amount field to 64 bits also.
@@ -169,7 +167,7 @@ impl RevealedTransaction {
     pub fn sign(
         &self,
         mut rng: impl RngCore + CryptoRng,
-    ) -> Result<(DbcTransaction, Vec<RevealedAmount>)> {
+    ) -> Result<(DbcTransaction, Vec<RevealedOutput>)> {
         // We need to gather a bunch of things for our message to sign.
         //   All public keys in all inputs
         //   All input blinded amounts
@@ -199,17 +197,12 @@ impl RevealedTransaction {
             .map(|input| input.sign(&msg, &Self::pc_gens()))
             .collect();
 
-        let revealed_output_amounts = adjusted_revealed_outputs
-            .iter()
-            .map(|r| r.revealed_amount)
-            .collect::<Vec<_>>();
-
         Ok((
             DbcTransaction {
                 inputs: blinded_inputs,
                 outputs: blinded_outputs,
             },
-            revealed_output_amounts,
+            adjusted_revealed_outputs,
         ))
     }
 
