@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [12.0.0](https://github.com/maidsafe/sn_dbc/compare/v11.0.1...v12.0.0) (2023-03-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **builder:** keep revealedoutputs
+* rename Input to BlindedInput
+* rename OutputProof to BlindedOutput
+
+* **builder:** keep revealedoutputs ([d3f0c43](https://github.com/maidsafe/sn_dbc/commit/d3f0c430ef9ecd99d25763b3b4a4c18ac6ed2f99))
+* rename Input to BlindedInput ([3c9ff69](https://github.com/maidsafe/sn_dbc/commit/3c9ff694380cfcd898093c51a1f817bee8cccf91))
+* rename OutputProof to BlindedOutput ([4fc3c9f](https://github.com/maidsafe/sn_dbc/commit/4fc3c9f4a33cb702c1ddf9fb122462265829d546))
+
 ### [11.0.1](https://github.com/maidsafe/sn_dbc/compare/v11.0.0...v11.0.1) (2023-03-23)
 
 
