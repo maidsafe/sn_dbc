@@ -15,9 +15,9 @@ mod blst;
 mod builder;
 mod dbc;
 mod dbc_content;
+mod dbc_id;
 mod error;
 mod mint;
-mod owner;
 mod spent_proof;
 mod token;
 mod transaction;
@@ -27,18 +27,16 @@ mod verification;
 pub mod mock;
 
 // re-export crates used in our public API
-pub use blsttc;
-pub use blsttc::rand;
-pub use blsttc::{Ciphertext, PublicKey, PublicKeySet, Signature, SignatureShare};
+pub use blsttc::{self, rand, Ciphertext, PublicKey, PublicKeySet, Signature, SignatureShare};
 pub use bulletproofs::PedersenGens;
 
 pub use crate::{
     blst::{BlindedAmount, BlindingFactor},
-    builder::{DbcBuilder, OutputOwnerMap, TransactionBuilder},
+    builder::{DbcBuilder, OutputIdSources, TransactionBuilder},
     dbc::Dbc,
     dbc_content::DbcContent,
+    dbc_id::{random_derivation_index, DbcId, DbcIdSource, DerivationIndex, DerivedKey, MainKey},
     error::{Error, Result},
-    owner::{DerivationIndex, Owner, OwnerOnce},
     spent_proof::{
         IndexedSignatureShare, SpentProof, SpentProofContent, SpentProofKeyVerifier,
         SpentProofShare,

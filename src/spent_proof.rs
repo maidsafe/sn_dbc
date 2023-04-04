@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    BlindedAmount, Error, Hash, PublicKey, PublicKeySet, Result, Signature, SignatureShare,
+    BlindedAmount, DbcId, Error, Hash, PublicKey, PublicKeySet, Result, Signature, SignatureShare,
 };
 
 use std::{cmp::Ordering, collections::HashSet};
@@ -21,8 +21,8 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpentProofContent {
-    /// PublicKey of input Dbc that this SpentProof is proving to be spent.
-    pub public_key: PublicKey,
+    /// DbcId of input Dbc that this SpentProof is proving to be spent.
+    pub dbc_id: DbcId,
     /// Hash of transaction that the input Dbc is being spent in.
     pub transaction_hash: Hash,
     /// Reason why this Dbc was spent.
@@ -37,7 +37,7 @@ impl SpentProofContent {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
-        bytes.extend(self.public_key.to_bytes());
+        bytes.extend(self.dbc_id.to_bytes());
         bytes.extend(self.transaction_hash.as_ref());
         bytes.extend(self.reason.as_ref());
         bytes.extend(self.blinded_amount.compress().to_bytes());
@@ -58,7 +58,7 @@ impl PartialOrd for SpentProofContent {
 
 impl Ord for SpentProofContent {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.public_key.cmp(&other.public_key)
+        self.dbc_id.cmp(&other.dbc_id)
     }
 }
 
@@ -121,8 +121,8 @@ impl std::hash::Hash for SpentProofShare {
 
 impl SpentProofShare {
     /// Get the public key of input Dbc that this SpentProof is proving to be spent.
-    pub fn public_key(&self) -> &PublicKey {
-        &self.content.public_key
+    pub fn dbc_id(&self) -> &DbcId {
+        &self.content.dbc_id
     }
 
     /// Get the hash of the transaction that the input Dbc is spent in.
@@ -183,7 +183,7 @@ pub struct SpentProof {
 impl SpentProof {
     /// Attempts to build a SpentProof by combining a given set of proof shares
     pub fn try_from_proof_shares(
-        public_key: PublicKey,
+        dbc_id: DbcId,
         transaction_hash: Hash,
         shares: &HashSet<SpentProofShare>,
     ) -> Result<Self> {
@@ -191,11 +191,11 @@ impl SpentProof {
         let any_share = peekable_shares
             .peek()
             .cloned()
-            .ok_or(Error::MissingSpentProofShare(public_key))?;
+            .ok_or(Error::MissingSpentProofShare(dbc_id))?;
 
         let reason = any_share.reason();
         if !shares.iter().all(|s| s.reason() == reason) {
-            return Err(Error::SpentProofShareReasonMismatch(public_key));
+            return Err(Error::SpentProofShareReasonMismatch(dbc_id));
         }
 
         let spentbook_pub_key = any_share.spentbook_pks().public_key();
@@ -209,7 +209,7 @@ impl SpentProof {
 
         Ok(SpentProof {
             content: SpentProofContent {
-                public_key,
+                dbc_id,
                 transaction_hash,
                 blinded_amount,
                 reason,
@@ -220,8 +220,8 @@ impl SpentProof {
     }
 
     /// Get public key of input Dbc.
-    pub fn public_key(&self) -> &PublicKey {
-        &self.content.public_key
+    pub fn dbc_id(&self) -> &DbcId {
+        &self.content.dbc_id
     }
 
     /// Get transaction hash.
@@ -270,7 +270,7 @@ impl SpentProof {
         let pub_key = &self.spentbook_pub_key;
 
         if !pub_key.verify(&self.spentbook_sig, self.content.hash()) {
-            return Err(Error::InvalidSpentProofSignature(*self.public_key()));
+            return Err(Error::InvalidSpentProofSignature(*self.dbc_id()));
         }
 
         proof_key_verifier

@@ -4,13 +4,13 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
+use crate::dbc_id::DerivedKeySet;
 use crate::rand::RngCore;
-use crate::{BlindedAmount, BlindingFactor};
+use crate::{BlindedAmount, BlindingFactor, DerivedKey};
 use crate::{Error, Result};
 
 use blsttc::{
-    rand::CryptoRng, Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKey,
-    SecretKeySet, SecretKeyShare,
+    rand::CryptoRng, Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKeyShare,
 };
 use bulletproofs::PedersenGens;
 use std::{collections::BTreeMap, convert::TryFrom};
@@ -66,7 +66,7 @@ impl RevealedAmount {
         public_key.encrypt(self.to_bytes())
     }
 
-    /// build RevealedAmount from fixed size byte array.
+    /// Build RevealedAmount from fixed size byte array.
     pub fn from_bytes(bytes: [u8; AMT_SIZE + BF_SIZE]) -> Self {
         let amount = Amount::from_le_bytes({
             let mut b = [0u8; AMT_SIZE];
@@ -85,7 +85,7 @@ impl RevealedAmount {
         }
     }
 
-    /// build RevealedAmount from byte array reference
+    /// Build RevealedAmount from byte array reference.
     pub fn from_bytes_ref(bytes: &[u8]) -> Result<Self> {
         if bytes.len() != AMT_SIZE + BF_SIZE {
             return Err(Error::InvalidRevealedAmountBytes);
@@ -109,7 +109,7 @@ impl RevealedAmount {
 }
 
 impl From<(Amount, BlindingFactor)> for RevealedAmount {
-    /// create RevealedAmount from an amount and a randomly generated blinding factor
+    /// Create RevealedAmount from an amount and a randomly generated blinding factor.
     fn from(params: (Amount, BlindingFactor)) -> Self {
         let (amount, blinding_factor) = params;
 
@@ -120,26 +120,23 @@ impl From<(Amount, BlindingFactor)> for RevealedAmount {
     }
 }
 
-impl TryFrom<(&SecretKey, &Ciphertext)> for RevealedAmount {
+impl TryFrom<(&DerivedKey, &Ciphertext)> for RevealedAmount {
     type Error = Error;
 
-    /// Decrypt RevealedAmount ciphertext using a SecretKey
-    fn try_from(params: (&SecretKey, &Ciphertext)) -> Result<Self> {
-        let (secret_key, ciphertext) = params;
-        let bytes_vec = secret_key
-            .decrypt(ciphertext)
-            .ok_or(Error::DecryptionBySecretKeyFailed)?;
-        Self::from_bytes_ref(&bytes_vec)
+    /// Decrypt RevealedAmount ciphertext using a DerivedKey.
+    fn try_from(params: (&DerivedKey, &Ciphertext)) -> Result<Self> {
+        let (derived_key, ciphertext) = params;
+        derived_key.decrypt(ciphertext)
     }
 }
 
-impl TryFrom<(&SecretKeySet, &Ciphertext)> for RevealedAmount {
+impl TryFrom<(&DerivedKeySet, &Ciphertext)> for RevealedAmount {
     type Error = Error;
 
-    /// Decrypt RevealedAmount ciphertext using a SecretKeySet
-    fn try_from(params: (&SecretKeySet, &Ciphertext)) -> Result<Self> {
-        let (secret_key_set, ciphertext) = params;
-        Self::try_from((&secret_key_set.secret_key(), ciphertext))
+    /// Decrypt RevealedAmount ciphertext using a DerivedKeySet.
+    fn try_from(params: (&DerivedKeySet, &Ciphertext)) -> Result<Self> {
+        let (derived_key_set, ciphertext) = params;
+        Self::try_from((&derived_key_set.derived_key(), ciphertext))
     }
 }
 
@@ -148,7 +145,7 @@ impl<I: IntoFr + Ord> TryFrom<(&PublicKeySet, &BTreeMap<I, SecretKeyShare>, &Cip
 {
     type Error = Error;
 
-    /// Decrypt RevealedAmount ciphertext using [threshold + 1] SecretKeyShares
+    /// Decrypt RevealedAmount ciphertext using [threshold + 1] SecretKeyShares.
     fn try_from(
         params: (&PublicKeySet, &BTreeMap<I, SecretKeyShare>, &Ciphertext),
     ) -> Result<Self> {
@@ -168,7 +165,7 @@ impl<I: IntoFr + Ord> TryFrom<(&PublicKeySet, &BTreeMap<I, DecryptionShare>, &Ci
 {
     type Error = Error;
 
-    /// Decrypt RevealedAmount using threshold+1 DecryptionShares
+    /// Decrypt RevealedAmount using threshold+1 DecryptionShares.
     ///
     /// This fn should be used when keys (SecretKeyShare) are distributed across multiple parties.
     /// In which case each party will need to call SecretKeyShare::decrypt_share() or

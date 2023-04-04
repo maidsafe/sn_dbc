@@ -6,13 +6,15 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::{BlindedOutput, DbcTransaction};
-use blsttc::PublicKey;
+use super::GenesisMaterial;
+use crate::{
+    mock,
+    transaction::{BlindedOutput, DbcTransaction},
+    BlindedAmount, DbcId, Error, Hash, Result, SpentProofContent, SpentProofShare,
+};
+
 use bulletproofs::PedersenGens;
 use std::collections::{BTreeMap, HashMap};
-
-use super::GenesisMaterial;
-use crate::{mock, BlindedAmount, Error, Hash, Result, SpentProofContent, SpentProofShare};
 
 /// This is a mock SpentBook used for our test cases. A proper implementation
 /// will be distributed, persistent, and auditable.
@@ -41,32 +43,32 @@ pub struct SpentBookNode {
     pub key_manager: mock::KeyManager,
 
     pub transactions: HashMap<Hash, DbcTransaction>,
-    pub public_keys: BTreeMap<PublicKey, Hash>,
-    pub outputs: BTreeMap<PublicKey, BlindedOutput>,
+    pub dbc_ids: BTreeMap<DbcId, Hash>,
+    pub outputs_by_input_id: BTreeMap<DbcId, BlindedOutput>,
 
-    pub genesis: (PublicKey, BlindedAmount), // genesis input (PublicKey, BlindedAmount)
+    pub genesis: (DbcId, BlindedAmount), // genesis input (DbcId, BlindedAmount)
 }
 
 impl From<mock::KeyManager> for SpentBookNode {
     fn from(key_manager: mock::KeyManager) -> Self {
         let genesis_material = GenesisMaterial::default();
-        let blinded_amount = genesis_material.revealed_tx.inputs[0]
+        let blinded_amount = genesis_material.genesis_tx.inputs[0]
             .revealed_amount()
             .blinded_amount(&PedersenGens::default());
 
         Self {
             key_manager,
             transactions: Default::default(),
-            public_keys: Default::default(),
-            outputs: Default::default(),
-            genesis: (genesis_material.input_public_key, blinded_amount),
+            dbc_ids: Default::default(),
+            outputs_by_input_id: Default::default(),
+            genesis: (genesis_material.input_dbc_id, blinded_amount),
         }
     }
 }
 
 impl SpentBookNode {
-    pub fn iter(&self) -> impl Iterator<Item = (&PublicKey, &DbcTransaction)> + '_ {
-        self.public_keys.iter().map(move |(k, h)| {
+    pub fn iter(&self) -> impl Iterator<Item = (&DbcId, &DbcTransaction)> + '_ {
+        self.dbc_ids.iter().map(move |(k, h)| {
             (
                 k,
                 match self.transactions.get(h) {
@@ -78,17 +80,17 @@ impl SpentBookNode {
         })
     }
 
-    pub fn is_spent(&self, public_key: &PublicKey) -> bool {
-        self.public_keys.contains_key(public_key)
+    pub fn is_spent(&self, dbc_id: &DbcId) -> bool {
+        self.dbc_ids.contains_key(dbc_id)
     }
 
     pub fn log_spent(
         &mut self,
-        public_key: PublicKey,
+        dbc_id: DbcId,
         tx: DbcTransaction,
         reason: Hash,
     ) -> Result<SpentProofShare> {
-        self.log_spent_worker(public_key, tx, reason, true)
+        self.log_spent_worker(dbc_id, tx, reason, true)
     }
 
     // This is invalid behavior, however we provide this method for test cases
@@ -97,40 +99,40 @@ impl SpentBookNode {
     #[cfg(test)]
     pub fn log_spent_and_skip_tx_verification(
         &mut self,
-        public_key: PublicKey,
+        dbc_id: DbcId,
         reason: Hash,
         tx: DbcTransaction,
     ) -> Result<SpentProofShare> {
-        self.log_spent_worker(public_key, tx, reason, false)
+        self.log_spent_worker(dbc_id, tx, reason, false)
     }
 
     fn log_spent_worker(
         &mut self,
-        public_key: PublicKey,
+        input_id: DbcId,
         tx: DbcTransaction,
         reason: Hash,
         verify_tx: bool,
     ) -> Result<SpentProofShare> {
         let tx_hash = Hash::from(tx.hash());
 
-        // If this is the very first tx logged and genesis public_key was not
+        // If this is the very first tx logged and genesis dbc_id was not
         // provided, then it becomes the genesis tx.
-        let (genesis_public_key, genesis_blinded_amount) = &self.genesis;
+        let (genesis_dbc_id, genesis_blinded_amount) = &self.genesis;
 
         // Input amounts are not available in spentbook for genesis transaction.
-        let tx_keys_and_blinded_amounts: Vec<(PublicKey, BlindedAmount)> =
-            if public_key == *genesis_public_key {
-                vec![(public_key, *genesis_blinded_amount)]
+        let blinded_amounts_by_input_ids: Vec<(DbcId, BlindedAmount)> =
+            if input_id == *genesis_dbc_id {
+                vec![(input_id, *genesis_blinded_amount)]
             } else {
                 tx.inputs
                     .iter()
                     .map(|input| {
                         // look up matching BlindedOutput
-                        let pk = input.public_key();
-                        let blinded_output = self.outputs.get(&pk);
+                        let input_id = input.dbc_id();
+                        let blinded_output = self.outputs_by_input_id.get(&input_id);
                         match blinded_output {
-                            Some(p) => Ok((input.public_key, p.blinded_amount())),
-                            None => Err(Error::MissingAmountForPubkey(pk)),
+                            Some(p) => Ok((input_id, p.blinded_amount())),
+                            None => Err(Error::MissingAmountForDbcId(input_id)),
                         }
                     })
                     .collect::<Result<_>>()?
@@ -138,7 +140,7 @@ impl SpentBookNode {
 
         // Grab all blinded amounts, grouped by input PublicKey
         // Needed for Tx verification.
-        let tx_blinded_amounts: Vec<BlindedAmount> = tx_keys_and_blinded_amounts
+        let tx_blinded_amounts: Vec<BlindedAmount> = blinded_amounts_by_input_ids
             .clone()
             .into_iter()
             .map(|(_, c)| c)
@@ -146,36 +148,33 @@ impl SpentBookNode {
 
         // Grab the blinded amount specific to the input PublicKey
         // Needed for SpentProofShare
-        let blinded_amount: BlindedAmount = tx_keys_and_blinded_amounts
+        let blinded_amount: BlindedAmount = blinded_amounts_by_input_ids
             .into_iter()
-            .find(|(k, _)| k == &public_key)
-            .map_or(Err(Error::MissingAmountForPubkey(public_key)), |(_, c)| {
-                Ok(c)
-            })?;
+            .find(|(k, _)| k == &input_id)
+            .map_or(Err(Error::MissingAmountForDbcId(input_id)), |(_, c)| Ok(c))?;
 
         if verify_tx {
             // Do not permit invalid tx to be logged.
             tx.verify(&tx_blinded_amounts)?;
         }
 
-        // Add public_key:tx_hash to public_key index.
-        let existing_tx_hash = self
-            .public_keys
-            .entry(public_key)
-            .or_insert_with(|| tx_hash);
+        // Add dbc_id:tx_hash to dbc_id index.
+        let existing_tx_hash = self.dbc_ids.entry(input_id).or_insert_with(|| tx_hash);
 
         if *existing_tx_hash == tx_hash {
             // Add tx_hash:tx to transaction entries. (primary data store)
             let existing_tx = self.transactions.entry(tx_hash).or_insert_with(|| tx);
 
-            // Add public_key:blinded_output to public_key index.
+            // Add dbc_id:blinded_output to dbc_id index.
             for output in existing_tx.outputs.iter() {
-                let pk = *output.public_key();
-                self.outputs.entry(pk).or_insert_with(|| output.clone());
+                let output_id = *output.dbc_id();
+                self.outputs_by_input_id
+                    .entry(output_id)
+                    .or_insert_with(|| output.clone());
             }
 
             let sp_content = SpentProofContent {
-                public_key,
+                dbc_id: input_id,
                 transaction_hash: tx_hash,
                 reason,
                 blinded_amount,

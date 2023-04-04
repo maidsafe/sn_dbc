@@ -6,26 +6,26 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blsttc::{PublicKey, SecretKey};
 use bulletproofs::PedersenGens;
-use std::{
-    borrow::Borrow,
-    collections::{BTreeMap, BTreeSet, HashSet},
-};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use crate::transaction::{
-    DbcTransaction, Output, RevealedAmount, RevealedInput, RevealedOutput, RevealedTransaction,
+use crate::{
+    dbc_id::DbcIdSource,
+    transaction::{
+        DbcTransaction, Output, RevealedAmount, RevealedInput, RevealedOutput, RevealedTransaction,
+    },
+    DbcId, DerivedKey, MainKey,
 };
 use crate::{
     rand::{CryptoRng, RngCore},
-    BlindedAmount, Dbc, DbcContent, Error, Hash, OwnerOnce, Result, SpentProof,
-    SpentProofKeyVerifier, SpentProofShare, Token, TransactionVerifier,
+    BlindedAmount, Dbc, DbcContent, Error, Hash, Result, SpentProof, SpentProofKeyVerifier,
+    SpentProofShare, Token, TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub type OutputOwnerMap = BTreeMap<PublicKey, OwnerOnce>;
+pub type OutputIdSources = BTreeMap<DbcId, DbcIdSource>;
 
 /// A builder to create a DBC transaction from
 /// inputs and outputs.
@@ -33,120 +33,80 @@ pub type OutputOwnerMap = BTreeMap<PublicKey, OwnerOnce>;
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
     revealed_tx: RevealedTransaction,
-    output_owner_map: OutputOwnerMap,
+    output_id_sources: OutputIdSources,
 }
 
 impl TransactionBuilder {
-    /// add an input given an RevealedInput
+    /// Add an input given a RevealedInput.
     pub fn add_input(mut self, input: RevealedInput) -> Self {
         self.revealed_tx.inputs.push(input);
         self
     }
 
-    /// add an input given an iterator over RevealedInput
+    /// Add an input given an iterator over RevealedInput.
     pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = RevealedInput>) -> Self {
         self.revealed_tx.inputs.extend(inputs);
         self
     }
 
-    /// add an input given a Dbc and SecretKey
-    pub fn add_input_dbc(mut self, dbc: &Dbc, base_sk: &SecretKey) -> Result<Self> {
-        self = self.add_input(dbc.as_revealed_input(base_sk)?);
+    /// Add an input given a Dbc and associated MainKey.
+    pub fn add_input_dbc(mut self, dbc: &Dbc, main_key: &MainKey) -> Result<Self> {
+        self = self.add_input(dbc.as_revealed_input(main_key)?);
         Ok(self)
     }
 
-    /// add an input given a list of Dbcs and associated SecretKey and decoys
+    /// Add an input given a list of Dbcs and associated MainKeys.
     pub fn add_inputs_dbc(
         mut self,
-        dbcs: impl IntoIterator<Item = (Dbc, SecretKey)>,
+        dbcs: impl IntoIterator<Item = (Dbc, MainKey)>,
     ) -> Result<Self> {
-        for (dbc, base_sk) in dbcs.into_iter() {
-            self = self.add_input_dbc(&dbc, &base_sk)?;
+        for (dbc, main_key) in dbcs.into_iter() {
+            self = self.add_input_dbc(&dbc, &main_key)?;
         }
         Ok(self)
     }
 
-    /// add an input given a bearer Dbc
-    pub fn add_input_dbc_bearer(mut self, dbc: &Dbc) -> Result<Self> {
-        self = self.add_input(dbc.as_revealed_input_bearer()?);
-        Ok(self)
-    }
-
-    /// Add an input given a list of bearer Dbcs and associated SecretKey.
-    pub fn add_inputs_dbc_bearer<D>(mut self, dbcs: impl Iterator<Item = D>) -> Result<Self>
-    where
-        D: Borrow<Dbc>,
-    {
-        for dbc in dbcs {
-            self = self.add_input_dbc_bearer(dbc.borrow())?;
-        }
-        Ok(self)
-    }
-
-    /// Add an input given a SecretKey and a RevealedAmount.
+    /// Add an input given a DerivedKey and a RevealedAmount.
     pub fn add_input_by_secrets(
         mut self,
-        secret_key: SecretKey,
+        derived_key: DerivedKey,
         revealed_amount: RevealedAmount,
     ) -> Self {
-        let revealed_input = RevealedInput::new(secret_key, revealed_amount);
+        let revealed_input = RevealedInput::new(derived_key, revealed_amount);
         self = self.add_input(revealed_input);
         self
     }
 
-    /// Add an input given a list of (SecretKey, RevealedAmount).
-    pub fn add_inputs_by_secrets(mut self, secrets: Vec<(SecretKey, RevealedAmount)>) -> Self {
-        for (secret_key, revealed_amount) in secrets.into_iter() {
-            self = self.add_input_by_secrets(secret_key, revealed_amount);
+    /// Add an input given a list of (DerivedKey, RevealedAmount).
+    pub fn add_inputs_by_secrets(mut self, secrets: Vec<(DerivedKey, RevealedAmount)>) -> Self {
+        for (derived_key, revealed_amount) in secrets.into_iter() {
+            self = self.add_input_by_secrets(derived_key, revealed_amount);
         }
         self
     }
 
-    /// add an output
-    pub fn add_output(mut self, output: Output, owner: OwnerOnce) -> Self {
-        self.output_owner_map.insert(output.public_key(), owner);
+    /// Add an output given amount and the source of the DbcId for the new Dbc.
+    pub fn add_output(mut self, amount: Token, dbc_id_src: DbcIdSource) -> Self {
+        let output = Output::new(dbc_id_src.dbc_id(), amount.as_nano());
+        self.output_id_sources.insert(output.dbc_id, dbc_id_src);
         self.revealed_tx.outputs.push(output);
         self
     }
 
-    /// add a list of outputs
-    pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = (Output, OwnerOnce)>) -> Self {
-        for (output, owner) in outputs.into_iter() {
-            self = self.add_output(output, owner);
+    /// Add a list of outputs given the amounts and sources of DbcIds for the new Dbcs.
+    pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = (Token, DbcIdSource)>) -> Self {
+        for (amount, dbc_id_src) in outputs.into_iter() {
+            self = self.add_output(amount, dbc_id_src);
         }
         self
     }
 
-    /// add an output by providing Token and OwnerOnce
-    pub fn add_output_by_amount(mut self, amount: Token, owner: OwnerOnce) -> Self {
-        let pk = owner.as_owner().public_key();
-        let output = Output::new(pk, amount.as_nano());
-        self.output_owner_map.insert(pk, owner);
-        self.revealed_tx.outputs.push(output);
-        self
+    /// Get a list of input ids.
+    pub fn input_ids(&self) -> Vec<DbcId> {
+        self.revealed_tx.inputs.iter().map(|t| t.dbc_id()).collect()
     }
 
-    /// add an output by providing iter of (Token, OwnerOnce)
-    pub fn add_outputs_by_amount(
-        mut self,
-        outputs: impl IntoIterator<Item = (Token, OwnerOnce)>,
-    ) -> Self {
-        for (amount, owner) in outputs.into_iter() {
-            self = self.add_output_by_amount(amount, owner);
-        }
-        self
-    }
-
-    /// get a list of input (true) owners
-    pub fn input_owners(&self) -> Vec<PublicKey> {
-        self.revealed_tx
-            .inputs
-            .iter()
-            .map(|t| t.public_key())
-            .collect()
-    }
-
-    /// get sum of input amounts
+    /// Get sum of input amounts.
     pub fn inputs_amount_sum(&self) -> Token {
         let amount = self
             .revealed_tx
@@ -158,18 +118,18 @@ impl TransactionBuilder {
         Token::from_nano(amount)
     }
 
-    /// get sum of output amounts
+    /// Get sum of output amounts.
     pub fn outputs_amount_sum(&self) -> Token {
         let amount = self.revealed_tx.outputs.iter().map(|o| o.amount).sum();
         Token::from_nano(amount)
     }
 
-    /// get true inputs
+    /// Get inputs.
     pub fn inputs(&self) -> &Vec<RevealedInput> {
         &self.revealed_tx.inputs
     }
 
-    /// get outputs
+    /// Get outputs.
     pub fn outputs(&self) -> &Vec<Output> {
         &self.revealed_tx.outputs
     }
@@ -182,7 +142,7 @@ impl TransactionBuilder {
         Ok(DbcBuilder::new(
             transaction,
             revealed_outputs,
-            self.output_owner_map,
+            self.output_id_sources,
             self.revealed_tx,
         ))
     }
@@ -194,10 +154,10 @@ impl TransactionBuilder {
 pub struct DbcBuilder {
     pub transaction: DbcTransaction,
     pub revealed_outputs: Vec<RevealedOutput>,
-    pub output_owner_map: OutputOwnerMap,
+    pub output_id_sources: OutputIdSources,
     pub revealed_tx: RevealedTransaction,
     pub spent_proofs: HashSet<SpentProof>,
-    pub spent_proof_shares: BTreeMap<PublicKey, HashSet<SpentProofShare>>,
+    pub spent_proof_shares: BTreeMap<DbcId, HashSet<SpentProofShare>>,
     pub spent_transactions: BTreeMap<Hash, DbcTransaction>,
 }
 
@@ -206,13 +166,13 @@ impl DbcBuilder {
     pub fn new(
         transaction: DbcTransaction,
         revealed_outputs: Vec<RevealedOutput>,
-        output_owner_map: OutputOwnerMap,
+        output_id_sources: OutputIdSources,
         revealed_tx: RevealedTransaction,
     ) -> Self {
         Self {
             transaction,
             revealed_outputs,
-            output_owner_map,
+            output_id_sources,
             revealed_tx,
             spent_proofs: Default::default(),
             spent_proof_shares: Default::default(),
@@ -220,13 +180,13 @@ impl DbcBuilder {
         }
     }
 
-    /// returns Vec of public keys and tx intended for use as inputs
+    /// returns Vec of dbc ids and tx intended for use as inputs
     /// to Spendbook::log_spent().
-    pub fn inputs(&self) -> Vec<(PublicKey, DbcTransaction)> {
+    pub fn inputs(&self) -> Vec<(DbcId, DbcTransaction)> {
         self.transaction
             .inputs
             .iter()
-            .map(|input| (input.public_key(), self.transaction.clone()))
+            .map(|input| (input.dbc_id(), self.transaction.clone()))
             .collect()
     }
 
@@ -238,10 +198,7 @@ impl DbcBuilder {
 
     /// Add a SpentProofShare for the given input index
     pub fn add_spent_proof_share(mut self, share: SpentProofShare) -> Self {
-        let shares = self
-            .spent_proof_shares
-            .entry(*share.public_key())
-            .or_default();
+        let shares = self.spent_proof_shares.entry(*share.dbc_id()).or_default();
         shares.insert(share);
         self
     }
@@ -273,7 +230,7 @@ impl DbcBuilder {
     pub fn build<K: SpentProofKeyVerifier>(
         self,
         verifier: &K,
-    ) -> Result<Vec<(Dbc, OwnerOnce, RevealedAmount)>> {
+    ) -> Result<Vec<(Dbc, RevealedAmount)>> {
         let spent_proofs = self.spent_proofs()?;
 
         // verify the Tx, along with spent proofs.
@@ -293,7 +250,7 @@ impl DbcBuilder {
     }
 
     /// Build the output DBCs (no verification over Tx or spentproof is performed).
-    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, OwnerOnce, RevealedAmount)>> {
+    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, RevealedAmount)>> {
         let spent_proofs = self.spent_proofs()?;
         self.build_output_dbcs(spent_proofs)
     }
@@ -302,7 +259,7 @@ impl DbcBuilder {
     fn build_output_dbcs(
         self,
         spent_proofs: BTreeSet<SpentProof>,
-    ) -> Result<Vec<(Dbc, OwnerOnce, RevealedAmount)>> {
+    ) -> Result<Vec<(Dbc, RevealedAmount)>> {
         let pc_gens = PedersenGens::default();
         let output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> = self
             .revealed_outputs
@@ -311,24 +268,24 @@ impl DbcBuilder {
             .map(|r| (r.blinded_amount(&pc_gens), r))
             .collect();
 
-        let owner_once_list: Vec<&OwnerOnce> = self
+        let dbc_id_list: Vec<&DbcIdSource> = self
             .transaction
             .outputs
             .iter()
             .map(|output| {
-                self.output_owner_map
-                    .get(output.public_key())
-                    .ok_or(Error::PublicKeyNotFound)
+                self.output_id_sources
+                    .get(output.dbc_id())
+                    .ok_or(Error::DbcIdNotFound)
             })
             .collect::<Result<_>>()?;
 
         // Form the final output DBCs
-        let output_dbcs: Vec<(Dbc, OwnerOnce, RevealedAmount)> = self
+        let output_dbcs: Vec<(Dbc, RevealedAmount)> = self
             .transaction
             .outputs
             .iter()
-            .zip(owner_once_list)
-            .map(|(output, owner_once)| {
+            .zip(dbc_id_list)
+            .map(|(output, dbc_id_src)| {
                 let revealed_amounts: Vec<RevealedAmount> = output_blinded_and_revealed_amounts
                     .iter()
                     .filter(|(c, _)| *c == output.blinded_amount())
@@ -337,22 +294,18 @@ impl DbcBuilder {
                 assert_eq!(revealed_amounts.len(), 1);
 
                 let content = DbcContent::from((
-                    owner_once.owner_base.clone(),
-                    owner_once.derivation_index,
+                    &dbc_id_src.public_address,
+                    &dbc_id_src.derivation_index,
                     revealed_amounts[0],
                 ));
-                let public_key = owner_once
-                    .owner_base
-                    .derive(&owner_once.derivation_index)
-                    .public_key();
                 let dbc = Dbc {
                     content,
-                    public_key,
+                    id: dbc_id_src.dbc_id(),
                     transaction: self.transaction.clone(),
                     inputs_spent_proofs: spent_proofs.clone(),
                     inputs_spent_transactions: self.spent_transactions.values().cloned().collect(),
                 };
-                (dbc, owner_once.clone(), revealed_amounts[0])
+                (dbc, revealed_amounts[0])
             })
             .collect();
 

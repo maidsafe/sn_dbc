@@ -10,16 +10,16 @@
 mod tests {
     use crate::{
         tests::{TinyInt, TinyVec},
-        Hash, RevealedAmount,
+        Hash, MainKey, RevealedAmount,
     };
-    use blsttc::{PublicKey, SecretKey, SecretKeySet};
+    use blsttc::SecretKeySet;
     use quickcheck_macros::quickcheck;
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::iter::FromIterator;
 
     use crate::{
-        mock, Dbc, DbcContent, Error, IndexedSignatureShare, Owner, OwnerOnce, Result,
-        SpentProofContent, SpentProofShare, Token, TransactionBuilder,
+        mock, Dbc, DbcContent, Error, IndexedSignatureShare, Result, SpentProofContent,
+        SpentProofShare, Token, TransactionBuilder,
     };
 
     #[test]
@@ -29,10 +29,7 @@ mod tests {
         let (spentbook_node, genesis_dbc, genesis, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
-        let verified = genesis_dbc.verify(
-            &genesis.owner_once.owner_base().secret_key()?,
-            &spentbook_node.key_manager,
-        );
+        let verified = genesis_dbc.verify(&genesis.main_key, &spentbook_node.key_manager);
         assert!(verified.is_ok());
 
         Ok(())
@@ -50,20 +47,25 @@ mod tests {
         let n_outputs = output_amounts.len();
         let output_amount: u64 = output_amounts.iter().sum();
 
-        let (mut spentbook_node, genesis_dbc, _genesis, _revealed_amount) =
+        let (mut spentbook_node, genesis_dbc, genesis, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
-        let owners: Vec<OwnerOnce> = (0..output_amounts.len())
-            .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng))
+        let first_output_key_map: BTreeMap<_, _> = output_amounts
+            .iter()
+            .map(|amount| {
+                let main_key = MainKey::random_from_rng(&mut rng);
+                let dbc_id_src = main_key.random_dbc_id_src(&mut rng);
+                let dbc_id = dbc_id_src.dbc_id();
+                (dbc_id, (main_key, dbc_id_src, Token::from_nano(*amount)))
+            })
             .collect();
 
         let mut dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(&genesis_dbc, &genesis_dbc.owner_base().secret_key()?)?
-            .add_outputs_by_amount(
-                output_amounts
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, a)| (Token::from_nano(*a), owners[idx].clone())),
+            .add_input_dbc(&genesis_dbc, &genesis.main_key)?
+            .add_outputs(
+                first_output_key_map
+                    .values()
+                    .map(|(_, dbc_id_src, amount)| (*amount, *dbc_id_src)),
             )
             .build(&mut rng)?;
 
@@ -84,9 +86,9 @@ mod tests {
             }
         };
 
-        for (public_key, tx) in dbc_builder.inputs() {
+        for (input_id, tx) in dbc_builder.inputs() {
             let spent_proof_share =
-                match spentbook_node.log_spent(public_key, tx.clone(), Hash::default()) {
+                match spentbook_node.log_spent(input_id, tx.clone(), Hash::default()) {
                     Ok(s) => s,
                     Err(e) => return check_error(e),
                 };
@@ -96,26 +98,21 @@ mod tests {
         }
         let output_dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
 
-        for (dbc, owner_once, revealed_amount) in output_dbcs.iter() {
+        for (dbc, revealed_amount) in output_dbcs.iter() {
+            let (main_key, _, amount) = first_output_key_map.get(&dbc.id()).unwrap();
             let dbc_amount = revealed_amount.value();
-            assert!(output_amounts.iter().any(|amount| *amount == dbc_amount));
-            assert!(dbc
-                .verify(
-                    &owner_once.owner_base().secret_key().unwrap(),
-                    &spentbook_node.key_manager,
-                )
-                .is_ok());
+            assert!(amount.as_nano() == dbc_amount);
+            assert!(dbc.verify(main_key, &spentbook_node.key_manager,).is_ok());
         }
 
         assert_eq!(
             {
                 let mut sum: u64 = 0;
-                for (dbc, owner_once, _) in output_dbcs.iter() {
+                for (dbc, _) in output_dbcs.iter() {
+                    let (main_key, _, _) = first_output_key_map.get(&dbc.id()).unwrap();
                     // note: we could just use revealed amount provided by DbcBuilder::build()
                     // but we go further to verify the correct value is encrypted in the Dbc.
-                    sum += dbc
-                        .revealed_amount(&owner_once.owner_base().secret_key()?)?
-                        .value()
+                    sum += dbc.revealed_amount(main_key)?.value()
                 }
                 sum
             },
@@ -136,20 +133,15 @@ mod tests {
     ) -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
 
-        // let input_amounts = TinyVec(vec![TinyInt(0)]);
-        // let output_amounts = TinyVec(vec![TinyInt(0)]);
-        // let invalid_spent_proofs = TinyVec(vec![TinyInt(0)]);
-        // let num_decoy_inputs = TinyInt(0);
-
-        let mut input_amounts =
+        let mut first_input_amounts =
             Vec::from_iter(input_amounts.into_iter().map(TinyInt::coerce::<u64>));
-        input_amounts
-            .push(mock::GenesisMaterial::GENESIS_AMOUNT - input_amounts.iter().sum::<u64>());
+        first_input_amounts
+            .push(mock::GenesisMaterial::GENESIS_AMOUNT - first_input_amounts.iter().sum::<u64>());
 
-        let mut output_amounts =
+        let mut first_output_amounts =
             Vec::from_iter(output_amounts.into_iter().map(TinyInt::coerce::<u64>));
-        output_amounts
-            .push(mock::GenesisMaterial::GENESIS_AMOUNT - output_amounts.iter().sum::<u64>());
+        first_output_amounts
+            .push(mock::GenesisMaterial::GENESIS_AMOUNT - first_output_amounts.iter().sum::<u64>());
 
         let invalid_spent_proofs = BTreeSet::from_iter(
             invalid_spent_proofs
@@ -157,16 +149,26 @@ mod tests {
                 .map(TinyInt::coerce::<usize>),
         );
 
-        let (mut spentbook_node, genesis_dbc, _genesis, _revealed_amount) =
+        let (mut spentbook_node, genesis_dbc, genesis_material, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
+        let mut first_output_key_map: BTreeMap<_, _> = first_input_amounts
+            .iter()
+            .map(|amount| {
+                let main_key = MainKey::random_from_rng(&mut rng);
+                let dbc_id_src = main_key.random_dbc_id_src(&mut rng);
+                let dbc_id = dbc_id_src.dbc_id();
+                (dbc_id, (main_key, dbc_id_src, Token::from_nano(*amount)))
+            })
+            .collect();
+
         let mut dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(&genesis_dbc, &genesis_dbc.owner_base().secret_key()?)?
-            .add_outputs_by_amount(input_amounts.iter().map(|amount| {
-                let owner_once =
-                    OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
-                (Token::from_nano(*amount), owner_once)
-            }))
+            .add_input_dbc(&genesis_dbc, &genesis_material.main_key)?
+            .add_outputs(
+                first_output_key_map
+                    .values()
+                    .map(|(_, dbc_id_src, amount)| (*amount, *dbc_id_src)),
+            )
             .build(&mut rng)?;
 
         // note: we make this a closure to keep the spentbook loop readable.
@@ -174,17 +176,17 @@ mod tests {
             match error {
                 Error::Transaction(crate::transaction::Error::InconsistentDbcTransaction) => {
                     // Verify that no inputs were present and we got correct verification error.
-                    assert!(input_amounts.is_empty());
+                    assert!(first_input_amounts.is_empty());
                     Ok(())
                 }
                 _ => Err(error),
             }
         };
 
-        for (public_key, tx) in dbc_builder.inputs() {
+        for (input_id, tx) in dbc_builder.inputs() {
             // normally spentbook verifies the tx, but here we skip it in order check reissue results.
             let spent_proof_share = match spentbook_node.log_spent_and_skip_tx_verification(
-                public_key,
+                input_id,
                 Hash::default(),
                 tx.clone(),
             ) {
@@ -196,36 +198,43 @@ mod tests {
                 .add_spent_transaction(tx);
         }
 
-        let output_dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
+        let first_output_dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
 
         // The outputs become inputs for next tx.
-        let inputs_dbcs: Vec<(Dbc, SecretKey)> = output_dbcs
+        let second_inputs_dbcs: Vec<(Dbc, MainKey)> = first_output_dbcs
             .into_iter()
-            .map(|(dbc, owner_once, _revealed_amount)| {
-                (dbc, owner_once.owner_base().secret_key().unwrap())
+            .map(|(dbc, _revealed_amount)| {
+                let (main_key, _, _) = first_output_key_map.remove(&dbc.id()).unwrap();
+                (dbc, main_key)
             })
             .collect();
 
-        let owners: Vec<OwnerOnce> = (0..=output_amounts.len())
-            .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng))
+        let second_inputs_dbcs_len = second_inputs_dbcs.len();
+
+        let second_output_key_map: BTreeMap<_, _> = first_output_amounts
+            .iter()
+            .map(|amount| {
+                let main_key = MainKey::random_from_rng(&mut rng);
+                let dbc_id_src = main_key.random_dbc_id_src(&mut rng);
+                let dbc_id = dbc_id_src.dbc_id();
+                (dbc_id, (main_key, dbc_id_src, Token::from_nano(*amount)))
+            })
             .collect();
 
-        let outputs = output_amounts
-            .clone()
-            .into_iter()
-            .map(Token::from_nano)
-            .zip(owners);
-
         let mut dbc_builder = TransactionBuilder::default()
-            .add_inputs_dbc(inputs_dbcs.clone())?
-            .add_outputs_by_amount(outputs)
+            .add_inputs_dbc(second_inputs_dbcs)?
+            .add_outputs(
+                second_output_key_map
+                    .values()
+                    .map(|(_, dbc_id_src, amount)| (*amount, *dbc_id_src)),
+            )
             .build(&mut rng)?;
 
-        let dbc_output_amounts = output_amounts.clone();
+        let dbc_output_amounts = first_output_amounts.clone();
         let output_total_amount: u64 = dbc_output_amounts.iter().sum();
 
-        assert_eq!(inputs_dbcs.len(), dbc_builder.transaction.inputs.len());
-        assert_eq!(inputs_dbcs.len(), dbc_builder.inputs().len());
+        assert_eq!(second_inputs_dbcs_len, dbc_builder.transaction.inputs.len());
+        assert_eq!(second_inputs_dbcs_len, dbc_builder.inputs().len());
 
         let tx2 = dbc_builder.transaction.clone();
 
@@ -235,9 +244,9 @@ mod tests {
             match error {
                 Error::SpentProofInputLenMismatch { expected, .. } => {
                     assert!(!invalid_spent_proofs.is_empty());
-                    assert_eq!(inputs_dbcs.len(), expected);
+                    assert_eq!(second_inputs_dbcs_len, expected);
                 }
-                Error::SpentProofInputPublicKeyMismatch => {
+                Error::SpentProofInputIdMismatch => {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
                 Error::Transaction(crate::transaction::Error::InconsistentDbcTransaction) => {
@@ -247,22 +256,22 @@ mod tests {
                         // The error occurs because there is no output
                         // to match against the input amount, and also no way to
                         // know that the input amount is zero.
-                        assert!(output_amounts.is_empty());
-                        assert_eq!(input_amounts.iter().sum::<u64>(), 0);
-                        assert!(!input_amounts.is_empty());
+                        assert!(first_output_amounts.is_empty());
+                        assert_eq!(first_input_amounts.iter().sum::<u64>(), 0);
+                        assert!(!first_input_amounts.is_empty());
                     }
                 }
                 Error::Transaction(crate::transaction::Error::TransactionMustHaveAnInput) => {
-                    assert_eq!(input_amounts.len(), 0);
+                    assert_eq!(first_input_amounts.len(), 0);
                 }
                 Error::FailedSignature => {
                     assert!(!invalid_spent_proofs.is_empty());
                 }
-                Error::InvalidSpentProofSignature(key) => {
+                Error::InvalidSpentProofSignature(dbc_id) => {
                     let idx = tx2
                         .inputs
                         .iter()
-                        .position(|i| Into::<PublicKey>::into(i.public_key) == key)
+                        .position(|i| i.dbc_id() == dbc_id)
                         .unwrap();
                     assert!(invalid_spent_proofs.contains(&idx));
                 }
@@ -271,7 +280,7 @@ mod tests {
             Ok(())
         };
 
-        for (i, (public_key, tx)) in dbc_builder.inputs().into_iter().enumerate() {
+        for (i, (input_id, tx)) in dbc_builder.inputs().into_iter().enumerate() {
             let is_invalid_spent_proof = invalid_spent_proofs.contains(&i);
 
             let spent_proof_share = match i % 2 {
@@ -282,13 +291,13 @@ mod tests {
                 1 if is_invalid_spent_proof => {
                     // spentbook verifies the tx.  If an error, we need to check it
                     let spent_proof_share =
-                        match spentbook_node.log_spent(public_key, tx.clone(), Hash::default()) {
+                        match spentbook_node.log_spent(input_id, tx.clone(), Hash::default()) {
                             Ok(s) => s,
                             Err(e) => return check_error(e),
                         };
                     SpentProofShare {
                         content: SpentProofContent {
-                            public_key: *spent_proof_share.public_key(),
+                            dbc_id: *spent_proof_share.dbc_id(),
                             transaction_hash: spent_proof_share.transaction_hash(),
                             reason: Hash::default(),
                             blinded_amount: *spent_proof_share.blinded_amount(),
@@ -304,7 +313,7 @@ mod tests {
                 }
                 _ => {
                     // spentbook verifies the tx.
-                    match spentbook_node.log_spent(public_key, tx.clone(), Hash::default()) {
+                    match spentbook_node.log_spent(input_id, tx.clone(), Hash::default()) {
                         Ok(s) => s,
                         Err(e) => return check_error(e),
                     }
@@ -319,26 +328,24 @@ mod tests {
         let many_to_many_result = dbc_builder.build(&spentbook_node.key_manager);
 
         match many_to_many_result {
-            Ok(output_dbcs) => {
+            Ok(second_output_dbcs) => {
                 assert_eq!(mock::GenesisMaterial::GENESIS_AMOUNT, output_total_amount);
                 assert!(invalid_spent_proofs.iter().all(|i| i >= &tx2.inputs.len()));
 
                 // The output amounts (from params) should correspond to the actual output_amounts
                 assert_eq!(
                     BTreeSet::from_iter(dbc_output_amounts.clone()),
-                    BTreeSet::from_iter(output_amounts)
+                    BTreeSet::from_iter(first_output_amounts)
                 );
 
-                for (dbc, owner_once, _revealed_amount) in output_dbcs.iter() {
-                    let dbc_confirm_result = dbc.verify(
-                        &owner_once.owner_base().secret_key()?,
-                        &spentbook_node.key_manager,
-                    );
+                for (dbc, _revealed_amount) in second_output_dbcs.iter() {
+                    let (main_key, _, _) = second_output_key_map.get(&dbc.id()).unwrap();
+                    let dbc_confirm_result = dbc.verify(main_key, &spentbook_node.key_manager);
                     assert!(dbc_confirm_result.is_ok());
                 }
 
                 assert_eq!(
-                    output_dbcs
+                    second_output_dbcs
                         .iter()
                         .enumerate()
                         .map(|(idx, _dbc)| { dbc_output_amounts[idx] })
@@ -370,22 +377,22 @@ mod tests {
         let (spentbook_node, _genesis_dbc, _genesis, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(&mut rng)?;
 
-        let output1_owner =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+        let output_1_main_key = MainKey::random_from_rng(&mut rng);
+        let output_1_dbc_id_src = output_1_main_key.random_dbc_id_src(&mut rng);
 
         let dbc_builder = TransactionBuilder::default()
-            .add_output_by_amount(Token::from_nano(100), output1_owner.clone())
+            .add_output(Token::from_nano(100), output_1_dbc_id_src)
             .build(&mut rng)?;
 
         let revealed_amount = dbc_builder.revealed_outputs[0].revealed_amount;
-        let secret_key = output1_owner.as_owner().secret_key()?;
+        let secret_key = output_1_main_key.derive_key(&output_1_dbc_id_src.derivation_index);
 
-        let output2_owner =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+        let output_2_main_key = MainKey::random_from_rng(&mut rng);
+        let output_2_dbc_id_src = output_2_main_key.random_dbc_id_src(&mut rng);
 
         let fraud_dbc_builder = TransactionBuilder::default()
             .add_input_by_secrets(secret_key, revealed_amount)
-            .add_output_by_amount(Token::from_nano(100), output2_owner)
+            .add_output(Token::from_nano(100), output_2_dbc_id_src)
             .build(&mut rng)?;
 
         let result = fraud_dbc_builder.build(&spentbook_node.key_manager);
@@ -400,7 +407,7 @@ mod tests {
     ///
     /// Normally these should be the same, however a malicious user or buggy
     /// implementation could produce different values.  The spentbook never sees the
-    /// RevealedAmount and thus cannot detect or prevent this this situation.
+    /// RevealedAmount and thus cannot detect or prevent this situation.
     ///
     /// A correct spentbook implementation must verify the transaction before
     /// writing, including checking that (blinded) amounts are equal. So the spentbook
@@ -412,22 +419,22 @@ mod tests {
     ///
     /// Herein we do the following to test:
     ///
-    /// 1. produce a standard genesis DBC (a) with value 1000
-    /// 2. reissue genesis DBC (a) to Dbc (b)  with value 1000.
+    /// 1. Produce the genesis Dbc (a) with value 1000
+    /// 2. Reissue genesis Dbc (a) to Dbc (b) with value 1000.
     /// 3. modify b's revealed_amount.value to 2000, thereby creating b_fudged
     ///    (which a bad actor could pass to innocent recipient).
     /// 4. Check if the amounts match, using the provided API.
-    ///      assert that APIs report they do not match.
-    /// 5. create a tx with (b_fudged) as input, and Dbc (c) with amount 2000 as output.
+    ///      Assert that APIs report that they do not match.
+    /// 5. Create a tx with (b_fudged) as input, and Dbc (c) with amount 2000 as output.
     /// 6. Attempt to write this tx to the spentbook.
-    ///    This will fail because the input and output amounts are not equal.
+    ///      This will fail because the input and output amounts are not equal.
     /// 7. Force an invalid write to the spentbook
     /// 8. Attempt to write to spentbook again using the correct amount (1000).
-    ///    This will fail because b was already marked as spent in the spentbook.
-    ///    This demonstrates how an input can become burned if spentbook does
-    ///    not verify tx.
+    ///      This will fail because b was already marked as spent in the spentbook.
+    ///      This demonstrates how an input can become burned if spentbook does
+    ///      not verify tx.
     /// 9. Re-write spentbook log correctly using the correct amount.
-    ///   Verify that the write succeeds.
+    ///      Verify that the write succeeds.
     #[test]
     fn test_mismatched_amount_and_blinded_amount() -> Result<(), Error> {
         // ----------
@@ -437,66 +444,63 @@ mod tests {
 
         let output_amount = 1000;
 
-        let (mut spentbook, genesis_dbc, starting_dbc, _change_dbc) =
-            crate::dbc::tests::generate_bearer_dbc_of_value(output_amount, &mut rng)?;
+        let (mut spentbook, genesis_dbc, a_dbc, a_main_key) =
+            crate::dbc::tests::generate_dbc_and_its_main_key(output_amount, &mut rng)?;
 
         // ----------
-        // 2. spend genesis DBC (a) to Dbc (b)  with value 1000.
+        // 2. Spend genesis Dbc (a) to Dbc (b) with value 1000.
         // ----------
 
-        // First we create a regular/valid tx reissuing the genesis DBC to a
-        // single new DBC of the same amount.
+        // First we create a regular/valid tx reissuing the genesis Dbc to a
+        // single new Dbc of the same amount.
 
-        let output_owner =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+        let b_output_main_key = MainKey::random_from_rng(&mut rng);
+        let b_output_dbc_id_src = b_output_main_key.random_dbc_id_src(&mut rng);
 
         let mut dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(&starting_dbc, &starting_dbc.owner_base().secret_key()?)?
-            .add_output_by_amount(Token::from_nano(output_amount), output_owner.clone())
+            .add_input_dbc(&a_dbc, &a_main_key)?
+            .add_output(Token::from_nano(output_amount), b_output_dbc_id_src)
             .build(&mut rng)?;
 
-        for (public_key, tx) in dbc_builder.inputs() {
+        for (input_id, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
                 .add_spent_proof_share(spentbook.log_spent(
-                    public_key,
+                    input_id,
                     tx.clone(),
                     Hash::default(),
                 )?)
                 .add_spent_transaction(tx);
         }
 
-        // build output DBCs
-        let output_dbcs = dbc_builder.build(&spentbook.key_manager)?;
-        let (b_dbc, ..) = &output_dbcs[0];
+        // build output Dbcs
+        let b_output_dbcs = dbc_builder.build(&spentbook.key_manager)?;
+        let (b_dbc, ..) = &b_output_dbcs[0];
 
         // ----------
-        // 3. modify b's revealed_amount.value to AMOUNT/2, thereby creating b_fudged
+        // 3. Modify b's revealed_amount.value to AMOUNT * 2, thereby creating b_fudged
         //    (which a bad actor could pass to innocent recipient).
         // ----------
 
         // Replace the encrypted secret amount with an encrypted secret claiming
         // twice the amount.
-        let starting_revealed_amount = starting_dbc.revealed_amount_bearer()?;
-        let fudged_revealed_amount = RevealedAmount::from((
-            starting_revealed_amount.value() * 2, // Claim we are paying twice the amount
-            starting_revealed_amount.blinding_factor(), // Use the real blinding factor
+        let a_revealed_amount = a_dbc.revealed_amount(&a_main_key)?;
+        let b_fudged_revealed_amount = RevealedAmount::from((
+            a_revealed_amount.value() * 2, // Claim we are paying twice the amount.
+            a_revealed_amount.blinding_factor(), // Use the real blinding factor.
         ));
 
-        let (true_output_dbc, ..) = output_dbcs[0].clone();
-        let c = &true_output_dbc.content;
+        let (b_output_dbc, ..) = b_output_dbcs[0].clone();
 
-        let mut fudged_output_dbc = true_output_dbc.clone();
-        fudged_output_dbc.content = DbcContent::from((
-            c.owner_base.clone(),
-            output_owner.derivation_index,
-            fudged_revealed_amount,
+        let mut b_fudged_output_dbc = b_output_dbc.clone();
+        b_fudged_output_dbc.content = DbcContent::from((
+            &b_output_dbc_id_src.public_address,
+            &b_output_dbc_id_src.derivation_index,
+            b_fudged_revealed_amount,
         ));
 
         // obtain revealed amount (true and fudged)
-        let true_amount =
-            true_output_dbc.revealed_amount(&output_owner.owner_base().secret_key()?)?;
-        let fudged_amount =
-            fudged_output_dbc.revealed_amount(&output_owner.owner_base().secret_key()?)?;
+        let revealed_amount = b_output_dbc.revealed_amount(&b_output_main_key)?;
+        let fudged_amount = b_fudged_output_dbc.revealed_amount(&b_output_main_key)?;
 
         // confirm the amount is 2000.
         assert_eq!(fudged_amount.value(), output_amount * 2);
@@ -508,37 +512,28 @@ mod tests {
 
         // confirm the mis-match is detectable by the recipient who has the key to access the secrets.
         assert!(matches!(
-            fudged_output_dbc.verify(
-                &output_owner.owner_base().secret_key()?,
-                &spentbook.key_manager
-            ),
+            b_fudged_output_dbc.verify(&b_output_main_key, &spentbook.key_manager),
             Err(Error::BlindedAmountsDoNotMatch)
         ));
 
-        // confirm that the sum of output revealed does not match the blinded amount.
+        // Confirm that the sum of output revealed does not match the blinded amount.
         assert_ne!(
-            fudged_output_dbc
-                .revealed_amount(&output_owner.owner_base().secret_key()?)?
+            b_fudged_output_dbc
+                .revealed_amount(&b_output_main_key)?
                 .value(),
             output_amount
         );
 
         // ----------
-        // 5. create a tx with (b_fudged) as input, and Dbc (c) with amount 2000 as output.
+        // 5. Create a tx with (b_fudged) as input, and Dbc (c) with amount 2000 as output.
         // ----------
 
-        let output_owner =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+        let c_output_main_key = MainKey::random_from_rng(&mut rng);
+        let c_output_dbc_id_src = c_output_main_key.random_dbc_id_src(&mut rng);
 
         let mut dbc_builder_fudged = crate::TransactionBuilder::default()
-            .add_input_dbc(
-                &fudged_output_dbc,
-                &fudged_output_dbc.owner_base().secret_key()?,
-            )?
-            .add_output_by_amount(
-                Token::from_nano(fudged_amount.value()),
-                output_owner.clone(),
-            )
+            .add_input_dbc(&b_fudged_output_dbc, &b_output_main_key)?
+            .add_output(Token::from_nano(fudged_amount.value()), c_output_dbc_id_src)
             .build(&mut rng)?;
 
         // ----------
@@ -546,8 +541,8 @@ mod tests {
         //    This will fail because the input and output amounts are not equal.
         // ----------
 
-        for (public_key, tx) in dbc_builder_fudged.inputs() {
-            match spentbook.log_spent(public_key, tx, Hash::default()) {
+        for (input_id, tx) in dbc_builder_fudged.inputs() {
+            match spentbook.log_spent(input_id, tx, Hash::default()) {
                 Err(Error::Transaction(crate::transaction::Error::InvalidInputBlindedAmount)) => {}
                 _ => panic!(
                     "Expecting `Error::Transaction(transaction::Error::InvalidInputBlindedAmount)`"
@@ -560,11 +555,11 @@ mod tests {
         //    Subsequent verification will fail for the same reason as (6)
         // ----------
 
-        // normally spentbook verifies the tx, but here we skip it in order to obtain
+        // Normally spentbook verifies the tx, but here we skip it in order to obtain
         // a spentproof with an invalid tx.
-        for (public_key, tx) in dbc_builder_fudged.inputs() {
+        for (input_id, tx) in dbc_builder_fudged.inputs() {
             let spent_proof_share = spentbook.log_spent_and_skip_tx_verification(
-                public_key,
+                input_id,
                 Hash::default(),
                 tx.clone(),
             )?;
@@ -598,18 +593,21 @@ mod tests {
         // is doomed to fail also.  We can't write to the spentbook again
         // because entries are immutable.
 
-        let mut dbc_builder_true = TransactionBuilder::default()
+        let mut dbc_builder = TransactionBuilder::default()
             .add_input_by_secrets(
-                fudged_output_dbc.owner_once_bearer()?.secret_key()?,
-                true_amount,
+                b_output_main_key.derive_key(&b_output_dbc_id_src.derivation_index),
+                revealed_amount,
             )
-            .add_output_by_amount(Token::from_nano(true_amount.value()), output_owner)
+            .add_output(
+                Token::from_nano(revealed_amount.value()),
+                c_output_dbc_id_src,
+            )
             .build(&mut rng)?;
 
-        let dbc_builder_bad_proof = dbc_builder_true.clone();
-        for (public_key, tx) in dbc_builder_bad_proof.inputs() {
+        let dbc_builder_bad_proof = dbc_builder.clone();
+        for (input_id, tx) in dbc_builder_bad_proof.inputs() {
             let result =
-                spentbook.log_spent_and_skip_tx_verification(public_key, Hash::default(), tx);
+                spentbook.log_spent_and_skip_tx_verification(input_id, Hash::default(), tx);
 
             // The builder should return an error because the spentproof does not match the tx.
             match result {
@@ -637,25 +635,25 @@ mod tests {
         // Note that the new spentbook uses the same signing key as the original
         let mut new_spentbook = mock::SpentBookNode::from(spentbook.key_manager);
         let _genesis_spent_proof_share = new_spentbook.log_spent(
-            genesis_dbc.transaction.inputs[0].public_key,
+            genesis_dbc.transaction.inputs[0].dbc_id,
             genesis_dbc.transaction.clone(),
             Hash::default(),
         )?;
-        let _starting_spent_proof_share = new_spentbook.log_spent(
-            starting_dbc.transaction.inputs[0].public_key,
-            starting_dbc.transaction.clone(),
+        let _a_spent_proof_share = new_spentbook.log_spent(
+            a_dbc.transaction.inputs[0].dbc_id,
+            a_dbc.transaction.clone(),
             Hash::default(),
         )?;
-        let _spent_proof_share = new_spentbook.log_spent(
-            b_dbc.transaction.inputs[0].public_key,
+        let _b_spent_proof_share = new_spentbook.log_spent(
+            b_dbc.transaction.inputs[0].dbc_id,
             b_dbc.transaction.clone(),
             Hash::default(),
         )?;
 
-        for (public_key, tx) in dbc_builder_true.inputs() {
+        for (input_id, tx) in dbc_builder.inputs() {
             let spent_proof_share =
-                new_spentbook.log_spent(public_key, tx.clone(), Hash::default())?;
-            dbc_builder_true = dbc_builder_true
+                new_spentbook.log_spent(input_id, tx.clone(), Hash::default())?;
+            dbc_builder = dbc_builder
                 .add_spent_proof_share(spent_proof_share)
                 .add_spent_transaction(tx);
         }
@@ -665,7 +663,7 @@ mod tests {
         //
         // This simulates the situation where recipient wallet later obtains the correct
         // secrets and spends them.
-        let result = dbc_builder_true.build(&new_spentbook.key_manager);
+        let result = dbc_builder.build(&new_spentbook.key_manager);
 
         assert!(result.is_ok());
 

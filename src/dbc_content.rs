@@ -6,88 +6,84 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blsttc::{Ciphertext, SecretKey};
+use blsttc::Ciphertext;
 use tiny_keccak::{Hasher, Sha3};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{DerivationIndex, Owner, RevealedAmount};
-use crate::{Error, Hash, Result};
+use crate::dbc_id::PublicAddress;
+use crate::{DerivationIndex, MainKey, RevealedAmount};
+use crate::{Hash, Result};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DbcContent {
-    /// This is the owner's well-known key.  owner_base.public_key() may be published
-    /// and multiple payments sent to this key by various parties.  It is useful for
+    /// This is the PublicAddress to which tokens are send. The PublicAddress may be published
+    /// and multiple payments sent to this address by various parties.  It is useful for
     /// accepting donations, for example.
     ///
-    /// The SecretKey may or not be present.  If it is present, then the Dbc is considered
-    /// ownerless (aka bearer) and may be spent by anyone in possession of it.
+    /// The Dbc can only be spent by the party holding the MainKey that corresponds to the
+    /// PublicAddress, ie the Dbc recipient.
     ///
-    /// When the SecretKey is not present, then the Dbc can only be spent by the party
-    /// holding the SecretKey, ie the Dbc recipient that generated the PublicKey.
-    ///
-    /// This key is only a client/wallet concept. It is NOT actually used in the transaction
+    /// This PublicAddress is only a client/wallet concept. It is NOT actually used in the transaction
     /// and never seen by the Spentbook.
     ///
-    /// The "real" key used in the transaction is derived from this key using a random
-    /// derivation index, which is stored (encrypted) in owner_derivation_cipher.
-    pub owner_base: Owner,
+    /// The DbcId used in the transaction is derived from this PublicAddress using a random
+    /// derivation index, which is stored (encrypted) in derivation_index_cipher.
+    pub public_address: PublicAddress,
 
-    /// This indicates which index to use when deriving the publicly visible owner key of the
-    /// Dbc, from the hidden owner key, i.e. the owner base.
+    /// This indicates which index to use when deriving the DbcId of the
+    /// Dbc, from the PublicAddress.
     ///
-    /// This index is stored in encrypted form, and is encrypted to `owner_base.public_key()`.
-    /// So the true owner is unknown to anyone not in posession of `owner_base.secret_key()`.
-    pub owner_derivation_cipher: Ciphertext,
+    /// This index is stored in encrypted form, and is encrypted to the PublicAddress.
+    /// So the actual PublicAddress the tokens in this Dbc was sent to, is unknown to
+    /// anyone not in posession of the MainKey corresponding to the above mentioned PublicAddress.
+    pub derivation_index_cipher: Ciphertext,
 
-    /// This is the RevealedAmount encypted to the derived public key,
-    /// which can be obtained via:
-    ///   self.owner_base.derive(
-    ///     self.owner_base.secret_key().decrypt(self.owner_derivation.cipher()
-    ///   ).public_key()
+    /// This is the RevealedAmount encrypted to the DbcId.
+    /// The DbcId is obtained when having the derivation index, which is
+    /// gotten from the derivation_index_cipher, as described above. Then
+    /// the following fn can be called:
+    ///   self.public_address.new_dbc_id(derivation_index)
     pub revealed_amount_cipher: Ciphertext,
 }
 
 /// Represents the content of a DBC.
-impl From<(Owner, Ciphertext, Ciphertext)> for DbcContent {
+impl From<(PublicAddress, Ciphertext, Ciphertext)> for DbcContent {
     // Create a new DbcContent for signing.
-    fn from(params: (Owner, Ciphertext, Ciphertext)) -> Self {
-        let (owner_base, owner_derivation_cipher, revealed_amount_cipher) = params;
+    fn from(params: (PublicAddress, Ciphertext, Ciphertext)) -> Self {
+        let (public_address, derivation_index_cipher, revealed_amount_cipher) = params;
         Self {
-            owner_base,
-            owner_derivation_cipher,
+            public_address,
+            derivation_index_cipher,
             revealed_amount_cipher,
         }
     }
 }
 
 /// Represents the content of a DBC.
-impl From<(Owner, DerivationIndex, RevealedAmount)> for DbcContent {
+impl From<(&PublicAddress, &DerivationIndex, RevealedAmount)> for DbcContent {
     // Create a new DbcContent for signing.
-    fn from(params: (Owner, DerivationIndex, RevealedAmount)) -> Self {
-        let (owner_base, derivation_index, revealed_amount) = params;
+    fn from(params: (&PublicAddress, &DerivationIndex, RevealedAmount)) -> Self {
+        let (public_address, derivation_index, revealed_amount) = params;
 
-        let owner_derivation_cipher = owner_base.public_key().encrypt(derivation_index);
-        let revealed_amount_cipher = owner_base
-            .derive(&derivation_index)
-            .public_key()
-            .encrypt(revealed_amount.to_bytes());
+        let derivation_index_cipher = public_address.encrypt(derivation_index);
+        let revealed_amount_cipher = public_address
+            .new_dbc_id(derivation_index)
+            .encrypt(revealed_amount);
 
         Self {
-            owner_base,
-            owner_derivation_cipher,
+            public_address: *public_address,
+            derivation_index_cipher,
             revealed_amount_cipher,
         }
     }
 }
 
 impl DbcContent {
-    pub(crate) fn derivation_index(&self, base_sk: &SecretKey) -> Result<DerivationIndex> {
-        let bytes = base_sk
-            .decrypt(&self.owner_derivation_cipher)
-            .ok_or(Error::DecryptionBySecretKeyFailed)?;
+    pub(crate) fn derivation_index(&self, key_source: &MainKey) -> Result<DerivationIndex> {
+        let bytes = key_source.decrypt_index(&self.derivation_index_cipher)?;
 
         assert_eq!(bytes.len(), 32);
 
@@ -99,8 +95,8 @@ impl DbcContent {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
 
-        bytes.extend(&self.owner_base.to_bytes());
-        bytes.extend(&self.owner_derivation_cipher.to_bytes());
+        bytes.extend(&self.public_address.to_bytes());
+        bytes.extend(&self.derivation_index_cipher.to_bytes());
         bytes.extend(&self.revealed_amount_cipher.to_bytes());
 
         bytes

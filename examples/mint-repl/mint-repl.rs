@@ -18,13 +18,12 @@ use std::time::{Duration, SystemTime};
 
 use sn_dbc::{
     blsttc::{
-        poly::Poly, serde_impl::SerdeSecret, PublicKey, PublicKeySet, SecretKey, SecretKeySet,
-        SecretKeyShare,
+        poly::Poly, serde_impl::SerdeSecret, PublicKeySet, SecretKey, SecretKeySet, SecretKeyShare,
     },
     mock,
     rand::{seq::IteratorRandom, Rng},
-    rng, Dbc, DbcBuilder, DbcTransaction, Hash, OutputOwnerMap, Owner, OwnerOnce, RevealedAmount,
-    RevealedTransaction, Token, TransactionBuilder,
+    rng, Dbc, DbcBuilder, DbcTransaction, Hash, MainKey, RevealedAmount, RevealedTransaction,
+    Token, TransactionBuilder,
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -51,7 +50,7 @@ impl MintInfo {
     fn spentbook(&self) -> Result<&mock::SpentBookNode> {
         self.spentbook_nodes
             .get(0)
-            .ok_or_else(|| anyhow!("Spentbook not yet created"))
+            .ok_or_else(|| anyhow!("Spentbook not yet created."))
     }
 }
 
@@ -62,7 +61,6 @@ struct DbcTransactionRevealed {
     inner: DbcTransaction,
     revealed_amounts: Vec<RevealedAmount>,
     revealed_tx: RevealedTransaction,
-    output_owner_map: OutputOwnerMap,
 }
 
 /// program entry point and interactive command handler.
@@ -183,12 +181,11 @@ fn mk_new_mint(sks: SecretKeySet, poly: Poly) -> Result<MintInfo> {
 
     let num_spentbook_nodes = sks.threshold() + 1;
 
-    let (spentbook_nodes, genesis_dbc, _genesis, _revealed_amount) =
-        mock::GenesisBuilder::default()
-            .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
-            .build(&mut rng)?;
+    let (spentbook_nodes, genesis_dbc, genesis, _revealed_amount) = mock::GenesisBuilder::default()
+        .gen_spentbook_nodes_with_sks(num_spentbook_nodes, &sks)
+        .build(&mut rng)?;
 
-    let reissue_auto = ReissueAuto::from(vec![genesis_dbc.clone()]);
+    let reissue_auto = ReissueAuto::from(vec![(genesis.main_key, genesis_dbc.clone())]);
 
     // Bob's your uncle.
     Ok(MintInfo {
@@ -280,12 +277,9 @@ fn newkeys() -> Result<()> {
         let (_poly, sks) = mk_secret_key_set(num_signers - 1)?;
 
         println!("-- KeyPair #{idx} --");
+        println!("  MainKey: {}", to_be_hex(&SerdeSecret(sks.secret_key()))?);
         println!(
-            "  SecretKey: {}",
-            to_be_hex(&SerdeSecret(sks.secret_key()))?
-        );
-        println!(
-            "  PublicKey: {}",
+            "  PublicAddress: {}",
             to_be_hex(&sks.public_keys().public_key())?
         );
     }
@@ -352,7 +346,7 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
         mintinfo.secret_key_set.threshold()
     );
 
-    println!("\n-- Genesis DBC --\n");
+    println!("\n-- Genesis Dbc --\n");
     print_dbc_human(&mintinfo.genesis, true, None)?;
 
     for (i, spentbook) in mintinfo.spentbook_nodes.iter().enumerate() {
@@ -367,23 +361,24 @@ fn print_mintinfo_human(mintinfo: &MintInfo) -> Result<()> {
     Ok(())
 }
 
-/// displays Dbc in human readable form
-fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>) -> Result<()> {
+/// Displays Dbc in human readable form.
+fn print_dbc_human(dbc: &Dbc, outputs: bool, main_key: Option<SecretKey>) -> Result<()> {
     println!("hash: {}\n", encode(dbc.hash()));
 
-    let result = match secret_key_base {
-        // use base SecretKey from input param if available.
-        Some(key_base) => Some((dbc.owner_once(&key_base)?, dbc.revealed_amount(&key_base)?)),
-
-        // use base SecretKey from dbc if available (bearer)
-        None if dbc.is_bearer() => Some((dbc.owner_once_bearer()?, dbc.revealed_amount_bearer()?)),
-
+    let result = match main_key {
+        // Use MainKey from input param if available.
+        Some(key) => {
+            let main_key = MainKey::new(key);
+            let derived_key = dbc.derived_key(&main_key)?;
+            let revealed_amount = dbc.revealed_amount(&main_key)?;
+            Some((main_key, derived_key, revealed_amount))
+        }
         // Otherwise, have only the pubkey
         _ => None,
     };
 
     match result {
-        Some((ref _owner_once, ref revealed_amount)) => {
+        Some((ref _main_key, ref _derived_key, ref revealed_amount)) => {
             println!("*** Secrets (decrypted) ***");
             println!("     amount: {}\n", revealed_amount.value());
             println!(
@@ -392,22 +387,15 @@ fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>)
             );
         }
         None => {
-            println!("amount: unknown.  SecretKey not available\n");
+            println!("amount: unknown.  MainKey not available\n");
         }
     }
 
     println!(
-        "owner_base_public_key: {}\n",
-        to_be_hex(&dbc.owner_base().public_key())?
+        "recipient public address: {}\n",
+        to_be_hex(&dbc.public_address())?
     );
-    println!(
-        "owner_one_time_public_key: {}\n",
-        match result {
-            Some((owner_once, _)) => to_be_hex::<PublicKey>(&owner_once.public_key())?,
-            None => "SecretKey not available".to_string(),
-        }
-    );
-    println!("is_bearer: {:?}\n", dbc.is_bearer());
+    println!("dbc id: {}\n", to_be_hex(&dbc.id())?,);
 
     println!("inputs:");
     for i in &dbc.transaction.inputs {
@@ -426,10 +414,10 @@ fn print_dbc_human(dbc: &Dbc, outputs: bool, secret_key_base: Option<SecretKey>)
     Ok(())
 }
 
-/// handles decode command.
+/// Handles decode command.
 fn decode_input() -> Result<()> {
     let t = readline_prompt(
-        "\n[d: DBC, rt: DBC Transaction, pks: PublicKeySet, sks: SecretKeySet]\nType: ",
+        "\n[d: Dbc, rt: Dbc Transaction, pks: PublicKeySet, sks: SecretKeySet]\nType: ",
     )?;
     let input = readline_prompt_nl("\nPaste Data: ")?;
     let bytes = decode(input)?;
@@ -490,7 +478,7 @@ fn decode_input() -> Result<()> {
             println!("-- End SecretKeySet --\n");
         }
         "rt" => println!(
-            "\n\n-- DBC Transaction --\n\n{:#?}",
+            "\n\n-- Dbc Transaction --\n\n{:#?}",
             from_be_bytes::<DbcTransactionRevealed>(&bytes)?
         ),
         _ => println!("Unknown type!"),
@@ -500,7 +488,7 @@ fn decode_input() -> Result<()> {
     Ok(())
 }
 
-/// displays a welcome logo/banner for the app.
+/// Displays a welcome logo/banner for the app.
 fn print_logo() {
     println!(
         r#"
@@ -519,7 +507,7 @@ __)(_| |(/_ | \|(/_|_\/\/(_)| |<
 /// Implements verify command.  Validates signatures and that a
 /// DBC has not been double-spent.  Also checks if spent/unspent.
 fn verify(mintinfo: &MintInfo) -> Result<()> {
-    let dbc_input = readline_prompt_nl("\nInput DBC, or '[c]ancel': ")?;
+    let dbc_input = readline_prompt_nl("\nInput Dbc, or '[c]ancel': ")?;
     let dbc: Dbc = if dbc_input == "c" {
         println!("\nVerify cancelled\n");
         return Ok(());
@@ -527,27 +515,24 @@ fn verify(mintinfo: &MintInfo) -> Result<()> {
         from_be_hex(&dbc_input)?
     };
 
-    let secret_key = match dbc.owner_base() {
-        Owner::SecretKey(sk) => sk.inner().clone(),
-        Owner::PublicKey(_pk) => {
-            let sk_input = readline_prompt_nl("\nSecret Key, or '[c]ancel': ")?;
-            let sk: SecretKey = if dbc_input == "c" {
-                println!("\nVerify cancelled\n");
-                return Ok(());
-            } else {
-                from_be_hex(&sk_input)?
-            };
-            sk
-        }
+    let secret_key = {
+        let sk_input = readline_prompt_nl("\nMainKey, or '[c]ancel': ")?;
+        let sk: SecretKey = if dbc_input == "c" {
+            println!("\nVerify cancelled\n");
+            return Ok(());
+        } else {
+            from_be_hex(&sk_input)?
+        };
+        sk
     };
+    let main_key = MainKey::new(secret_key);
 
-    let pk = &dbc.public_key_from_base(&secret_key)?;
-    match dbc.verify(&secret_key, &mintinfo.spentbook()?.key_manager) {
-        Ok(_) => match mintinfo.spentbook()?.is_spent(pk) {
-            true => println!("\nThis DBC is unspendable.  (valid but has already been spent)\n"),
-            false => println!("\nThis DBC is spendable.   (valid and has not been spent)\n"),
+    match dbc.verify(&main_key, &mintinfo.spentbook()?.key_manager) {
+        Ok(_) => match mintinfo.spentbook()?.is_spent(&dbc.id()) {
+            true => println!("\nThis Dbc is unspendable.  (valid but has already been spent)\n"),
+            false => println!("\nThis Dbc is spendable.   (valid and has not been spent)\n"),
         },
-        Err(e) => println!("\nInvalid DBC.  {e}"),
+        Err(e) => println!("\nInvalid Dbc.  {e}"),
     }
 
     Ok(())
@@ -559,32 +544,27 @@ fn prepare_tx() -> Result<DbcBuilder> {
 
     // Get DBC inputs from user
     loop {
-        let dbc_input = readline_prompt_nl("\nInput DBC, or '[d]one': ")?;
+        let dbc_input = readline_prompt_nl("\nInput Dbc, or '[d]one': ")?;
         let dbc: Dbc = if dbc_input == "d" {
             break;
         } else {
             from_be_hex(&dbc_input)?
         };
 
-        let base_secret_key = match dbc.owner_base() {
-            Owner::SecretKey(sk) => sk.inner().clone(),
-            Owner::PublicKey(_) => {
-                println!("We need a SecretKey in order to decrypt the input amount.");
-                loop {
-                    let key = readline_prompt_nl("\nSecretKey: ")?;
-                    let secret: SecretKey = match from_be_hex(&key) {
-                        Ok(k) => k,
-                        Err(_e) => {
-                            println!("Invalid key");
-                            continue;
-                        }
-                    };
-                    break secret;
+        println!("We need a MainKey in order to decrypt the input amount.");
+        let main_key = loop {
+            let key = readline_prompt_nl("\nMainKey: ")?;
+            let secret_key: SecretKey = match from_be_hex(&key) {
+                Ok(key) => key,
+                Err(_e) => {
+                    println!("Invalid key");
+                    continue;
                 }
-            }
+            };
+            break MainKey::new(secret_key);
         };
 
-        tx_builder = tx_builder.add_input_dbc(&dbc, &base_secret_key)?;
+        tx_builder = tx_builder.add_input_dbc(&dbc, &main_key)?;
     }
 
     let mut i = 0u32;
@@ -616,42 +596,34 @@ fn prepare_tx() -> Result<DbcBuilder> {
             }
         }
 
-        let owner_base = loop {
-            let result =
-                match readline_prompt_nl("\n[b]earer, [o]wned, [r]andom bearer, or [c]ancel: ")?
-                    .as_str()
-                {
-                    "b" => match readline_prompt_nl("\nSecretKey, or '[c]ancel': ")?.as_str() {
-                        "c" => return Err(anyhow!("Cancelled")),
-                        line => {
-                            let secret_key: SecretKey = from_be_hex(line)?;
-                            Some(Owner::from(secret_key))
-                        }
-                    },
-                    "o" => match readline_prompt_nl("\nPublicKey, or '[c]ancel': ")?.as_str() {
-                        "c" => return Err(anyhow!("Cancelled")),
-                        line => {
-                            let public_key: PublicKey = from_be_hex(line)?;
-                            Some(Owner::from(public_key))
-                        }
-                    },
-                    "r" => Some(Owner::from_random_secret_key(&mut rng::thread_rng())),
+        let main_key = loop {
+            let result = match readline_prompt_nl("\n[f]rom secret key, [r]andom, or [c]ancel: ")?
+                .as_str()
+            {
+                "f" => match readline_prompt_nl("\nMainKey, or '[c]ancel': ")?.as_str() {
                     "c" => return Err(anyhow!("Cancelled")),
-                    _ => None,
-                };
+                    line => {
+                        let secret_key: SecretKey = from_be_hex(line)?;
+                        Some(MainKey::new(secret_key))
+                    }
+                },
+                "r" => Some(MainKey::random_from_rng(&mut rng::thread_rng())),
+                "c" => return Err(anyhow!("Cancelled")),
+                _ => None,
+            };
             if let Some(ob) = result {
                 break ob;
             }
         };
 
-        let owner_once = OwnerOnce::from_owner_base(owner_base, &mut rng::thread_rng());
+        let dbc_id_src = main_key.random_dbc_id_src(&mut rng::thread_rng());
 
-        tx_builder = tx_builder.add_output_by_amount(amount, owner_once);
+        tx_builder = tx_builder.add_output(amount, dbc_id_src);
 
         i += 1;
     }
 
-    println!("\n\nPreparing DBC Transaction...\n\n");
+    println!("\n\nPreparing Dbc Transaction...\n\n");
 
     let dbc_builder = tx_builder.build(rng::thread_rng())?;
 
@@ -662,7 +634,7 @@ fn write_to_spentbook(mintinfo: &mut MintInfo, mut dbc_builder: DbcBuilder) -> R
     println!("\nWriting to Spentbook...\n\n");
     for (public_key, tx) in dbc_builder.inputs() {
         for (sp_idx, sb_node) in mintinfo.spentbook_nodes.iter_mut().enumerate() {
-            println!("logging input {public_key:?}, spentbook {sp_idx}");
+            println!("Logging input {public_key:?}, spentbook {sp_idx}...");
             dbc_builder = dbc_builder.add_spent_proof_share(sb_node.log_spent(
                 public_key,
                 tx.clone(),
@@ -675,13 +647,17 @@ fn write_to_spentbook(mintinfo: &mut MintInfo, mut dbc_builder: DbcBuilder) -> R
 }
 
 struct ReissueAuto {
-    pub(crate) unspent_dbcs: HashMap<[u8; 32], Dbc>,
+    pub(crate) unspent_dbcs: HashMap<[u8; 32], (MainKey, Dbc)>,
 }
 
-impl From<Vec<Dbc>> for ReissueAuto {
-    fn from(unspent_dbcs: Vec<Dbc>) -> Self {
+impl From<Vec<(MainKey, Dbc)>> for ReissueAuto {
+    fn from(unspent_dbcs: Vec<(MainKey, Dbc)>) -> Self {
         Self {
-            unspent_dbcs: HashMap::from_iter(unspent_dbcs.into_iter().map(|d| (d.hash(), d))),
+            unspent_dbcs: HashMap::from_iter(
+                unspent_dbcs
+                    .into_iter()
+                    .map(|(main_key, dbc)| (dbc.hash(), (main_key, dbc))),
+            ),
         }
     }
 }
@@ -711,23 +687,24 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
         let num_inputs = rng.gen_range(min_inputs..max_inputs + 1);
 
         // subset of unspent_dbcs become the inputs for next reissue.
-        let input_dbcs: Vec<Dbc> = mintinfo
+        let input_dbcs: Vec<&(MainKey, Dbc)> = mintinfo
             .reissue_auto
             .unspent_dbcs
             .iter()
             .choose_multiple(&mut rng, num_inputs)
-            .iter()
-            .map(|(_, d)| (*d).clone())
+            .into_iter()
+            .map(|(_, d)| d)
             .collect();
 
         let mut tx_builder = TransactionBuilder::default();
 
-        for dbc in input_dbcs.iter() {
-            let base_sk = dbc.owner_base().secret_key()?;
-            tx_builder = tx_builder.add_input_dbc(dbc, &base_sk)?;
+        for (main_key, dbc) in input_dbcs.iter() {
+            tx_builder = tx_builder.add_input_dbc(dbc, main_key)?;
         }
 
         let inputs_sum = tx_builder.inputs_amount_sum();
+
+        let mut output_main_keys = BTreeMap::new();
 
         while tx_builder.outputs_amount_sum() < inputs_sum || tx_builder.outputs().is_empty() {
             let amount = if tx_builder.outputs().len() >= max_outputs - 1 {
@@ -745,10 +722,12 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
                 }
             };
 
-            let owner_once =
-                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+            let output_main_key = MainKey::random_from_rng(&mut rng);
+            let dbc_id_src = output_main_key.random_dbc_id_src(&mut rng);
+            let public_address = output_main_key.public_address();
+            let _ = output_main_keys.insert(public_address, output_main_key);
 
-            tx_builder = tx_builder.add_output_by_amount(Token::from_nano(amount), owner_once);
+            tx_builder = tx_builder.add_output(Token::from_nano(amount), dbc_id_src);
         }
 
         let mut dbc_builder = tx_builder.build(&mut rng)?;
@@ -766,13 +745,16 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             }
         }
         let outputs = match &input_dbcs[..] {
-            [dbc] if dbc == &mintinfo.genesis => dbc_builder.build_without_verifying()?,
+            [(_, dbc)] if dbc == &mintinfo.genesis => dbc_builder.build_without_verifying()?,
             _ => dbc_builder.build(&mintinfo.spentbook()?.key_manager)?,
         };
         let output_dbcs: Vec<Dbc> = outputs.into_iter().map(|(dbc, ..)| dbc).collect();
 
-        for dbc in input_dbcs.iter() {
-            mintinfo.reissue_auto.unspent_dbcs.remove(&dbc.hash());
+        let input_dbcs_len = input_dbcs.len();
+
+        let input_dbc_hashes: Vec<_> = input_dbcs.into_iter().map(|(_, dbc)| dbc.hash()).collect();
+        for hash in input_dbc_hashes {
+            mintinfo.reissue_auto.unspent_dbcs.remove(&hash);
         }
 
         let iter_duration = iter_time_start.elapsed().unwrap();
@@ -780,7 +762,7 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
 
         println!(
             "{:>6} -> {:<8}  {:<22} {:<10}         {:<10}     {:<10}",
-            input_dbcs.len(),
+            input_dbcs_len,
             output_dbcs.len(),
             inputs_sum,
             fd(wallet_duration),
@@ -788,10 +770,19 @@ fn reissue_auto_cli(mintinfo: &mut MintInfo) -> Result<()> {
             fd(iter_duration),
         );
 
-        mintinfo
-            .reissue_auto
-            .unspent_dbcs
-            .extend(output_dbcs.iter().map(|d| (d.hash(), d.clone())));
+        let output_dbcs_and_main_keys: Vec<_> = output_dbcs
+            .into_iter()
+            .map(|dbc| {
+                let public_address = *dbc.public_address();
+                (dbc, output_main_keys.remove(&public_address).unwrap())
+            })
+            .collect();
+
+        mintinfo.reissue_auto.unspent_dbcs.extend(
+            output_dbcs_and_main_keys
+                .into_iter()
+                .map(|(dbc, main_key)| (dbc.hash(), (main_key, dbc))),
+        );
     }
 
     Ok(())
@@ -814,7 +805,7 @@ fn reissue(mintinfo: &mut MintInfo, dbc_builder: DbcBuilder) -> Result<()> {
     let output_dbcs = dbc_builder.build(&mintinfo.spentbook_nodes[0].key_manager)?;
 
     // for each output, construct Dbc and display
-    for (dbc, _owner_once, _revealed_amount) in output_dbcs.iter() {
+    for (dbc, _revealed_amount) in output_dbcs.iter() {
         println!("\n-- Begin DBC --");
         print_dbc_human(dbc, false, None)?;
         println!("-- End DBC --\n");
