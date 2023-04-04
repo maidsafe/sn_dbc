@@ -6,70 +6,66 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use blsttc::{PublicKey, SecretKey};
 use std::{collections::BTreeSet, convert::TryFrom};
 use tiny_keccak::{Hasher, Sha3};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use crate::dbc_id::PublicAddress;
 use crate::transaction::{BlindedOutput, DbcTransaction, RevealedAmount, RevealedInput};
 use crate::{
-    BlindedAmount, DbcContent, DerivationIndex, Error, Hash, Owner, Result, SpentProof,
-    SpentProofKeyVerifier, TransactionVerifier,
+    BlindedAmount, DbcContent, DbcId, DerivationIndex, DerivedKey, Error, Hash, MainKey, Result,
+    SpentProof, SpentProofKeyVerifier, TransactionVerifier,
 };
 
 /// Represents a Digital Bearer Certificate (Dbc).
 ///
-/// A Dbc may be owned or bearer.
+/// A Dbc is like a check. Only the recipient can spend it.
 ///
-/// An owned Dbc is like a check.  Only the recipient can spend it.
-/// A bearer Dbc is like cash.  Anyone in possession of it can spend it.
+/// A Dbc has a PublicAddress representing the recipient of the Dbc.
 ///
-/// An owned Dbc includes a PublicKey representing the Owner.
-/// A bearer Dbc includes a SecretKey representing the Owner.
+/// An PublicAddress consists of a PublicKey.
+/// The user who receives payments to this PublicAddress, will be holding
+/// a MainKey - a secret key, which corresponds to the PublicAddress.
 ///
-/// An Owner consists of either a SecretKey (with implicit PublicKey) or a PublicKey.
+/// The PublicAddress can be given out to multiple parties and
+/// multiple Dbcs can share the same PublicAddress.
 ///
-/// The included Owner is called an Owner Base.  The public key can be
-/// given out to multiple parties and thus multiple Dbc can share
-/// the same Owner Base.
+/// The Spentbook never sees the PublicAddress. Instead, when a
+/// transaction output dbc is created for a given PublicAddress, a random
+/// derivation index is generated and used to derive a DbcId, which will be
+/// used for this new dbc.
 ///
-/// The Spentbook never sees the Owner Base.  Instead, when a
-/// transaction Output is created for a given Owner Base, a random derivation
-/// index is generated and used to derive a one-time-use Owner Once.
+/// The DbcId is a unique identifier of a Dbc.
+/// So there can only ever be one Dbc with that id, previously, now and forever.
+/// The DbcId consists of a PublicKey. To unlock the tokens of the Dbc,
+/// the corresponding DerivedKey (consists of a SecretKey) must be used.
+/// It is derived from the MainKey, in the same way as the DbcId was derived
+/// from the PublicAddress to get the DbcId.
 ///
-/// The Owner Once is used for a single transaction only and must be unique
-/// within the transaction as well as globally for the output DBC's to be spendable.
+/// So, there are two important pairs to conceptually be aware of.
+/// The MainKey and PublicAddress is a unique pair of a user, where the MainKey
+/// is held secret, and the PublicAddress is given to all and anyone who wishes to send tokens to you.
+/// A sender of tokens will derive the DbcId from the PublicAddress, which will identify the Dbc that
+/// holds the tokens going to the recipient. The sender does this using a derivation index.
+/// The recipient of the tokens, will use the same derivation index, to derive the DerivedKey
+/// from the MainKey. The DerivedKey and DbcId pair is the second important pair.
+/// For an outsider, there is no way to associate either the DerivedKey or the DbcId to the PublicAddress
+/// (or for that matter to the MainKey, if they were ever to see it, which they shouldn't of course).
+/// Only by having the derivation index, which is only known to sender and recipient, can such a connection be made.
 ///
-/// Separate methods are available for Owned and Bearer DBCs.
-///
-/// To spend or work with an Owned Dbc, wallet software must obtain the corresponding
-/// SecretKey from the user, and then call an API function that accepts a SecretKey for
-/// the Owner Base.
-///
-/// To spend or work with a Bearer Dbc, wallet software can either:
-///  1. use the bearer API methods that do not require a SecretKey, eg:
-///        `dbc.revealed_amount_bearer()`
-///
-///  -- or --
-///
-///  2. obtain the Owner Base SecretKey from the Dbc and then call
-///     the Owner API methods that require a SecretKey.   eg:
-///       `dbc.revealed_amount(&dbc.dbc.owner_base().secret_key()?)`
-///
-/// Sometimes the latter method can be better when working with mixed
-/// types of Dbcs.  A useful pattern is to check up-front if the Dbc is bearer
-/// or not and obtain the SecretKey from the Dbc itself (bearer) or
-/// from the user (owned).  Subsequent code is then the same for both
-/// types.
+/// To spend or work with a Dbc, wallet software must obtain the corresponding
+/// MainKey from the user, and then call an API function that accepts a MainKey,
+/// eg: `dbc.revealed_amount(&main_key)`
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Dbc {
-    /// Encrypted information for and about this DBC's owner
+    /// The id of this Dbc. It is unique, and there can never
+    /// be another Dbc with the same id. It used in SpentProofs.
+    pub id: DbcId,
+    /// Encrypted information for and about the recipient of this Dbc.
     pub content: DbcContent,
-    /// The public key (owner) of this DBC, used for SpentProofs
-    pub public_key: PublicKey,
     /// The transaction where this DBC was created
     pub transaction: DbcTransaction,
     /// The transaction's input's SpentProofs
@@ -79,65 +75,38 @@ pub struct Dbc {
 }
 
 impl Dbc {
-    // returns owner base from which one-time-use keypair is derived.
-    pub fn owner_base(&self) -> &Owner {
-        &self.content.owner_base
+    /// Return the id of this Dbc.
+    pub fn id(&self) -> DbcId {
+        self.id
     }
 
-    /// returns derived one-time-use owner using SecretKey supplied by caller.
-    /// will return an error if the supplied SecretKey does not match the
-    /// Dbc owner's public key.
-    pub fn owner_once(&self, base_sk: &SecretKey) -> Result<Owner> {
-        if base_sk.public_key() != self.owner_base().public_key() {
-            return Err(Error::SecretKeyDoesNotMatchPublicKey);
+    // returns public address from which dbc id is derived.
+    pub fn public_address(&self) -> &PublicAddress {
+        &self.content.public_address
+    }
+
+    /// Returns derived dbc key using MainKey supplied by caller.
+    /// Will return an error if the supplied MainKey does not match the
+    /// Dbc PublicAddress.
+    pub fn derived_key(&self, main_key: &MainKey) -> Result<DerivedKey> {
+        if &main_key.public_address() != self.public_address() {
+            return Err(Error::MainKeyDoesNotMatchPublicAddress);
         }
-
-        Ok(Owner::from(
-            base_sk.derive_child(&self.derivation_index(base_sk)?),
-        ))
+        Ok(main_key.derive_key(&self.derivation_index(main_key)?))
     }
 
-    /// returns derived one-time-use owner using SecretKey stored in bearer Dbc.
-    /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn owner_once_bearer(&self) -> Result<Owner> {
-        self.owner_once(&self.owner_base().secret_key()?)
-    }
-
-    /// returns derivation index used to derive one-time-use keypair from owner base
-    pub fn derivation_index(&self, base_sk: &SecretKey) -> Result<DerivationIndex> {
-        self.content.derivation_index(base_sk)
-    }
-
-    /// returns derivation index used to derive one-time-use keypair from owner base
-    /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn derivation_index_bearer(&self) -> Result<DerivationIndex> {
-        self.derivation_index(&self.owner_base().secret_key()?)
-    }
-
-    /// returns true if owner base includes a SecretKey.
-    ///
-    /// If the SecretKey is present, this Dbc can be spent by anyone in
-    /// possession of it, making it a true "Bearer" instrument.
-    ///
-    /// If the SecretKey is not present, then only the person(s) holding
-    /// the SecretKey matching the PublicKey can spend it.
-    pub fn is_bearer(&self) -> bool {
-        self.owner_base().has_secret_key()
+    /// Return the derivation index that was used to derive DbcId and corresponding DerivedKey of a Dbc.
+    pub fn derivation_index(&self, main_key: &MainKey) -> Result<DerivationIndex> {
+        self.content.derivation_index(main_key)
     }
 
     /// Decrypt and return the revealed amount.
-    pub fn revealed_amount(&self, base_sk: &SecretKey) -> Result<RevealedAmount> {
-        let sk = self.owner_once(base_sk)?.secret_key()?;
-        RevealedAmount::try_from((&sk, &self.content.revealed_amount_cipher))
+    pub fn revealed_amount(&self, main_key: &MainKey) -> Result<RevealedAmount> {
+        let derived_key = self.derived_key(main_key)?;
+        RevealedAmount::try_from((&derived_key, &self.content.revealed_amount_cipher))
     }
 
-    /// Decrypt and return the RevealedAmount, only if this Dbc is a bearer.
-    /// Thus, it will return an error if a SecretKey is not available.
-    pub fn revealed_amount_bearer(&self) -> Result<RevealedAmount> {
-        self.revealed_amount(&self.owner_base().secret_key()?)
-    }
-
-    /// returns the reason (if any) why this dbc was spent
+    /// Return the reason (if any) why this Dbc was spent.
     pub fn reason(&self) -> Option<Hash> {
         let reason = self.inputs_spent_proofs.iter().next()?.reason();
         if reason == Hash::default() {
@@ -147,54 +116,27 @@ impl Dbc {
         }
     }
 
-    /// returns PublicKey for the owner's derived public key
-    /// This is useful for checking if a Dbc has been spent.
-    /// This should return the same thing as the public_key() method
-    pub fn public_key_from_base(&self, base_sk: &SecretKey) -> Result<PublicKey> {
-        let secret_key = self.owner_once(base_sk)?.secret_key()?;
-        Ok(secret_key.public_key())
-    }
-
-    /// Return public key of this Dbc.
-    pub fn public_key(&self) -> PublicKey {
-        self.public_key
-    }
-
     /// Return the blinded amount for this Dbc.
     pub fn blinded_amount(&self) -> Result<BlindedAmount> {
         Ok(self
             .transaction
             .outputs
             .iter()
-            .find(|o| &self.public_key() == o.public_key())
+            .find(|o| &self.id() == o.dbc_id())
             .ok_or(Error::BlindedOutputNotFound)?
             .blinded_amount())
     }
 
-    /// returns PublicKey for the owner's derived public key
-    /// This is useful for checking if a Dbc has been spent.
-    /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn public_key_from_base_bearer(&self) -> Result<PublicKey> {
-        self.public_key_from_base(&self.owner_base().secret_key()?)
-    }
-
-    /// returns a TrueInput that represents this Dbc for use as
+    /// Return the input that represents this Dbc for use as
     /// a transaction input.
-    pub fn as_revealed_input(&self, base_sk: &SecretKey) -> Result<RevealedInput> {
+    pub fn as_revealed_input(&self, main_key: &MainKey) -> Result<RevealedInput> {
         Ok(RevealedInput::new(
-            self.owner_once(base_sk)?.secret_key()?,
-            self.revealed_amount(base_sk)?,
+            self.derived_key(main_key)?,
+            self.revealed_amount(main_key)?,
         ))
     }
 
-    /// returns a TrueInput that represents this Dbc for use as
-    /// a transaction input.
-    /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn as_revealed_input_bearer(&self) -> Result<RevealedInput> {
-        self.as_revealed_input(&self.owner_base().secret_key()?)
-    }
-
-    /// Generate hash of this DBC
+    /// Generate the hash of this Dbc
     pub fn hash(&self) -> [u8; 32] {
         let mut sha3 = Sha3::v256();
 
@@ -232,18 +174,18 @@ impl Dbc {
     /// description of how to handle Error::BlindedAmountsDoNotMatch
     pub fn verify<K: SpentProofKeyVerifier>(
         &self,
-        base_sk: &SecretKey,
+        main_key: &MainKey,
         verifier: &K,
     ) -> Result<(), Error> {
         TransactionVerifier::verify(verifier, &self.transaction, &self.inputs_spent_proofs)?;
 
-        let owner = self.owner_once(base_sk)?.public_key();
+        let dbc_id = self.derived_key(main_key)?.dbc_id();
 
         if !self
             .transaction
             .outputs
             .iter()
-            .any(|o| owner.eq(o.public_key()))
+            .any(|o| dbc_id.eq(o.dbc_id()))
         {
             return Err(Error::DbcContentNotPresentInTransactionOutput);
         }
@@ -264,16 +206,10 @@ impl Dbc {
             None => s.reason() == Hash::default(),
         };
         if !self.inputs_spent_proofs.iter().all(reasons_are_equal) {
-            return Err(Error::SpentProofShareReasonMismatch(owner));
+            return Err(Error::SpentProofShareReasonMismatch(dbc_id));
         }
 
-        self.verify_amounts(base_sk)
-    }
-
-    /// bearer version of verify()
-    /// will return an error if the SecretKey is not available.  (not bearer)
-    pub fn verify_bearer<K: SpentProofKeyVerifier>(&self, verifier: &K) -> Result<(), Error> {
-        self.verify(&self.owner_base().secret_key()?, verifier)
+        self.verify_amounts(main_key)
     }
 
     /// Deserializes a `Dbc` represented as a hex string to a `Dbc`.
@@ -294,27 +230,6 @@ impl Dbc {
             bincode::serialize(&self).map_err(|e| Error::HexSerializationFailed(e.to_string()))?;
         serialized.reverse();
         Ok(hex::encode(serialized))
-    }
-
-    /// Convert this instance from owned to bearer by supplying the secret key for the
-    /// corresponding public key.
-    ///
-    /// Will return an error if this instance is already bearer or if the supplied secret key
-    /// doesn't match the public key.
-    pub fn to_bearer(&mut self, base_sk: &SecretKey) -> Result<(), Error> {
-        if self.is_bearer() {
-            return Err(Error::DbcBearerConversionFailed(
-                "this DBC is already bearer".to_string(),
-            ));
-        }
-        if base_sk.public_key() != self.owner_base().public_key() {
-            return Err(Error::DbcBearerConversionFailed(
-                "supplied secret key does not match the public key".to_string(),
-            ));
-        }
-        let owner = Owner::from(base_sk.clone());
-        self.content.owner_base = owner;
-        Ok(())
     }
 
     /// Checks if the encrypted amount + blinding factor in the Dbc equals
@@ -338,10 +253,10 @@ impl Dbc {
     /// If the merchant were to send the goods without first performing
     /// this check, then they could be stuck with an unspendable Dbc
     /// and no recourse.
-    pub(crate) fn verify_amounts(&self, base_sk: &SecretKey) -> Result<()> {
-        let revealed_amount: RevealedAmount = self.revealed_amount(base_sk)?;
+    pub(crate) fn verify_amounts(&self, main_key: &MainKey) -> Result<()> {
+        let revealed_amount: RevealedAmount = self.revealed_amount(main_key)?;
         let blinded_amount = revealed_amount.blinded_amount(&Default::default());
-        let blinded_amount_in_tx = self.blinded_output(base_sk)?.blinded_amount();
+        let blinded_amount_in_tx = self.blinded_output(main_key)?.blinded_amount();
 
         match blinded_amount == blinded_amount_in_tx {
             true => Ok(()),
@@ -351,12 +266,12 @@ impl Dbc {
 
     /// The blinded output for this Dbc, is found in
     /// the transaction that gave rise to this Dbc.
-    fn blinded_output(&self, base_sk: &SecretKey) -> Result<&BlindedOutput> {
-        let owner = self.owner_once(base_sk)?.public_key();
+    fn blinded_output(&self, main_key: &MainKey) -> Result<&BlindedOutput> {
+        let dbc_id = self.derived_key(main_key)?.dbc_id();
         self.transaction
             .outputs
             .iter()
-            .find(|o| owner.eq(o.public_key()))
+            .find(|o| dbc_id.eq(o.dbc_id()))
             .ok_or(Error::BlindedOutputNotFound)
     }
 }
@@ -365,47 +280,48 @@ impl Dbc {
 pub(crate) mod tests {
     use super::*;
 
+    use crate::dbc_id::{random_derivation_index, DbcIdSource};
     use crate::tests::{NonZeroTinyInt, TinyInt};
     use crate::transaction::{Output, RevealedTransaction};
     use crate::{
         mock,
         rand::{CryptoRng, RngCore},
-        DbcBuilder, Hash, Owner, OwnerOnce, SpentProofContent, Token,
+        DbcBuilder, Hash, SpentProofContent, Token,
     };
-    use blsttc::PublicKey;
+    use blsttc::{PublicKey, SecretKey};
     use bulletproofs::PedersenGens;
     use quickcheck_macros::quickcheck;
+    use std::collections::BTreeMap;
     use std::convert::TryInto;
 
     fn divide(amount: Token, n_ways: u8) -> impl Iterator<Item = Token> {
         (0..n_ways).map(move |i| {
             let equal_parts = amount.as_nano() / n_ways as u64;
             let leftover = amount.as_nano() % n_ways as u64;
-
             let odd_compensation = u64::from((i as u64) < leftover);
             Token::from_nano(equal_parts + odd_compensation)
         })
     }
 
     fn prepare_even_split(
-        dbc_owner: SecretKey,
+        derived_key: DerivedKey,
         revealed_amount: RevealedAmount,
         n_ways: u8,
-        output_owners: Vec<OwnerOnce>,
+        output_recipients: Vec<DbcIdSource>,
         spentbook_node: &mut mock::SpentBookNode,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<DbcBuilder> {
         let amount = Token::from_nano(revealed_amount.value());
 
         let mut dbc_builder = crate::TransactionBuilder::default()
-            .add_input_by_secrets(dbc_owner, revealed_amount)
-            .add_outputs_by_amount(divide(amount, n_ways).zip(output_owners.into_iter()))
+            .add_input_by_secrets(derived_key, revealed_amount)
+            .add_outputs(divide(amount, n_ways).zip(output_recipients.into_iter()))
             .build(rng)?;
 
-        for (public_key, tx) in dbc_builder.inputs() {
+        for (input_id, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
                 .add_spent_proof_share(spentbook_node.log_spent(
-                    public_key,
+                    input_id,
                     tx.clone(),
                     Hash::default(),
                 )?)
@@ -419,27 +335,24 @@ pub(crate) mod tests {
     fn from_hex_should_deserialize_a_hex_encoded_string_to_a_dbc() -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
         let amount = 1_530_000_000;
-        let owner_once =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+        let main_key = MainKey::random_from_rng(&mut rng);
+        let derivation_index = random_derivation_index(&mut rng);
+        let derived_key = main_key.derive_key(&derivation_index);
         let tx_material = RevealedTransaction {
             inputs: vec![],
-            outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
+            outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
         let (transaction, revealed_amounts) = tx_material
             .sign(&mut rng)
             .expect("Failed to sign transaction");
         let input_content = DbcContent::from((
-            owner_once.owner_base.clone(),
-            owner_once.derivation_index,
+            &main_key.public_address(),
+            &derivation_index,
             revealed_amounts[0].revealed_amount,
         ));
-        let public_key = owner_once
-            .owner_base
-            .derive(&owner_once.derivation_index)
-            .public_key();
         let dbc = Dbc {
             content: input_content,
-            public_key,
+            id: derived_key.dbc_id(),
             transaction,
             inputs_spent_proofs: Default::default(),
             inputs_spent_transactions: Default::default(),
@@ -448,7 +361,7 @@ pub(crate) mod tests {
         let hex = dbc.to_hex()?;
 
         let dbc = Dbc::from_hex(&hex)?;
-        let amount = dbc.revealed_amount_bearer()?.value();
+        let amount = dbc.revealed_amount(&main_key)?.value();
         assert_eq!(amount, 1_530_000_000);
         Ok(())
     }
@@ -457,27 +370,24 @@ pub(crate) mod tests {
     fn to_hex_should_serialize_a_dbc_to_a_hex_encoded_string() -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
         let amount = 100;
-        let owner_once =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+        let main_key = MainKey::random_from_rng(&mut rng);
+        let derivation_index = random_derivation_index(&mut rng);
+        let derived_key = main_key.derive_key(&derivation_index);
         let tx_material = RevealedTransaction {
             inputs: vec![],
-            outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
+            outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
         let (transaction, revealed_amounts) = tx_material
             .sign(&mut rng)
             .expect("Failed to sign transaction");
         let input_content = DbcContent::from((
-            owner_once.owner_base.clone(),
-            owner_once.derivation_index,
+            &main_key.public_address(),
+            &derivation_index,
             revealed_amounts[0].revealed_amount,
         ));
-        let public_key = owner_once
-            .owner_base
-            .derive(&owner_once.derivation_index)
-            .public_key();
         let dbc = Dbc {
+            id: derived_key.dbc_id(),
             content: input_content,
-            public_key,
             transaction,
             inputs_spent_proofs: Default::default(),
             inputs_spent_transactions: Default::default(),
@@ -486,49 +396,17 @@ pub(crate) mod tests {
         let hex = dbc.to_hex()?;
 
         let dbc_from_hex = Dbc::from_hex(&hex)?;
-        let left = dbc.revealed_amount_bearer()?.value();
-        let right = dbc_from_hex.revealed_amount_bearer()?.value();
+        let left = dbc.revealed_amount(&main_key)?.value();
+        let right = dbc_from_hex.revealed_amount(&main_key)?.value();
         assert_eq!(left, right);
         Ok(())
     }
 
     #[test]
-    fn to_bearer_should_convert_an_owned_dbc_to_bearer() -> Result<(), Error> {
+    fn as_revealed_input_should_error_if_dbc_id_is_not_derived_from_main_key() -> Result<(), Error>
+    {
         let mut rng = crate::rng::from_seed([0u8; 32]);
-        let (_, _, mut dbc, _) = generate_owned_dbc_of_value(
-            100,
-            "a7f2888a4ef621681eb8df4318ebe8c68504b50a33300e113466004de48834a3a0\
-            eab591077e173ec7f2e4e1261a6a98",
-            &mut rng,
-        )?;
-        let sk = get_secret_key_from_hex(
-            "d823b03be25ad306ce2c2ef8f67d8a49322ed2a8636de5dbf01f6cc3467dc91e",
-        )?;
-        dbc.to_bearer(&sk)?;
-        assert!(dbc.is_bearer());
-        Ok(())
-    }
-
-    #[test]
-    fn to_bearer_should_error_if_dbc_is_already_bearer() -> Result<(), Error> {
-        let mut rng = crate::rng::from_seed([0u8; 32]);
-        let (_, _, mut dbc, _) = generate_bearer_dbc_of_value(100, &mut rng)?;
-        let sk = get_secret_key_from_hex(
-            "d823b03be25ad306ce2c2ef8f67d8a49322ed2a8636de5dbf01f6cc3467dc91e",
-        )?;
-        let result = dbc.to_bearer(&sk);
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "Could not convert owned DBC to bearer: this DBC is already bearer"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn to_bearer_should_error_if_secret_key_does_not_match_public_key() -> Result<(), Error> {
-        let mut rng = crate::rng::from_seed([0u8; 32]);
-        let (_, _, mut dbc, _) = generate_owned_dbc_of_value(
+        let (_, _, (dbc, _)) = generate_dbc_of_value_from_pk_hex(
             100,
             "a14a1887c61f95d5bdf6d674da3032dad77f2168fe6bf5e282aa02394bd45f41f0\
             fe722b61fa94764da42a9b628701db",
@@ -537,11 +415,12 @@ pub(crate) mod tests {
         let sk = get_secret_key_from_hex(
             "d823b03be25ad306ce2c2ef8f67d8a49322ed2a8636de5dbf01f6cc3467dc91e",
         )?;
-        let result = dbc.to_bearer(&sk);
+        let main_key = MainKey::new(sk);
+        let result = dbc.as_revealed_input(&main_key);
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err().to_string(),
-            "Could not convert owned DBC to bearer: supplied secret key does not match the public key"
+            "Main key does not match public address."
         );
         Ok(())
     }
@@ -551,12 +430,13 @@ pub(crate) mod tests {
         let mut rng = crate::rng::from_seed([0u8; 32]);
         let amount = 100;
 
-        let owner_once =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+        let main_key = MainKey::random_from_rng(&mut rng);
+        let derivation_index = random_derivation_index(&mut rng);
+        let derived_key = main_key.derive_key(&derivation_index);
 
         let tx_material = RevealedTransaction {
             inputs: vec![],
-            outputs: vec![Output::new(owner_once.as_owner().public_key(), amount)],
+            outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
 
         let (transaction, revealed_amounts) = tx_material
@@ -566,18 +446,14 @@ pub(crate) mod tests {
         assert_eq!(revealed_amounts.len(), 1);
 
         let input_content = DbcContent::from((
-            owner_once.owner_base.clone(),
-            owner_once.derivation_index,
+            &main_key.public_address(),
+            &derivation_index,
             revealed_amounts[0].revealed_amount,
         ));
 
-        let public_key = owner_once
-            .owner_base
-            .derive(&owner_once.derivation_index)
-            .public_key();
         let dbc = Dbc {
+            id: derived_key.dbc_id(),
             content: input_content,
-            public_key,
             transaction,
             inputs_spent_proofs: Default::default(),
             inputs_spent_transactions: Default::default(),
@@ -587,7 +463,7 @@ pub(crate) mod tests {
         let key_manager = mock::KeyManager::from(mock::Signer::from(id));
 
         assert!(matches!(
-            dbc.verify(&owner_once.owner_base().secret_key()?, &key_manager),
+            dbc.verify(&main_key, &key_manager),
             Err(Error::Transaction(
                 crate::transaction::Error::TransactionMustHaveAnInput
             ))
@@ -625,18 +501,32 @@ pub(crate) mod tests {
         // because GENESIS_AMOUNT is u64::MAX (or could be) and later in the test
         // we add extra_output_amount to amount, which would otherwise
         // cause an integer overflow.
-        let (mut spentbook_node, _genesis_dbc, starting_dbc, _change_dbc) =
-            generate_bearer_dbc_of_value(amount, &mut rng)?;
+        let (mut spentbook_node, _genesis_dbc, starting_dbc, starting_main_key) =
+            generate_dbc_and_its_main_key(amount, &mut rng)?;
 
-        let input_owners: Vec<OwnerOnce> = (0..n_inputs.coerce())
-            .map(|_| OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng))
+        let mut output_main_keys: BTreeMap<DbcId, (MainKey, DerivationIndex)> = (0..n_inputs
+            .coerce())
+            .map(|_| (MainKey::random(), random_derivation_index(&mut rng)))
+            .map(|(main_key, derivation_index)| {
+                (
+                    main_key.derive_key(&derivation_index).dbc_id(),
+                    (main_key, derivation_index),
+                )
+            })
+            .collect();
+        let output_recipients = output_main_keys
+            .values()
+            .map(|(main_key, derivation_index)| DbcIdSource {
+                public_address: main_key.public_address(),
+                derivation_index: *derivation_index,
+            })
             .collect();
 
         let dbc_builder = prepare_even_split(
-            starting_dbc.owner_once_bearer()?.secret_key()?,
-            starting_dbc.revealed_amount_bearer()?,
+            starting_dbc.derived_key(&starting_main_key)?,
+            starting_dbc.revealed_amount(&starting_main_key)?,
             n_inputs.coerce(),
-            input_owners,
+            output_recipients,
             &mut spentbook_node,
             &mut rng,
         )?;
@@ -654,25 +544,34 @@ pub(crate) mod tests {
             .verify(&sp_first.spentbook_sig, sp_first.content.hash()));
 
         // The outputs become inputs for next tx.
-        let inputs: Vec<(Dbc, SecretKey)> = output_dbcs
+        let next_inputs: Vec<(Dbc, MainKey)> = output_dbcs
             .into_iter()
-            .map(|(dbc, owner_once, _revealed_amount)| {
-                (dbc, owner_once.owner_base().secret_key().unwrap())
+            .map(|(dbc, _revealed_amount)| {
+                let (main_key, _) = output_main_keys.remove(&dbc.id()).unwrap();
+                (dbc, main_key)
             })
             .collect();
 
-        let owner_once =
-            OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+        let next_output_main_key = MainKey::random_from_rng(&mut rng);
+        let next_output_derivation_index = random_derivation_index(&mut rng);
+        let next_output_derived_key =
+            next_output_main_key.derive_key(&next_output_derivation_index);
 
         let mut dbc_builder = crate::TransactionBuilder::default()
-            .add_inputs_dbc(inputs)?
-            .add_output_by_amount(Token::from_nano(amount), owner_once.clone())
+            .add_inputs_dbc(next_inputs)?
+            .add_output(
+                Token::from_nano(amount),
+                DbcIdSource {
+                    public_address: next_output_main_key.public_address(),
+                    derivation_index: next_output_derivation_index,
+                },
+            )
             .build(&mut rng)?;
 
-        for (public_key, tx) in dbc_builder.inputs() {
+        for (input_id, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
                 .add_spent_proof_share(spentbook_node.log_spent(
-                    public_key,
+                    input_id,
                     tx.clone(),
                     Hash::default(),
                 )?)
@@ -681,17 +580,18 @@ pub(crate) mod tests {
 
         // We must obtain the RevealedAmount for our output in order to
         // know the correct blinding factor when creating fuzzed_amt_secrets.
-        let output = dbc_builder.transaction.outputs.get(0).unwrap();
+        let next_output = dbc_builder.transaction.outputs.get(0).unwrap();
         let pc_gens = PedersenGens::default();
-        let output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> = dbc_builder
-            .revealed_outputs
+        let next_output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> =
+            dbc_builder
+                .revealed_outputs
+                .iter()
+                .map(|next_output| next_output.revealed_amount)
+                .map(|r| (r.blinded_amount(&pc_gens), r))
+                .collect();
+        let revealed_amount_list: Vec<RevealedAmount> = next_output_blinded_and_revealed_amounts
             .iter()
-            .map(|output| output.revealed_amount)
-            .map(|r| (r.blinded_amount(&pc_gens), r))
-            .collect();
-        let revealed_amount_list: Vec<RevealedAmount> = output_blinded_and_revealed_amounts
-            .iter()
-            .filter(|(c, _)| *c == output.blinded_amount())
+            .filter(|(c, _)| *c == next_output.blinded_amount())
             .map(|(_, r)| *r)
             .collect();
 
@@ -702,17 +602,22 @@ pub(crate) mod tests {
         let dbc_amount = fuzzed_revealed_amount.value();
 
         let fuzzed_content = DbcContent::from((
-            owner_once.owner_base.clone(),
-            owner_once.derivation_index,
+            &next_output_main_key.public_address(),
+            &next_output_derivation_index,
             fuzzed_revealed_amount,
         ));
 
-        let mut fuzzed_spent_proofs: BTreeSet<SpentProof> = BTreeSet::new();
+        let mut next_input_fuzzed_spent_proofs: BTreeSet<SpentProof> = BTreeSet::new();
 
-        let spent_proofs = dbc_builder.spent_proofs()?;
-        fuzzed_spent_proofs.extend(spent_proofs.iter().take(n_valid_sigs.coerce()).cloned());
+        let next_input_spent_proofs = dbc_builder.spent_proofs()?;
+        next_input_fuzzed_spent_proofs.extend(
+            next_input_spent_proofs
+                .iter()
+                .take(n_valid_sigs.coerce())
+                .cloned(),
+        );
 
-        let mut repeating_inputs = spent_proofs
+        let mut repeating_inputs = next_input_spent_proofs
             .iter()
             .cycle()
             // skip the valid sigs so that we don't immediately overwrite them
@@ -729,14 +634,14 @@ pub(crate) mod tests {
                     .combine_signatures(vec![sig_share.threshold_crypto()])
                     .unwrap();
 
-                let fuzzed_sp = SpentProof {
+                let fuzzed_spent_proof = SpentProof {
                     content: spent_proof.content.clone(),
                     spentbook_pub_key: key_manager.public_key_set().public_key(),
                     spentbook_sig: sig,
                 };
                 // note: existing items may be replaced.
                 println!("added wrong signer");
-                fuzzed_spent_proofs.insert(fuzzed_sp);
+                next_input_fuzzed_spent_proofs.insert(fuzzed_spent_proof);
             }
         }
 
@@ -750,13 +655,13 @@ pub(crate) mod tests {
                     .combine_signatures(vec![wrong_msg_sig_share.threshold_crypto()])
                     .unwrap();
 
-                let fuzzed_sp = SpentProof {
+                let fuzzed_spent_proof = SpentProof {
                     content: spent_proof.content.clone(),
                     spentbook_pub_key: spent_proof.spentbook_pub_key,
                     spentbook_sig: wrong_msg_sig,
                 };
                 // note: existing items may be replaced.
-                fuzzed_spent_proofs.insert(fuzzed_sp);
+                next_input_fuzzed_spent_proofs.insert(fuzzed_spent_proof);
             }
         }
 
@@ -766,9 +671,10 @@ pub(crate) mod tests {
         for _ in 0..n_extra_input_sigs.coerce() {
             if let Some(spent_proof) = repeating_inputs.next() {
                 let secret_key: SecretKey = Standard.sample(&mut rng);
+                let derived_key = DerivedKey::new(secret_key);
 
                 let content = SpentProofContent {
-                    public_key: secret_key.public_key(),
+                    dbc_id: derived_key.dbc_id(),
                     transaction_hash: spent_proof.transaction_hash(),
                     reason: Hash::default(),
                     blinded_amount: *spent_proof.blinded_amount(),
@@ -786,32 +692,27 @@ pub(crate) mod tests {
                     spentbook_pub_key: spent_proof.spentbook_pub_key,
                     spentbook_sig: sig,
                 };
-                fuzzed_spent_proofs.insert(fuzzed_sp);
+                next_input_fuzzed_spent_proofs.insert(fuzzed_sp);
             }
         }
 
-        let inputs_spent_transactions = dbc_builder.spent_transactions.values().cloned().collect();
+        let next_inputs_spent_transactions =
+            dbc_builder.spent_transactions.values().cloned().collect();
         let dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
         let (dbc_valid, ..) = &dbcs[0];
 
-        let public_key = owner_once
-            .owner_base
-            .derive(&owner_once.derivation_index)
-            .public_key();
         let dbc = Dbc {
+            id: next_output_derived_key.dbc_id(),
             content: fuzzed_content,
-            public_key,
             transaction: dbc_valid.transaction.clone(),
-            inputs_spent_proofs: fuzzed_spent_proofs,
-            inputs_spent_transactions,
+            inputs_spent_proofs: next_input_fuzzed_spent_proofs,
+            inputs_spent_transactions: next_inputs_spent_transactions,
         };
 
         let key_manager = &spentbook_node.key_manager;
-        let verification_res = dbc.verify(&owner_once.owner_base().secret_key()?, key_manager);
+        let verification_res = dbc.verify(&next_output_main_key, key_manager);
 
-        let dbc_owner = dbc
-            .owner_once(&owner_once.owner_base().secret_key()?)?
-            .public_key();
+        let dbc_id = dbc.derived_key(&next_output_main_key)?.dbc_id();
 
         match verification_res {
             Ok(()) => {
@@ -819,7 +720,7 @@ pub(crate) mod tests {
                     .transaction
                     .outputs
                     .iter()
-                    .any(|o| dbc_owner.eq(o.public_key())));
+                    .any(|o| dbc_id.eq(o.dbc_id())));
                 assert!(n_inputs.coerce::<u8>() > 0);
                 assert!(n_valid_sigs.coerce::<u8>() >= n_inputs.coerce::<u8>());
                 assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
@@ -834,7 +735,7 @@ pub(crate) mod tests {
                 assert_eq!(dbc.inputs_spent_proofs.len(), current);
                 assert_eq!(dbc.transaction.inputs.len(), expected);
             }
-            Err(Error::SpentProofInputPublicKeyMismatch) => {
+            Err(Error::SpentProofInputIdMismatch) => {
                 assert!(n_extra_input_sigs.coerce::<u8>() > 0);
             }
             Err(Error::DbcContentNotPresentInTransactionOutput) => {
@@ -842,7 +743,7 @@ pub(crate) mod tests {
                     .transaction
                     .outputs
                     .iter()
-                    .any(|o| dbc_owner.eq(o.public_key())));
+                    .any(|o| dbc_id.eq(o.dbc_id())));
             }
             Err(Error::Transaction(crate::transaction::Error::TransactionMustHaveAnInput)) => {
                 assert_eq!(n_inputs.coerce::<u8>(), 0);
@@ -873,18 +774,11 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    pub(crate) fn generate_bearer_dbc_of_value(
-        amount: u64,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
-        generate_dbc_of_value(amount, Owner::from_random_secret_key(rng), rng)
-    }
-
-    pub(crate) fn generate_owned_dbc_of_value(
+    pub(crate) fn generate_dbc_of_value_from_pk_hex(
         amount: u64,
         pk_hex: &str,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
+    ) -> Result<(mock::SpentBookNode, Dbc, (Dbc, Dbc))> {
         let pk_bytes =
             hex::decode(pk_hex).map_err(|e| Error::HexDeserializationFailed(e.to_string()))?;
         let pk_bytes: [u8; blsttc::PK_SIZE] = pk_bytes.try_into().unwrap_or_else(|v: Vec<u8>| {
@@ -895,16 +789,27 @@ pub(crate) mod tests {
             )
         });
         let pk = PublicKey::from_bytes(pk_bytes)?;
-        let owner = Owner::from(pk);
-        generate_dbc_of_value(amount, owner, rng)
+        let public_address = PublicAddress::new(pk);
+        generate_dbc_of_value(amount, public_address, rng)
+    }
+
+    pub(crate) fn generate_dbc_and_its_main_key(
+        amount: u64,
+        rng: &mut (impl RngCore + CryptoRng),
+    ) -> Result<(mock::SpentBookNode, Dbc, Dbc, MainKey)> {
+        let output_main_key = MainKey::random_from_rng(rng);
+        let output_public_address = output_main_key.public_address();
+        let (sb_node, genesis_dbc, (output_dbc, _change)) =
+            generate_dbc_of_value(amount, output_public_address, rng)?;
+        Ok((sb_node, genesis_dbc, output_dbc, output_main_key))
     }
 
     fn generate_dbc_of_value(
         amount: u64,
-        owner: Owner,
+        recipient: PublicAddress,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(mock::SpentBookNode, Dbc, Dbc, Dbc)> {
-        let (mut spentbook_node, genesis_dbc, _genesis_material, _revealed_amount) =
+    ) -> Result<(mock::SpentBookNode, Dbc, (Dbc, Dbc))> {
+        let (mut spentbook_node, genesis_dbc, genesis_material, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(rng)?;
 
         let output_amounts = vec![
@@ -914,20 +819,24 @@ pub(crate) mod tests {
 
         let mut dbc_builder = crate::TransactionBuilder::default()
             .add_input_by_secrets(
-                genesis_dbc.owner_once_bearer()?.secret_key()?,
-                genesis_dbc.revealed_amount_bearer()?,
+                genesis_material.derived_key,
+                genesis_dbc.revealed_amount(&genesis_material.main_key)?,
             )
-            .add_outputs_by_amount(
-                output_amounts
-                    .into_iter()
-                    .map(|amount| (amount, OwnerOnce::from_owner_base(owner.clone(), rng))),
-            )
+            .add_outputs(output_amounts.into_iter().map(|amount| {
+                (
+                    amount,
+                    DbcIdSource {
+                        public_address: recipient,
+                        derivation_index: random_derivation_index(rng),
+                    },
+                )
+            }))
             .build(rng)?;
 
-        for (public_key, tx) in dbc_builder.inputs() {
+        for (input_id, tx) in dbc_builder.inputs() {
             dbc_builder = dbc_builder
                 .add_spent_proof_share(spentbook_node.log_spent(
-                    public_key,
+                    input_id,
                     tx.clone(),
                     Hash::default(),
                 )?)
@@ -938,7 +847,7 @@ pub(crate) mod tests {
         let (starting_dbc, ..) = iter.next().unwrap();
         let (change_dbc, ..) = iter.next().unwrap();
 
-        Ok((spentbook_node, genesis_dbc, starting_dbc, change_dbc))
+        Ok((spentbook_node, genesis_dbc, (starting_dbc, change_dbc)))
     }
 
     fn get_secret_key_from_hex(sk_hex: &str) -> Result<SecretKey, Error> {

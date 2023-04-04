@@ -9,7 +9,7 @@
 use thiserror::Error;
 
 use crate::transaction;
-use crate::PublicKey;
+use crate::DbcId;
 
 /// Specialisation of `std::Result`.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -36,7 +36,7 @@ pub enum Error {
     UnrecognisedAuthority,
 
     #[error("Invalid SpentProof Signature for {0:?}")]
-    InvalidSpentProofSignature(PublicKey),
+    InvalidSpentProofSignature(DbcId),
 
     #[error("Transaction hash does not match the transaction signed by spentbook")]
     InvalidTransactionHash,
@@ -50,30 +50,30 @@ pub enum Error {
     #[error("Missing spent transaction for at least one of the spent proofs")]
     MissingSpentTransaction,
 
-    #[error("public key is not unique across all transaction outputs")]
-    PublicKeyNotUniqueAcrossOutputs,
+    #[error("DbcId is not unique across all transaction outputs")]
+    DbcIdNotUniqueAcrossOutputs,
 
     #[error(
         "The number of SpentProof ({current}) does not match the number of inputs ({expected})"
     )]
     SpentProofInputLenMismatch { current: usize, expected: usize },
 
+    #[error("Missing amount for dbc id: {0:?}. There must be exactly one amount per dbc id.")]
+    MissingAmountForDbcId(DbcId),
+
     #[error(
-        "Missing amount for public key: {0:?}. There must be exactly one amount per public key."
+        "Multiple amounts found for dbc id: {0:?}. There must be exactly one amount per dbc idy."
     )]
-    MissingAmountForPubkey(PublicKey),
+    MultipleAmountsForDbcId(DbcId),
 
-    #[error("Multiple amounts found for public key: {0:?}. There must be exactly one amount per public key.")]
-    MultipleAmountsForPubkey(PublicKey),
-
-    #[error("A SpentProof PublicKey does not match an MlsagSignature PublicKey")]
-    SpentProofInputPublicKeyMismatch,
+    #[error("A SpentProof DbcId does not match an MlsagSignature DbcId")]
+    SpentProofInputIdMismatch,
 
     #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
-    MissingSpentProofShare(PublicKey),
+    MissingSpentProofShare(DbcId),
 
     #[error("SpentProofShares for {0:?} have mismatching reasons")]
-    SpentProofShareReasonMismatch(PublicKey),
+    SpentProofShareReasonMismatch(DbcId),
 
     #[error("Decryption failed")]
     DecryptionBySecretKeyFailed,
@@ -84,23 +84,17 @@ pub enum Error {
     #[error("Blinded amounts do not match")]
     BlindedAmountsDoNotMatch,
 
-    #[error("Secret key unavailable")]
-    SecretKeyUnavailable,
+    #[error("DbcId not found")]
+    DbcIdNotFound,
 
-    #[error("Public key not found")]
-    PublicKeyNotFound,
-
-    #[error("Secret key does not match public key")]
-    SecretKeyDoesNotMatchPublicKey,
+    #[error("Main key does not match public address.")]
+    MainKeyDoesNotMatchPublicAddress,
 
     #[error("Could not deserialize specified hex string to a DBC: {0}")]
     HexDeserializationFailed(String),
 
     #[error("Could not serialize DBC to hex: {0}")]
     HexSerializationFailed(String),
-
-    #[error("Could not convert owned DBC to bearer: {0}")]
-    DbcBearerConversionFailed(String),
 
     #[error("Failed known key check")]
     FailedKnownKeyCheck(String),

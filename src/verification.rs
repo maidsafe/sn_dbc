@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::transaction::DbcTransaction;
-use crate::{BlindedAmount, Error, Hash, PublicKey, Result, SpentProof, SpentProofKeyVerifier};
+use crate::{BlindedAmount, DbcId, Error, Hash, Result, SpentProof, SpentProofKeyVerifier};
 use std::collections::BTreeSet;
 
 // Here we are putting transaction verification logic that is beyond
@@ -44,13 +44,10 @@ impl TransactionVerifier {
         let transaction_hash = Hash::from(transaction.hash());
 
         // Verify that each pubkey is unique in this transaction.
-        let pubkey_unique: BTreeSet<PublicKey> = transaction
-            .outputs
-            .iter()
-            .map(|o| (*o.public_key()))
-            .collect();
-        if pubkey_unique.len() != transaction.outputs.len() {
-            return Err(Error::PublicKeyNotUniqueAcrossOutputs);
+        let unique_dbc_ids: BTreeSet<DbcId> =
+            transaction.outputs.iter().map(|o| (*o.dbc_id())).collect();
+        if unique_dbc_ids.len() != transaction.outputs.len() {
+            return Err(Error::DbcIdNotUniqueAcrossOutputs);
         }
 
         // Verify that each input has a corresponding spent proof.
@@ -58,9 +55,9 @@ impl TransactionVerifier {
             if !transaction
                 .inputs
                 .iter()
-                .any(|m| Into::<PublicKey>::into(m.public_key) == *spent_proof.public_key())
+                .any(|m| m.dbc_id == *spent_proof.dbc_id())
             {
-                return Err(Error::SpentProofInputPublicKeyMismatch);
+                return Err(Error::SpentProofInputIdMismatch);
             }
         }
 
@@ -82,7 +79,7 @@ impl TransactionVerifier {
                 transaction
                     .inputs
                     .iter()
-                    .position(|m| Into::<PublicKey>::into(m.public_key) == *s.public_key())
+                    .position(|m| m.dbc_id == *s.dbc_id())
                     .map(|idx| (idx, s))
             })
             .collect();
@@ -110,8 +107,8 @@ pub fn get_blinded_amounts_from_transaction(
     tx: &DbcTransaction,
     spent_proofs: &BTreeSet<SpentProof>,
     spent_transactions: &BTreeSet<DbcTransaction>,
-) -> Result<Vec<(PublicKey, BlindedAmount)>> {
-    // get txs that are referenced by the spent proofs
+) -> Result<Vec<(DbcId, BlindedAmount)>> {
+    // Get txs that are referenced by the spent proofs.
     let mut referenced_spent_txs: Vec<&DbcTransaction> = vec![];
     for spent_prf in spent_proofs {
         for spent_tx in spent_transactions {
@@ -122,26 +119,26 @@ pub fn get_blinded_amounts_from_transaction(
         }
     }
 
-    // For each input's public key, look up the matching
+    // For each input's DbcId, look up the matching
     // blinded amount in those referenced Txs.
-    let mut tx_keys_and_blinded_amounts = Vec::<(PublicKey, BlindedAmount)>::new();
+    let mut tx_keys_and_blinded_amounts = Vec::<(DbcId, BlindedAmount)>::new();
     for input in &tx.inputs {
-        let input_pk = input.public_key();
+        let input_dbc_id = input.dbc_id();
 
         let matching_amounts: Vec<BlindedAmount> = referenced_spent_txs
             .iter()
             .flat_map(|tx| {
                 tx.outputs
                     .iter()
-                    .find(|output| output.public_key() == &input_pk)
+                    .find(|output| output.dbc_id() == &input_dbc_id)
                     .map(|output| output.blinded_amount())
             })
             .collect();
 
         match matching_amounts[..] {
-            [] => return Err(Error::MissingAmountForPubkey(input_pk)),
-            [one_amount] => tx_keys_and_blinded_amounts.push((input_pk, one_amount)),
-            [_, _, ..] => return Err(Error::MultipleAmountsForPubkey(input_pk)),
+            [] => return Err(Error::MissingAmountForDbcId(input_dbc_id)),
+            [one_amount] => tx_keys_and_blinded_amounts.push((input_dbc_id, one_amount)),
+            [_, _, ..] => return Err(Error::MultipleAmountsForDbcId(input_dbc_id)),
         }
     }
 

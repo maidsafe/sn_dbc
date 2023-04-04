@@ -11,32 +11,31 @@
 use sn_dbc::{
     mock,
     rand::{CryptoRng, RngCore},
-    rng, Dbc, Hash, Owner, OwnerOnce, Result, Token, TransactionVerifier,
+    random_derivation_index, rng, Dbc, DbcIdSource, Hash, MainKey, Result, Token,
+    TransactionVerifier,
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::collections::BTreeMap;
 
 const N_OUTPUTS: u64 = 100;
 
 fn bench_reissue_1_to_100(c: &mut Criterion) {
     let mut rng = rng::from_seed([0u8; 32]);
 
-    let (mut spentbook, starting_dbc) =
+    let (mut spentbook, (starting_dbc, starting_main_key)) =
         generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
-            starting_dbc
-                .owner_once_bearer()
-                .unwrap()
-                .secret_key()
-                .unwrap(),
-            starting_dbc.revealed_amount_bearer().unwrap(),
+            starting_dbc.derived_key(&starting_main_key).unwrap(),
+            starting_dbc.revealed_amount(&starting_main_key).unwrap(),
         )
-        .add_outputs_by_amount((0..N_OUTPUTS).map(|_| {
-            let owner_once =
-                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
-            (Token::from_nano(1), owner_once)
+        .add_outputs((0..N_OUTPUTS).map(|_| {
+            (
+                Token::from_nano(1),
+                MainKey::random_from_rng(&mut rng).random_dbc_id_src(&mut rng),
+            )
         }))
         .build(&mut rng)
         .unwrap();
@@ -72,23 +71,36 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 fn bench_reissue_100_to_1(c: &mut Criterion) {
     let mut rng = rng::from_seed([0u8; 32]);
 
-    let (mut spentbook_node, starting_dbc) =
+    let (mut spentbook_node, (starting_dbc, starting_main_key)) =
         generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
+
+    let outputs: BTreeMap<_, _> = (0..N_OUTPUTS)
+        .map(|_| {
+            let main_key = MainKey::random_from_rng(&mut rng);
+            let derivation_index = random_derivation_index(&mut rng);
+            let dbc_id = main_key.derive_key(&derivation_index).dbc_id();
+            (dbc_id, (main_key, derivation_index, Token::from_nano(1)))
+        })
+        .collect();
 
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
-            starting_dbc
-                .owner_once_bearer()
-                .unwrap()
-                .secret_key()
-                .unwrap(),
-            starting_dbc.revealed_amount_bearer().unwrap(),
+            starting_dbc.derived_key(&starting_main_key).unwrap(),
+            starting_dbc.revealed_amount(&starting_main_key).unwrap(),
         )
-        .add_outputs_by_amount((0..N_OUTPUTS).map(|_| {
-            let owner_once =
-                OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
-            (Token::from_nano(1), owner_once)
-        }))
+        .add_outputs(
+            outputs
+                .iter()
+                .map(|(_, (main_key, derivation_index, amount))| {
+                    (
+                        *amount,
+                        DbcIdSource {
+                            public_address: main_key.public_address(),
+                            derivation_index: *derivation_index,
+                        },
+                    )
+                }),
+        )
         .build(&mut rng)
         .unwrap();
 
@@ -100,18 +112,25 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     }
     let dbcs = dbc_builder.build(&spentbook_node.key_manager).unwrap();
 
-    let output_owner_once =
-        OwnerOnce::from_owner_base(Owner::from_random_secret_key(&mut rng), &mut rng);
+    let main_key = MainKey::random_from_rng(&mut rng);
+    let derivation_index = random_derivation_index(&mut rng);
 
     let mut merge_dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_inputs_by_secrets(
             dbcs.into_iter()
-                .map(|(_dbc, owner_once, revealed_amount)| {
-                    (owner_once.as_owner().secret_key().unwrap(), revealed_amount)
+                .map(|(dbc, revealed_amount)| {
+                    let (main_key, _, _) = outputs.get(&dbc.id()).unwrap();
+                    (dbc.derived_key(main_key).unwrap(), revealed_amount)
                 })
                 .collect(),
         )
-        .add_output_by_amount(Token::from_nano(N_OUTPUTS), output_owner_once)
+        .add_output(
+            Token::from_nano(N_OUTPUTS),
+            DbcIdSource {
+                public_address: main_key.public_address(),
+                derivation_index,
+            },
+        )
         .build(&mut rng)
         .unwrap();
 
@@ -146,8 +165,8 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 fn generate_dbc_of_value(
     amount: Token,
     rng: &mut (impl RngCore + CryptoRng),
-) -> Result<(mock::SpentBookNode, Dbc)> {
-    let (mut spentbook_node, genesis_dbc, _genesis_material, _revealed_amount) =
+) -> Result<(mock::SpentBookNode, (Dbc, MainKey))> {
+    let (mut spentbook_node, genesis_dbc, genesis_material, _revealed_amount) =
         mock::GenesisBuilder::init_genesis_single(rng)?;
 
     let output_amounts = vec![
@@ -155,14 +174,21 @@ fn generate_dbc_of_value(
         Token::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - amount.as_nano()),
     ];
 
+    let main_key = MainKey::random_from_rng(rng);
+
     let mut dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
-            genesis_dbc.owner_once_bearer()?.secret_key()?,
-            genesis_dbc.revealed_amount_bearer()?,
+            genesis_material.derived_key,
+            genesis_dbc.revealed_amount(&genesis_material.main_key)?,
         )
-        .add_outputs_by_amount(output_amounts.into_iter().map(|amount| {
-            let owner_once = OwnerOnce::from_owner_base(Owner::from_random_secret_key(rng), rng);
-            (amount, owner_once)
+        .add_outputs(output_amounts.into_iter().map(|amount| {
+            (
+                amount,
+                DbcIdSource {
+                    public_address: main_key.public_address(),
+                    derivation_index: random_derivation_index(rng),
+                },
+            )
         }))
         .build(rng)?;
 
@@ -177,7 +203,7 @@ fn generate_dbc_of_value(
         .next()
         .unwrap();
 
-    Ok((spentbook_node, starting_dbc))
+    Ok((spentbook_node, (starting_dbc, main_key)))
 }
 
 criterion_group! {

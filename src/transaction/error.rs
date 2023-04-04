@@ -20,6 +20,6 @@ pub enum Error {
     BulletProofs(#[from] bulletproofs::ProofError),
     #[error("The DBC transaction must have at least one input.")]
     TransactionMustHaveAnInput,
-    #[error("Public key is not unique across all transaction inputs.")]
-    PublicKeyNotUniqueAcrossInputs,
+    #[error("Dbc id is not unique across all transaction inputs.")]
+    DbcIdNotUniqueAcrossInputs,
 }

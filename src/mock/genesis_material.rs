@@ -6,15 +6,20 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::{Amount, Output, RevealedAmount, RevealedInput, RevealedTransaction};
-use crate::{Owner, OwnerOnce, PublicKey};
+use crate::{
+    dbc_id::DbcIdSource,
+    transaction::{Amount, Output, RevealedAmount, RevealedInput, RevealedTransaction},
+    DbcId, DerivedKey, MainKey,
+};
 use blsttc::IntoFr;
 
 /// represents all the inputs required to build the Genesis Dbc.
 pub struct GenesisMaterial {
-    pub revealed_tx: RevealedTransaction,
-    pub owner_once: OwnerOnce,
-    pub input_public_key: PublicKey,
+    pub input_dbc_id: DbcId,
+    pub genesis_tx: RevealedTransaction,
+    pub main_key: MainKey,
+    pub derived_key: DerivedKey, // unlocks the genesis dbc
+    pub dbc_id_src: DbcIdSource, // genesis dbc id is derived from these
 }
 
 impl GenesisMaterial {
@@ -28,48 +33,50 @@ impl Default for GenesisMaterial {
     /// It uses GenesisMaterial::GENESIS_AMOUNT by default
     fn default() -> Self {
         // Make a secret key for the input of Genesis Tx. (fictional Dbc)
-        // note that this represents the one-time-use key.
-        // (we have no need for the base key)
+        // note that this is the derived key.
+        // (we have no need for the main key)
         let input_sk_seed: u64 = 1234567890;
-        let input_sk = blsttc::SecretKey::from_mut(&mut input_sk_seed.into_fr());
+        let input_derived_key =
+            DerivedKey::new(blsttc::SecretKey::from_mut(&mut input_sk_seed.into_fr()));
 
         // Make a secret key for the output of Genesis Tx. (The Genesis Dbc)
-        // note that this represents the base key, from which one-time-use key is derived.
-        let output_sk = blsttc::SecretKey::random();
+        // note that this is the main key, from which we get a derived key.
+        let output_main_key = MainKey::random();
 
-        // OwnerOnce ties together the base key and one-time-use key.
-        let output_owner_once = OwnerOnce {
-            owner_base: Owner::from(output_sk.clone()),
-            derivation_index: [1; 32],
-        };
+        // Derivation index is the link between the DerivedKey and the MainKey.
+        let output_derivation_index = [1; 32];
+        let output_derived_key = output_main_key.derive_key(&output_derivation_index);
 
-        // note: we could call output_owner_once.owner().secret_key()
-        //       but this way avoids need for an unwrap()
-        let output_sk_once = output_sk.derive_child(&output_owner_once.derivation_index);
-
-        // build our TrueInput
+        // build our input
         let revealed_input = RevealedInput::new(
-            input_sk,
+            input_derived_key,
             RevealedAmount {
                 value: Self::GENESIS_AMOUNT,
                 blinding_factor: 42u32.into(), // just a random number
             },
         );
-        let input_public_key: PublicKey = revealed_input.public_key();
+        let input_dbc_id = revealed_input.dbc_id();
 
-        // build the genesis Transaction
-        let revealed_tx = RevealedTransaction {
+        // build the pre-genesis Transaction
+        let genesis_tx = RevealedTransaction {
             inputs: vec![revealed_input],
             outputs: vec![Output::new(
-                output_sk_once.public_key(),
+                output_derived_key.dbc_id(),
                 Self::GENESIS_AMOUNT,
             )],
         };
 
+        let output_dbc_id_src = DbcIdSource {
+            public_address: output_main_key.public_address(),
+            derivation_index: output_derivation_index,
+        };
+
         Self {
-            revealed_tx,
-            owner_once: output_owner_once,
-            input_public_key,
+            input_dbc_id, // the id of the fictional dbc being reissued to genesis dbc
+            genesis_tx,   // there genesis dbc was created
+            main_key: output_main_key,
+            derived_key: output_derived_key, // unlocks genesis
+            dbc_id_src: output_dbc_id_src,
         }
     }
 }

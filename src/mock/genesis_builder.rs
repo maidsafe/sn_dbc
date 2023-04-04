@@ -10,7 +10,7 @@ use super::GenesisMaterial;
 use crate::{
     mock,
     rand::{CryptoRng, RngCore},
-    Dbc, Hash, Result, RevealedAmount, TransactionBuilder,
+    Dbc, Hash, Result, RevealedAmount, Token, TransactionBuilder,
 };
 use blsttc::SecretKeySet;
 
@@ -80,17 +80,17 @@ impl GenesisBuilder {
     )> {
         let genesis_material = GenesisMaterial::default();
         let mut dbc_builder = TransactionBuilder::default()
-            .add_input(genesis_material.revealed_tx.inputs[0].clone())
+            .add_input(genesis_material.genesis_tx.inputs[0].clone())
             .add_output(
-                genesis_material.revealed_tx.outputs[0].clone(),
-                genesis_material.owner_once.clone(),
+                Token::from_nano(genesis_material.genesis_tx.outputs[0].amount),
+                genesis_material.dbc_id_src,
             )
             .build(rng)?;
 
-        for (public_key, tx) in dbc_builder.inputs() {
+        for (dbc_id, tx) in dbc_builder.inputs() {
             for spentbook_node in self.spentbook_nodes.iter_mut() {
                 dbc_builder = dbc_builder.add_spent_proof_share(spentbook_node.log_spent(
-                    public_key,
+                    dbc_id,
                     tx.clone(),
                     Hash::default(),
                 )?);
@@ -102,7 +102,7 @@ impl GenesisBuilder {
         // have the same public key.  (in the same section)
         let spentbook_node_arbitrary = &self.spentbook_nodes[0];
 
-        let (genesis_dbc, _owner_once, revealed_amount) = dbc_builder
+        let (genesis_dbc, revealed_amount) = dbc_builder
             .build(&spentbook_node_arbitrary.key_manager)?
             .into_iter()
             .next()

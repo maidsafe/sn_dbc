@@ -4,36 +4,26 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use blsttc::PublicKey;
 use bulletproofs::RangeProof;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::rand::{CryptoRng, RngCore};
-use crate::{Amount, BlindedAmount, RevealedAmount};
+use crate::{
+    RevealedAmount, {Amount, BlindedAmount, DbcId},
+};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Output {
-    pub public_key: PublicKey,
+    pub dbc_id: DbcId,
     pub amount: Amount,
 }
 
 impl Output {
-    pub fn new<G: Into<PublicKey>>(public_key: G, amount: Amount) -> Self {
-        Self {
-            public_key: public_key.into(),
-            amount,
-        }
-    }
-
-    pub fn public_key(&self) -> PublicKey {
-        self.public_key
-    }
-
-    pub fn amount(&self) -> Amount {
-        self.amount
+    pub fn new(dbc_id: DbcId, amount: Amount) -> Self {
+        Self { dbc_id, amount }
     }
 
     /// Generate a revealed amount, with random blinding factor, which will be used for an input in a tx.
@@ -48,14 +38,14 @@ impl Output {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct RevealedOutput {
-    pub public_key: PublicKey,
+    pub dbc_id: DbcId,
     pub revealed_amount: RevealedAmount,
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct BlindedOutput {
-    pub(super) public_key: PublicKey,
+    pub(super) dbc_id: DbcId,
     pub(super) range_proof: RangeProof,
     pub(super) blinded_amount: BlindedAmount,
 }
@@ -63,14 +53,14 @@ pub struct BlindedOutput {
 impl BlindedOutput {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
-        v.extend(self.public_key.to_bytes().as_ref());
+        v.extend(self.dbc_id.to_bytes().as_ref());
         v.extend(&self.range_proof.to_bytes());
         v.extend(self.blinded_amount.compress().as_bytes());
         v
     }
 
-    pub fn public_key(&self) -> &PublicKey {
-        &self.public_key
+    pub fn dbc_id(&self) -> &DbcId {
+        &self.dbc_id
     }
 
     pub fn range_proof(&self) -> &RangeProof {
