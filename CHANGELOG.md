@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [13.0.0](https://github.com/maidsafe/sn_dbc/compare/v12.0.0...v13.0.0) (2023-04-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* make bearer a user concern
+
+* make bearer a user concern ([eab9509](https://github.com/maidsafe/sn_dbc/commit/eab950938e01f407622e99d1621a5111bfab73be))
+
 ## [12.0.0](https://github.com/maidsafe/sn_dbc/compare/v11.0.1...v12.0.0) (2023-03-27)
 
 
