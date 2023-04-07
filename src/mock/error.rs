@@ -14,6 +14,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 /// Mock error variants.
 pub enum Error {
-    #[error("Key image has already been spent")]
-    PublicKeyAlreadySpent,
+    #[error("Dbc has already been spent")]
+    DbcAlreadySpent,
 }

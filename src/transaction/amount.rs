@@ -4,16 +4,11 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use crate::dbc_id::DerivedKeySet;
-use crate::rand::RngCore;
-use crate::{BlindedAmount, BlindingFactor, DerivedKey};
-use crate::{Error, Result};
+use crate::{rand::RngCore, BlindedAmount, BlindingFactor, DerivedKey, Error, Result};
 
-use blsttc::{
-    rand::CryptoRng, Ciphertext, DecryptionShare, IntoFr, PublicKey, PublicKeySet, SecretKeyShare,
-};
+use blsttc::{rand::CryptoRng, Ciphertext, PublicKey};
 use bulletproofs::PedersenGens;
-use std::{collections::BTreeMap, convert::TryFrom};
+use std::convert::TryFrom;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -127,55 +122,5 @@ impl TryFrom<(&DerivedKey, &Ciphertext)> for RevealedAmount {
     fn try_from(params: (&DerivedKey, &Ciphertext)) -> Result<Self> {
         let (derived_key, ciphertext) = params;
         derived_key.decrypt(ciphertext)
-    }
-}
-
-impl TryFrom<(&DerivedKeySet, &Ciphertext)> for RevealedAmount {
-    type Error = Error;
-
-    /// Decrypt RevealedAmount ciphertext using a DerivedKeySet.
-    fn try_from(params: (&DerivedKeySet, &Ciphertext)) -> Result<Self> {
-        let (derived_key_set, ciphertext) = params;
-        Self::try_from((&derived_key_set.derived_key(), ciphertext))
-    }
-}
-
-impl<I: IntoFr + Ord> TryFrom<(&PublicKeySet, &BTreeMap<I, SecretKeyShare>, &Ciphertext)>
-    for RevealedAmount
-{
-    type Error = Error;
-
-    /// Decrypt RevealedAmount ciphertext using [threshold + 1] SecretKeyShares.
-    fn try_from(
-        params: (&PublicKeySet, &BTreeMap<I, SecretKeyShare>, &Ciphertext),
-    ) -> Result<Self> {
-        let (public_key_set, secret_key_shares, ciphertext) = params;
-
-        let mut decryption_shares: BTreeMap<I, DecryptionShare> = Default::default();
-        for (idx, sec_share) in secret_key_shares.iter() {
-            let share = sec_share.decrypt_share_no_verify(ciphertext);
-            decryption_shares.insert(*idx, share);
-        }
-        Self::try_from((public_key_set, &decryption_shares, ciphertext))
-    }
-}
-
-impl<I: IntoFr + Ord> TryFrom<(&PublicKeySet, &BTreeMap<I, DecryptionShare>, &Ciphertext)>
-    for RevealedAmount
-{
-    type Error = Error;
-
-    /// Decrypt RevealedAmount using threshold+1 DecryptionShares.
-    ///
-    /// This fn should be used when keys (SecretKeyShare) are distributed across multiple parties.
-    /// In which case each party will need to call SecretKeyShare::decrypt_share() or
-    /// decrypt_share_no_verify() to generate a DecryptionShare and one party will need to
-    /// obtain/aggregate all the shares together somehow.
-    fn try_from(
-        params: (&PublicKeySet, &BTreeMap<I, DecryptionShare>, &Ciphertext),
-    ) -> Result<Self> {
-        let (public_key_set, decryption_shares, ciphertext) = params;
-        let bytes_vec = public_key_set.decrypt(decryption_shares, ciphertext)?;
-        Self::from_bytes_ref(&bytes_vec)
     }
 }

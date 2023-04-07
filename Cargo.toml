@@ -56,7 +56,3 @@ termios = "0.3.3"
 [[bench]]
 name = "reissue"
 harness = false
-
-[[example]]
-name = "mint-repl"
-path = "examples/mint-repl/mint-repl.rs"
