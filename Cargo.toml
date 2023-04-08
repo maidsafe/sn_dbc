@@ -1,6 +1,6 @@
 [package]
 name = "sn_dbc"
-version = "13.0.0"
+version = "14.0.0"
 description = "Safe Network DBC"
 license = "MIT OR BSD-3-Clause"
 repository = "https://github.com/maidsafe/sn_dbc"
@@ -22,27 +22,27 @@ hex = "0.4.3"
 merlin = "3.0.0"
 thiserror = "1.0.24"
 
-[dependencies.curve25519-dalek]
-package = "curve25519-dalek-ng"
-version = "4.1.1"
+  [dependencies.curve25519-dalek]
+  package = "curve25519-dalek-ng"
+  version = "4.1.1"
 
-[dependencies.serde]
-version = "1.0.133"
-features = [ "derive", "rc" ]
-optional = true
+  [dependencies.serde]
+  version = "1.0.133"
+  features = [ "derive", "rc" ]
+  optional = true
 
-[dependencies.tiny-keccak]
-features = [ "sha3" ]
-version = "2.0.0"
+  [dependencies.tiny-keccak]
+  features = [ "sha3" ]
+  version = "2.0.0"
 
 [dev-dependencies]
 criterion = "0.4.0"
 quickcheck_macros = "1"
 quickcheck = "1.0.3"
 
-[dev-dependencies.sn_dbc]
-path = "."
-features = [ "serdes", "mock" ]
+  [dev-dependencies.sn_dbc]
+  path = "."
+  features = [ "serdes", "mock" ]
 
 [target."cfg(unix)".dev-dependencies.pprof]
 version = "0.11.0"

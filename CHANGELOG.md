@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [14.0.0](https://github.com/maidsafe/sn_dbc/compare/v13.0.0...v14.0.0) (2023-04-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove consensus signatures
+
+### Features
+
+* remove consensus signatures ([4e3b38d](https://github.com/maidsafe/sn_dbc/commit/4e3b38d7c502b6096c60ac4a3b82b4f391104d9e))
+
 ## [13.0.0](https://github.com/maidsafe/sn_dbc/compare/v12.0.0...v13.0.0) (2023-04-05)
 
 
