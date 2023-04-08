@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::dbc_id::PublicAddress;
 use crate::transaction::{BlindedOutput, DbcTransaction, RevealedAmount, RevealedInput};
 use crate::{
-    BlindedAmount, DbcContent, DbcId, DerivationIndex, DerivedKey, Error, Hash, MainKey, Result,
-    SpentProof, SpentProofKeyVerifier, TransactionVerifier,
+    BlindedAmount, DbcCiphers, DbcId, DerivationIndex, DerivedKey, Error, Hash, MainKey, Result,
+    SignedSpend, TransactionVerifier,
 };
 
 /// Represents a Digital Bearer Certificate (Dbc).
@@ -32,7 +32,7 @@ use crate::{
 /// The PublicAddress can be given out to multiple parties and
 /// multiple Dbcs can share the same PublicAddress.
 ///
-/// The Spentbook never sees the PublicAddress. Instead, when a
+/// The spentbook nodes never sees the PublicAddress. Instead, when a
 /// transaction output dbc is created for a given PublicAddress, a random
 /// derivation index is generated and used to derive a DbcId, which will be
 /// used for this new dbc.
@@ -62,16 +62,14 @@ use crate::{
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Dbc {
     /// The id of this Dbc. It is unique, and there can never
-    /// be another Dbc with the same id. It used in SpentProofs.
+    /// be another Dbc with the same id. It used in SignedSpends.
     pub id: DbcId,
-    /// Encrypted information for and about the recipient of this Dbc.
-    pub content: DbcContent,
     /// The transaction where this DBC was created
-    pub transaction: DbcTransaction,
-    /// The transaction's input's SpentProofs
-    pub inputs_spent_proofs: BTreeSet<SpentProof>,
-    /// The transactions for each inputs
-    pub inputs_spent_transactions: BTreeSet<DbcTransaction>,
+    pub tx: DbcTransaction,
+    /// Encrypted information for and about the recipient of this Dbc.
+    pub ciphers: DbcCiphers,
+    /// The transaction's input's SignedSpends
+    pub signed_spends: BTreeSet<SignedSpend>,
 }
 
 impl Dbc {
@@ -80,12 +78,12 @@ impl Dbc {
         self.id
     }
 
-    // returns public address from which dbc id is derived.
+    // Return PublicAddress from which DbcId is derived.
     pub fn public_address(&self) -> &PublicAddress {
-        &self.content.public_address
+        &self.ciphers.public_address
     }
 
-    /// Returns derived dbc key using MainKey supplied by caller.
+    /// Return DerivedKey using MainKey supplied by caller.
     /// Will return an error if the supplied MainKey does not match the
     /// Dbc PublicAddress.
     pub fn derived_key(&self, main_key: &MainKey) -> Result<DerivedKey> {
@@ -97,29 +95,29 @@ impl Dbc {
 
     /// Return the derivation index that was used to derive DbcId and corresponding DerivedKey of a Dbc.
     pub fn derivation_index(&self, main_key: &MainKey) -> Result<DerivationIndex> {
-        self.content.derivation_index(main_key)
+        self.ciphers.derivation_index(main_key)
     }
 
     /// Decrypt and return the revealed amount.
     pub fn revealed_amount(&self, main_key: &MainKey) -> Result<RevealedAmount> {
         let derived_key = self.derived_key(main_key)?;
-        RevealedAmount::try_from((&derived_key, &self.content.revealed_amount_cipher))
+        RevealedAmount::try_from((&derived_key, &self.ciphers.revealed_amount_cipher))
     }
 
-    /// Return the reason (if any) why this Dbc was spent.
-    pub fn reason(&self) -> Option<Hash> {
-        let reason = self.inputs_spent_proofs.iter().next()?.reason();
-        if reason == Hash::default() {
-            None
-        } else {
-            Some(reason)
-        }
+    /// Return the reason why this Dbc was spent.
+    /// Will be the default Hash (empty) if reason is none.
+    pub fn reason(&self) -> Hash {
+        self.signed_spends
+            .iter()
+            .next()
+            .map(|c| c.reason())
+            .unwrap_or_default()
     }
 
-    /// Return the blinded amount for this Dbc.
+    /// Return the BlindedAmount for this Dbc.
     pub fn blinded_amount(&self) -> Result<BlindedAmount> {
         Ok(self
-            .transaction
+            .tx
             .outputs
             .iter()
             .find(|o| &self.id() == o.dbc_id())
@@ -140,16 +138,14 @@ impl Dbc {
     pub fn hash(&self) -> [u8; 32] {
         let mut sha3 = Sha3::v256();
 
-        sha3.update(&self.content.to_bytes());
-        sha3.update(&self.transaction.hash());
+        sha3.update(&self.tx.hash());
+        sha3.update(&self.ciphers.to_bytes());
 
-        for sp in self.inputs_spent_proofs.iter() {
+        for sp in self.signed_spends.iter() {
             sha3.update(&sp.to_bytes());
         }
 
-        for st in self.inputs_spent_transactions.iter() {
-            sha3.update(&st.to_bytes());
-        }
+        sha3.update(self.reason().as_ref());
 
         let mut hash = [0u8; 32];
         sha3.finalize(&mut hash);
@@ -161,10 +157,10 @@ impl Dbc {
     /// A Dbc recipient should call this immediately upon receipt.
     ///
     /// important: this will verify there is a matching transaction provided
-    /// for each SpentProof, although this does not check if the Dbc has been spent.
-    /// For that, one must query the SpentBook.
+    /// for each SignedSpend, although this does not check if the Dbc has been spent.
+    /// For that, one must query the spentbook nodes.
     ///
-    /// Note that the spentbook cannot perform this check.  Only the Dbc
+    /// Note that the spentbook nodes cannot perform this check.  Only the Dbc
     /// recipient (private key holder) can.
     ///
     /// see TransactionVerifier::verify() for a description of
@@ -172,41 +168,20 @@ impl Dbc {
     ///
     /// see comments for Dbc::verify_amounts() for a
     /// description of how to handle Error::BlindedAmountsDoNotMatch
-    pub fn verify<K: SpentProofKeyVerifier>(
-        &self,
-        main_key: &MainKey,
-        verifier: &K,
-    ) -> Result<(), Error> {
-        TransactionVerifier::verify(verifier, &self.transaction, &self.inputs_spent_proofs)?;
+    pub fn verify(&self, main_key: &MainKey) -> Result<(), Error> {
+        TransactionVerifier::verify(&self.tx, &self.signed_spends)?;
 
         let dbc_id = self.derived_key(main_key)?.dbc_id();
 
-        if !self
-            .transaction
-            .outputs
-            .iter()
-            .any(|o| dbc_id.eq(o.dbc_id()))
-        {
-            return Err(Error::DbcContentNotPresentInTransactionOutput);
+        if !self.tx.outputs.iter().any(|o| dbc_id.eq(o.dbc_id())) {
+            return Err(Error::DbcCiphersNotPresentInTransactionOutput);
         }
 
-        // verify there is a maching transaction for each spent proof
-        if !self.inputs_spent_proofs.iter().all(|proof| {
-            self.inputs_spent_transactions
-                .iter()
-                .any(|tx| Hash::from(tx.hash()) == proof.transaction_hash())
-        }) {
-            return Err(Error::MissingSpentTransaction);
-        }
-
-        // verify that all spent_proofs reasons are equal
+        // verify that all signed_spends reasons are equal
         let reason = self.reason();
-        let reasons_are_equal = |s: &SpentProof| match reason {
-            Some(r) => r == s.reason(),
-            None => s.reason() == Hash::default(),
-        };
-        if !self.inputs_spent_proofs.iter().all(reasons_are_equal) {
-            return Err(Error::SpentProofShareReasonMismatch(dbc_id));
+        let reasons_are_equal = |s: &SignedSpend| reason == s.reason();
+        if !self.signed_spends.iter().all(reasons_are_equal) {
+            return Err(Error::SignedSpendReasonMismatch(dbc_id));
         }
 
         self.verify_amounts(main_key)
@@ -265,10 +240,10 @@ impl Dbc {
     }
 
     /// The blinded output for this Dbc, is found in
-    /// the transaction that gave rise to this Dbc.
+    /// the tx that gave rise to this Dbc.
     fn blinded_output(&self, main_key: &MainKey) -> Result<&BlindedOutput> {
         let dbc_id = self.derived_key(main_key)?.dbc_id();
-        self.transaction
+        self.tx
             .outputs
             .iter()
             .find(|o| dbc_id.eq(o.dbc_id()))
@@ -280,56 +255,16 @@ impl Dbc {
 pub(crate) mod tests {
     use super::*;
 
-    use crate::dbc_id::{random_derivation_index, DbcIdSource};
-    use crate::tests::{NonZeroTinyInt, TinyInt};
-    use crate::transaction::{Output, RevealedTransaction};
     use crate::{
+        dbc_id::{random_derivation_index, DbcIdSource},
         mock,
         rand::{CryptoRng, RngCore},
-        DbcBuilder, Hash, SpentProofContent, Token,
+        transaction::{Output, RevealedTx},
+        Hash, Token,
     };
+
     use blsttc::{PublicKey, SecretKey};
-    use bulletproofs::PedersenGens;
-    use quickcheck_macros::quickcheck;
-    use std::collections::BTreeMap;
     use std::convert::TryInto;
-
-    fn divide(amount: Token, n_ways: u8) -> impl Iterator<Item = Token> {
-        (0..n_ways).map(move |i| {
-            let equal_parts = amount.as_nano() / n_ways as u64;
-            let leftover = amount.as_nano() % n_ways as u64;
-            let odd_compensation = u64::from((i as u64) < leftover);
-            Token::from_nano(equal_parts + odd_compensation)
-        })
-    }
-
-    fn prepare_even_split(
-        derived_key: DerivedKey,
-        revealed_amount: RevealedAmount,
-        n_ways: u8,
-        output_recipients: Vec<DbcIdSource>,
-        spentbook_node: &mut mock::SpentBookNode,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<DbcBuilder> {
-        let amount = Token::from_nano(revealed_amount.value());
-
-        let mut dbc_builder = crate::TransactionBuilder::default()
-            .add_input_by_secrets(derived_key, revealed_amount)
-            .add_outputs(divide(amount, n_ways).zip(output_recipients.into_iter()))
-            .build(rng)?;
-
-        for (input_id, tx) in dbc_builder.inputs() {
-            dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook_node.log_spent(
-                    input_id,
-                    tx.clone(),
-                    Hash::default(),
-                )?)
-                .add_spent_transaction(tx);
-        }
-
-        Ok(dbc_builder)
-    }
 
     #[test]
     fn from_hex_should_deserialize_a_hex_encoded_string_to_a_dbc() -> Result<(), Error> {
@@ -338,24 +273,21 @@ pub(crate) mod tests {
         let main_key = MainKey::random_from_rng(&mut rng);
         let derivation_index = random_derivation_index(&mut rng);
         let derived_key = main_key.derive_key(&derivation_index);
-        let tx_material = RevealedTransaction {
+        let tx_material = RevealedTx {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
-        let (transaction, revealed_amounts) = tx_material
-            .sign(&mut rng)
-            .expect("Failed to sign transaction");
-        let input_content = DbcContent::from((
+        let (tx, revealed_amounts) = tx_material.sign(&mut rng).expect("Failed to sign tx");
+        let ciphers = DbcCiphers::from((
             &main_key.public_address(),
             &derivation_index,
             revealed_amounts[0].revealed_amount,
         ));
         let dbc = Dbc {
-            content: input_content,
             id: derived_key.dbc_id(),
-            transaction,
-            inputs_spent_proofs: Default::default(),
-            inputs_spent_transactions: Default::default(),
+            tx,
+            ciphers,
+            signed_spends: Default::default(),
         };
 
         let hex = dbc.to_hex()?;
@@ -373,24 +305,21 @@ pub(crate) mod tests {
         let main_key = MainKey::random_from_rng(&mut rng);
         let derivation_index = random_derivation_index(&mut rng);
         let derived_key = main_key.derive_key(&derivation_index);
-        let tx_material = RevealedTransaction {
+        let tx_material = RevealedTx {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
-        let (transaction, revealed_amounts) = tx_material
-            .sign(&mut rng)
-            .expect("Failed to sign transaction");
-        let input_content = DbcContent::from((
+        let (tx, revealed_amounts) = tx_material.sign(&mut rng).expect("Failed to sign tx");
+        let ciphers = DbcCiphers::from((
             &main_key.public_address(),
             &derivation_index,
             revealed_amounts[0].revealed_amount,
         ));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
-            content: input_content,
-            transaction,
-            inputs_spent_proofs: Default::default(),
-            inputs_spent_transactions: Default::default(),
+            tx,
+            ciphers,
+            signed_spends: Default::default(),
         };
 
         let hex = dbc.to_hex()?;
@@ -434,18 +363,16 @@ pub(crate) mod tests {
         let derivation_index = random_derivation_index(&mut rng);
         let derived_key = main_key.derive_key(&derivation_index);
 
-        let tx_material = RevealedTransaction {
+        let tx_material = RevealedTx {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
 
-        let (transaction, revealed_amounts) = tx_material
-            .sign(&mut rng)
-            .expect("Failed to sign transaction");
+        let (tx, revealed_amounts) = tx_material.sign(&mut rng).expect("Failed to sign tx");
 
         assert_eq!(revealed_amounts.len(), 1);
 
-        let input_content = DbcContent::from((
+        let ciphers = DbcCiphers::from((
             &main_key.public_address(),
             &derivation_index,
             revealed_amounts[0].revealed_amount,
@@ -453,323 +380,17 @@ pub(crate) mod tests {
 
         let dbc = Dbc {
             id: derived_key.dbc_id(),
-            content: input_content,
-            transaction,
-            inputs_spent_proofs: Default::default(),
-            inputs_spent_transactions: Default::default(),
+            tx,
+            ciphers,
+            signed_spends: Default::default(),
         };
-
-        let id = crate::bls_dkg_id(&mut rng);
-        let key_manager = mock::KeyManager::from(mock::Signer::from(id));
 
         assert!(matches!(
-            dbc.verify(&main_key, &key_manager),
+            dbc.verify(&main_key),
             Err(Error::Transaction(
-                crate::transaction::Error::TransactionMustHaveAnInput
+                crate::transaction::Error::MissingTxInputs
             ))
         ));
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[quickcheck]
-    fn prop_dbc_verification(
-        n_inputs: NonZeroTinyInt,     // # of input DBC's
-        n_valid_sigs: TinyInt,        // # of valid sigs
-        n_wrong_signer_sigs: TinyInt, // # of valid sigs from unrecognized authority
-        n_wrong_msg_sigs: TinyInt,    // # of sigs from recognized authority signing wrong message
-        n_extra_input_sigs: TinyInt,  // # of sigs for inputs not part of the transaction
-        extra_output_amount: TinyInt, // Artifically increase output dbc value
-    ) -> Result<(), Error> {
-        let mut rng = crate::rng::from_seed([0u8; 32]);
-
-        let amount = 100;
-
-        // uncomment to run with specific args.
-        // let n_inputs = NonZeroTinyInt(std::num::NonZeroU8::new(3).unwrap());     // # of input DBC's
-        // let n_valid_sigs = TinyInt(0);        // # of valid sigs
-        // let n_wrong_signer_sigs = TinyInt(0); // # of valid sigs from unrecognized authority
-        // let n_wrong_msg_sigs = TinyInt(0);    // # of sigs from recognized authority signing wrong message
-        // let n_extra_input_sigs = TinyInt(0);  // # of sigs for inputs not part of the transaction
-        // let extra_output_amount = TinyInt(0); // Artifically increase output dbc value
-
-        // first we will issue genesis into outputs (100, GENESIS-100).
-        // The 100 output will be our starting_dbc.
-        //
-        // we do this instead of just using GENESIS_AMOUNT as our starting amount
-        // because GENESIS_AMOUNT is u64::MAX (or could be) and later in the test
-        // we add extra_output_amount to amount, which would otherwise
-        // cause an integer overflow.
-        let (mut spentbook_node, _genesis_dbc, starting_dbc, starting_main_key) =
-            generate_dbc_and_its_main_key(amount, &mut rng)?;
-
-        let mut output_main_keys: BTreeMap<DbcId, (MainKey, DerivationIndex)> = (0..n_inputs
-            .coerce())
-            .map(|_| (MainKey::random(), random_derivation_index(&mut rng)))
-            .map(|(main_key, derivation_index)| {
-                (
-                    main_key.derive_key(&derivation_index).dbc_id(),
-                    (main_key, derivation_index),
-                )
-            })
-            .collect();
-        let output_recipients = output_main_keys
-            .values()
-            .map(|(main_key, derivation_index)| DbcIdSource {
-                public_address: main_key.public_address(),
-                derivation_index: *derivation_index,
-            })
-            .collect();
-
-        let dbc_builder = prepare_even_split(
-            starting_dbc.derived_key(&starting_main_key)?,
-            starting_dbc.revealed_amount(&starting_main_key)?,
-            n_inputs.coerce(),
-            output_recipients,
-            &mut spentbook_node,
-            &mut rng,
-        )?;
-
-        let output_dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
-
-        let spent_proofs = output_dbcs
-            .iter()
-            .map(|x| x.0.inputs_spent_proofs.clone())
-            .next()
-            .unwrap();
-        let sp_first = spent_proofs.iter().next().unwrap();
-        assert!(sp_first
-            .spentbook_pub_key
-            .verify(&sp_first.spentbook_sig, sp_first.content.hash()));
-
-        // The outputs become inputs for next tx.
-        let next_inputs: Vec<(Dbc, MainKey)> = output_dbcs
-            .into_iter()
-            .map(|(dbc, _revealed_amount)| {
-                let (main_key, _) = output_main_keys.remove(&dbc.id()).unwrap();
-                (dbc, main_key)
-            })
-            .collect();
-
-        let next_output_main_key = MainKey::random_from_rng(&mut rng);
-        let next_output_derivation_index = random_derivation_index(&mut rng);
-        let next_output_derived_key =
-            next_output_main_key.derive_key(&next_output_derivation_index);
-
-        let mut dbc_builder = crate::TransactionBuilder::default()
-            .add_inputs_dbc(next_inputs)?
-            .add_output(
-                Token::from_nano(amount),
-                DbcIdSource {
-                    public_address: next_output_main_key.public_address(),
-                    derivation_index: next_output_derivation_index,
-                },
-            )
-            .build(&mut rng)?;
-
-        for (input_id, tx) in dbc_builder.inputs() {
-            dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook_node.log_spent(
-                    input_id,
-                    tx.clone(),
-                    Hash::default(),
-                )?)
-                .add_spent_transaction(tx);
-        }
-
-        // We must obtain the RevealedAmount for our output in order to
-        // know the correct blinding factor when creating fuzzed_amt_secrets.
-        let next_output = dbc_builder.transaction.outputs.get(0).unwrap();
-        let pc_gens = PedersenGens::default();
-        let next_output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> =
-            dbc_builder
-                .revealed_outputs
-                .iter()
-                .map(|next_output| next_output.revealed_amount)
-                .map(|r| (r.blinded_amount(&pc_gens), r))
-                .collect();
-        let revealed_amount_list: Vec<RevealedAmount> = next_output_blinded_and_revealed_amounts
-            .iter()
-            .filter(|(c, _)| *c == next_output.blinded_amount())
-            .map(|(_, r)| *r)
-            .collect();
-
-        let fuzzed_revealed_amount = RevealedAmount::from((
-            amount + extra_output_amount.coerce::<u64>(),
-            revealed_amount_list[0].blinding_factor(),
-        ));
-        let dbc_amount = fuzzed_revealed_amount.value();
-
-        let fuzzed_content = DbcContent::from((
-            &next_output_main_key.public_address(),
-            &next_output_derivation_index,
-            fuzzed_revealed_amount,
-        ));
-
-        let mut next_input_fuzzed_spent_proofs: BTreeSet<SpentProof> = BTreeSet::new();
-
-        let next_input_spent_proofs = dbc_builder.spent_proofs()?;
-        next_input_fuzzed_spent_proofs.extend(
-            next_input_spent_proofs
-                .iter()
-                .take(n_valid_sigs.coerce())
-                .cloned(),
-        );
-
-        let mut repeating_inputs = next_input_spent_proofs
-            .iter()
-            .cycle()
-            // skip the valid sigs so that we don't immediately overwrite them
-            .skip(n_valid_sigs.coerce());
-
-        // Invalid spentbook signatures BUT signing correct message
-        for _ in 0..n_wrong_signer_sigs.coerce() {
-            if let Some(spent_proof) = repeating_inputs.next() {
-                let id = crate::bls_dkg_id(&mut rng);
-                let key_manager = mock::KeyManager::from(mock::Signer::from(id));
-                let sig_share = key_manager.sign(&spent_proof.content.hash());
-                let sig = key_manager
-                    .public_key_set()
-                    .combine_signatures(vec![sig_share.threshold_crypto()])
-                    .unwrap();
-
-                let fuzzed_spent_proof = SpentProof {
-                    content: spent_proof.content.clone(),
-                    spentbook_pub_key: key_manager.public_key_set().public_key(),
-                    spentbook_sig: sig,
-                };
-                // note: existing items may be replaced.
-                println!("added wrong signer");
-                next_input_fuzzed_spent_proofs.insert(fuzzed_spent_proof);
-            }
-        }
-
-        // Valid spentbook signatures BUT signing wrong message
-        for _ in 0..n_wrong_msg_sigs.coerce() {
-            if let Some(spent_proof) = repeating_inputs.next() {
-                let wrong_msg_sig_share = spentbook_node.key_manager.sign(&Hash([0u8; 32]));
-                let wrong_msg_sig = spentbook_node
-                    .key_manager
-                    .public_key_set()
-                    .combine_signatures(vec![wrong_msg_sig_share.threshold_crypto()])
-                    .unwrap();
-
-                let fuzzed_spent_proof = SpentProof {
-                    content: spent_proof.content.clone(),
-                    spentbook_pub_key: spent_proof.spentbook_pub_key,
-                    spentbook_sig: wrong_msg_sig,
-                };
-                // note: existing items may be replaced.
-                next_input_fuzzed_spent_proofs.insert(fuzzed_spent_proof);
-            }
-        }
-
-        use crate::rand::distributions::{Distribution, Standard};
-
-        // Valid spentbook signatures for inputs not present in the transaction
-        for _ in 0..n_extra_input_sigs.coerce() {
-            if let Some(spent_proof) = repeating_inputs.next() {
-                let secret_key: SecretKey = Standard.sample(&mut rng);
-                let derived_key = DerivedKey::new(secret_key);
-
-                let content = SpentProofContent {
-                    dbc_id: derived_key.dbc_id(),
-                    transaction_hash: spent_proof.transaction_hash(),
-                    reason: Hash::default(),
-                    blinded_amount: *spent_proof.blinded_amount(),
-                };
-
-                let sig_share = spentbook_node.key_manager.sign(&content.hash());
-                let sig = spentbook_node
-                    .key_manager
-                    .public_key_set()
-                    .combine_signatures(vec![sig_share.threshold_crypto()])
-                    .unwrap();
-
-                let fuzzed_sp = SpentProof {
-                    content,
-                    spentbook_pub_key: spent_proof.spentbook_pub_key,
-                    spentbook_sig: sig,
-                };
-                next_input_fuzzed_spent_proofs.insert(fuzzed_sp);
-            }
-        }
-
-        let next_inputs_spent_transactions =
-            dbc_builder.spent_transactions.values().cloned().collect();
-        let dbcs = dbc_builder.build(&spentbook_node.key_manager)?;
-        let (dbc_valid, ..) = &dbcs[0];
-
-        let dbc = Dbc {
-            id: next_output_derived_key.dbc_id(),
-            content: fuzzed_content,
-            transaction: dbc_valid.transaction.clone(),
-            inputs_spent_proofs: next_input_fuzzed_spent_proofs,
-            inputs_spent_transactions: next_inputs_spent_transactions,
-        };
-
-        let key_manager = &spentbook_node.key_manager;
-        let verification_res = dbc.verify(&next_output_main_key, key_manager);
-
-        let dbc_id = dbc.derived_key(&next_output_main_key)?.dbc_id();
-
-        match verification_res {
-            Ok(()) => {
-                assert!(dbc
-                    .transaction
-                    .outputs
-                    .iter()
-                    .any(|o| dbc_id.eq(o.dbc_id())));
-                assert!(n_inputs.coerce::<u8>() > 0);
-                assert!(n_valid_sigs.coerce::<u8>() >= n_inputs.coerce::<u8>());
-                assert_eq!(n_extra_input_sigs.coerce::<u8>(), 0);
-                assert_eq!(n_wrong_signer_sigs.coerce::<u8>(), 0);
-                assert_eq!(n_wrong_msg_sigs.coerce::<u8>(), 0);
-
-                assert_eq!(dbc_amount, amount);
-                assert_eq!(extra_output_amount.coerce::<u8>(), 0);
-            }
-            Err(Error::SpentProofInputLenMismatch { current, expected }) => {
-                assert_ne!(dbc.inputs_spent_proofs.len(), dbc.transaction.inputs.len());
-                assert_eq!(dbc.inputs_spent_proofs.len(), current);
-                assert_eq!(dbc.transaction.inputs.len(), expected);
-            }
-            Err(Error::SpentProofInputIdMismatch) => {
-                assert!(n_extra_input_sigs.coerce::<u8>() > 0);
-            }
-            Err(Error::DbcContentNotPresentInTransactionOutput) => {
-                assert!(!dbc
-                    .transaction
-                    .outputs
-                    .iter()
-                    .any(|o| dbc_id.eq(o.dbc_id())));
-            }
-            Err(Error::Transaction(crate::transaction::Error::TransactionMustHaveAnInput)) => {
-                assert_eq!(n_inputs.coerce::<u8>(), 0);
-            }
-            Err(Error::BlindedAmountsDoNotMatch) => {
-                assert_ne!(amount, dbc_amount);
-                assert_ne!(extra_output_amount, TinyInt(0));
-            }
-            Err(Error::InvalidSpentProofSignature(_) | Error::FailedKnownKeyCheck(_)) => {
-                // could be a wrong signer (unrecognized authority) or wrong msg.
-                assert!(n_wrong_signer_sigs.coerce::<u8>() + n_wrong_msg_sigs.coerce::<u8>() > 0);
-
-                // if we are certain it was wrong signer, then we can verify spentbook's key manager
-                // does not trust the signer.
-                if n_wrong_signer_sigs.coerce::<u8>() > 0 && n_wrong_msg_sigs.coerce::<u8>() == 0 {
-                    for sp in dbc.inputs_spent_proofs.iter() {
-                        println!("pk: {:?}", sp.spentbook_pub_key);
-                    }
-                    assert!(dbc
-                        .inputs_spent_proofs
-                        .iter()
-                        .any(|sp| key_manager.verify_known_key(&sp.spentbook_pub_key).is_err()));
-                }
-            }
-            res => panic!("Unexpected verification result {:?}", res),
-        }
 
         Ok(())
     }
@@ -778,7 +399,7 @@ pub(crate) mod tests {
         amount: u64,
         pk_hex: &str,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(mock::SpentBookNode, Dbc, (Dbc, Dbc))> {
+    ) -> Result<(mock::SpentbookNode, Dbc, (Dbc, Dbc))> {
         let pk_bytes =
             hex::decode(pk_hex).map_err(|e| Error::HexDeserializationFailed(e.to_string()))?;
         let pk_bytes: [u8; blsttc::PK_SIZE] = pk_bytes.try_into().unwrap_or_else(|v: Vec<u8>| {
@@ -796,7 +417,7 @@ pub(crate) mod tests {
     pub(crate) fn generate_dbc_and_its_main_key(
         amount: u64,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(mock::SpentBookNode, Dbc, Dbc, MainKey)> {
+    ) -> Result<(mock::SpentbookNode, Dbc, Dbc, MainKey)> {
         let output_main_key = MainKey::random_from_rng(rng);
         let output_public_address = output_main_key.public_address();
         let (sb_node, genesis_dbc, (output_dbc, _change)) =
@@ -808,7 +429,7 @@ pub(crate) mod tests {
         amount: u64,
         recipient: PublicAddress,
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(mock::SpentBookNode, Dbc, (Dbc, Dbc))> {
+    ) -> Result<(mock::SpentbookNode, Dbc, (Dbc, Dbc))> {
         let (mut spentbook_node, genesis_dbc, genesis_material, _revealed_amount) =
             mock::GenesisBuilder::init_genesis_single(rng)?;
 
@@ -817,7 +438,7 @@ pub(crate) mod tests {
             Token::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - amount),
         ];
 
-        let mut dbc_builder = crate::TransactionBuilder::default()
+        let dbc_builder = crate::TransactionBuilder::default()
             .add_input_by_secrets(
                 genesis_material.derived_key,
                 genesis_dbc.revealed_amount(&genesis_material.main_key)?,
@@ -831,19 +452,13 @@ pub(crate) mod tests {
                     },
                 )
             }))
-            .build(rng)?;
+            .build(Hash::default(), rng)?;
 
-        for (input_id, tx) in dbc_builder.inputs() {
-            dbc_builder = dbc_builder
-                .add_spent_proof_share(spentbook_node.log_spent(
-                    input_id,
-                    tx.clone(),
-                    Hash::default(),
-                )?)
-                .add_spent_transaction(tx);
+        for (tx, signed_spend) in dbc_builder.signed_spends() {
+            spentbook_node.log_spent(tx, signed_spend)?
         }
 
-        let mut iter = dbc_builder.build(&spentbook_node.key_manager)?.into_iter();
+        let mut iter = dbc_builder.build()?.into_iter();
         let (starting_dbc, ..) = iter.next().unwrap();
         let (change_dbc, ..) = iter.next().unwrap();
 

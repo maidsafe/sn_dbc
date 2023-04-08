@@ -1,5 +1,5 @@
 # sn_dbc
-Safe Network DBCs
+Safe Network Dbcs
 
 |Crate|Documentation|CI|Safe Rust|
 |:-:|:-:|:-:|:-:|
@@ -13,17 +13,17 @@ Safe Network DBCs
 This crate provides a library and API for working with Digital Bearer Certificates (DBC)
 on the Safe Network.
 
-Safe Network DBCs are envisioned to be a private and fungible digital currency that utilize a distributed (and sharded) spentbook/mint rather than a blockchain.
+Safe Network Dbcs are envisioned to be a private and fungible digital currency that utilize a distributed (and sharded) spentbook of spends rather than a blockchain.
 
-Some key properties of these DBCs:
-* distributed mint means that it is not necessary to trust in a single mint entity
-* sharded mint means that the system scales indefinitely
-* transactions are settled immmediately
-* privacy by default.  all transactions use privacy features.
-* utilizes a one-time key for each payment (aka stealth address)
-* use BLS cryptography
+Some key properties of these Dbcs:
+* Distributed spentbook means that it is not necessary to trust in a single entity.
+* Sharded spentbook means that the system scales indefinitely.
+* Transactions are settled immmediately.
+* Privacy by default.  all transactions use privacy features.
+* Utilizes a one-time key for each payment (aka stealth address).
+* Uses BLS cryptography.
 
-At present DBC ownership is single signature only.   Multi-sig support is planned.
+Multi-sig is a concern of the user of this library.
 
 Some writeups about the technology can be found at:
 
@@ -40,14 +40,14 @@ $ cargo build
 
 # Running
 
-## mint-repl example
+## spentbook example
 
-A `mint-repl` example is provided which enables interacting with a mock
-spentbook/mint and wallet.
+A `spentbook` example is provided which enables interacting with a mock
+spentbook and wallet.
 
 ```
 $ cd sn_dbc
-$ cargo run --example mint-repl
+$ cargo run --example spentbook
 ```
 
 Additional examples can be found in a separate crate:

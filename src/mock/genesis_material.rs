@@ -8,7 +8,7 @@
 
 use crate::{
     dbc_id::DbcIdSource,
-    transaction::{Amount, Output, RevealedAmount, RevealedInput, RevealedTransaction},
+    transaction::{Amount, Output, RevealedAmount, RevealedInput, RevealedTx},
     DbcId, DerivedKey, MainKey,
 };
 use blsttc::IntoFr;
@@ -16,7 +16,7 @@ use blsttc::IntoFr;
 /// represents all the inputs required to build the Genesis Dbc.
 pub struct GenesisMaterial {
     pub input_dbc_id: DbcId,
-    pub genesis_tx: RevealedTransaction,
+    pub genesis_tx: RevealedTx,
     pub main_key: MainKey,
     pub derived_key: DerivedKey, // unlocks the genesis dbc
     pub dbc_id_src: DbcIdSource, // genesis dbc id is derived from these
@@ -58,7 +58,7 @@ impl Default for GenesisMaterial {
         let input_dbc_id = revealed_input.dbc_id();
 
         // build the pre-genesis Transaction
-        let genesis_tx = RevealedTransaction {
+        let genesis_tx = RevealedTx {
             inputs: vec![revealed_input],
             outputs: vec![Output::new(
                 output_derived_key.dbc_id(),

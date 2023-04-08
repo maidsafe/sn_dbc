@@ -7,19 +7,18 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use bulletproofs::PedersenGens;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     dbc_id::DbcIdSource,
     transaction::{
-        DbcTransaction, Output, RevealedAmount, RevealedInput, RevealedOutput, RevealedTransaction,
+        DbcTransaction, Output, RevealedAmount, RevealedInput, RevealedOutput, RevealedTx,
     },
     DbcId, DerivedKey, MainKey,
 };
 use crate::{
     rand::{CryptoRng, RngCore},
-    BlindedAmount, Dbc, DbcContent, Error, Hash, Result, SpentProof, SpentProofKeyVerifier,
-    SpentProofShare, Token, TransactionVerifier,
+    BlindedAmount, Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token, TransactionVerifier,
 };
 
 #[cfg(feature = "serde")]
@@ -32,7 +31,7 @@ pub type OutputIdSources = BTreeMap<DbcId, DbcIdSource>;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
-    revealed_tx: RevealedTransaction,
+    revealed_tx: RevealedTx,
     output_id_sources: OutputIdSources,
 }
 
@@ -114,7 +113,6 @@ impl TransactionBuilder {
             .iter()
             .map(|t| t.revealed_amount.value)
             .sum();
-
         Token::from_nano(amount)
     }
 
@@ -136,130 +134,101 @@ impl TransactionBuilder {
 
     /// Build the DbcTransaction by signing the inputs,
     /// and generating the blinded outputs. Return a DbcBuilder.
-    pub fn build(self, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
-        let (transaction, revealed_outputs) = self.revealed_tx.sign(rng)?;
+    pub fn build(self, reason: Hash, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
+        let (tx, revealed_outputs) = self.revealed_tx.sign(rng)?;
+
+        let tx_hash = Hash::from(tx.hash());
+        let signed_spends: BTreeSet<_> = tx
+            .inputs
+            .iter()
+            .flat_map(|input| {
+                self.revealed_tx
+                    .inputs
+                    .iter()
+                    .find(|i| i.dbc_id() == input.dbc_id())
+                    .map(|i| {
+                        let spend = crate::Spend {
+                            dbc_id: input.dbc_id(),
+                            tx_hash,
+                            reason,
+                            blinded_amount: input.blinded_amount,
+                        };
+                        let derived_key_sig = i.derived_key.sign(&spend.to_bytes());
+                        SignedSpend {
+                            spend,
+                            derived_key_sig,
+                        }
+                    })
+            })
+            .collect();
 
         Ok(DbcBuilder::new(
-            transaction,
+            tx,
             revealed_outputs,
             self.output_id_sources,
             self.revealed_tx,
+            signed_spends,
         ))
     }
 }
 
-/// A Builder for aggregating SpentProofs and generating the final Dbc outputs.
+/// A Builder for aggregating SignedSpends and generating the final Dbc outputs.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct DbcBuilder {
-    pub transaction: DbcTransaction,
+    pub tx: DbcTransaction,
     pub revealed_outputs: Vec<RevealedOutput>,
     pub output_id_sources: OutputIdSources,
-    pub revealed_tx: RevealedTransaction,
-    pub spent_proofs: HashSet<SpentProof>,
-    pub spent_proof_shares: BTreeMap<DbcId, HashSet<SpentProofShare>>,
-    pub spent_transactions: BTreeMap<Hash, DbcTransaction>,
+    pub revealed_tx: RevealedTx,
+    pub signed_spends: BTreeSet<SignedSpend>,
 }
 
 impl DbcBuilder {
-    /// Create a new DbcBuilder
+    /// Create a new DbcBuilder.
     pub fn new(
-        transaction: DbcTransaction,
+        tx: DbcTransaction,
         revealed_outputs: Vec<RevealedOutput>,
         output_id_sources: OutputIdSources,
-        revealed_tx: RevealedTransaction,
+        revealed_tx: RevealedTx,
+        signed_spends: BTreeSet<SignedSpend>,
     ) -> Self {
         Self {
-            transaction,
+            tx,
             revealed_outputs,
             output_id_sources,
             revealed_tx,
-            spent_proofs: Default::default(),
-            spent_proof_shares: Default::default(),
-            spent_transactions: Default::default(),
+            signed_spends,
         }
     }
 
-    /// returns Vec of dbc ids and tx intended for use as inputs
-    /// to Spendbook::log_spent().
-    pub fn inputs(&self) -> Vec<(DbcId, DbcTransaction)> {
-        self.transaction
-            .inputs
+    /// Return the signed spends.
+    pub fn signed_spends(&self) -> Vec<(&DbcTransaction, &SignedSpend)> {
+        self.signed_spends
             .iter()
-            .map(|input| (input.dbc_id(), self.transaction.clone()))
+            .map(|spend| (&self.tx, spend))
             .collect()
     }
 
-    /// Add a SpentProof.
-    pub fn add_spent_proof(mut self, proof: SpentProof) -> Self {
-        let _ = self.spent_proofs.insert(proof);
-        self
-    }
-
-    /// Add a SpentProofShare for the given input index
-    pub fn add_spent_proof_share(mut self, share: SpentProofShare) -> Self {
-        let shares = self.spent_proof_shares.entry(*share.dbc_id()).or_default();
-        shares.insert(share);
-        self
-    }
-
-    /// Add a list of SpentProofShare for the given input index
-    pub fn add_spent_proof_shares(
-        mut self,
-        shares: impl IntoIterator<Item = SpentProofShare>,
-    ) -> Self {
-        for share in shares.into_iter() {
-            self = self.add_spent_proof_share(share);
-        }
-        self
-    }
-
-    /// Add a transaction which spent one of the inputs
-    pub fn add_spent_transaction(mut self, spent_tx: DbcTransaction) -> Self {
-        let tx_hash = Hash::from(spent_tx.hash());
-        self.spent_transactions
-            .entry(tx_hash)
-            .or_insert_with(|| spent_tx);
-        self
-    }
-
-    /// Build the output DBCs, verifying the transaction and spentproofs.
+    /// Build the output Dbcs, verifying the transaction and SignedSpends.
     ///
-    /// see TransactionVerifier::verify() for a description of
+    /// See TransactionVerifier::verify() for a description of
     /// verifier requirements.
-    pub fn build<K: SpentProofKeyVerifier>(
-        self,
-        verifier: &K,
-    ) -> Result<Vec<(Dbc, RevealedAmount)>> {
-        let spent_proofs = self.spent_proofs()?;
+    pub fn build(self) -> Result<Vec<(Dbc, RevealedAmount)>> {
+        // Verify the tx, along with spent proofs.
+        // Note that we do this just once for entire tx, not once per output Dbc.
+        TransactionVerifier::verify(&self.tx, &self.signed_spends)?;
 
-        // verify the Tx, along with spent proofs.
-        // note that we do this just once for entire Tx, not once per output Dbc.
-        TransactionVerifier::verify(verifier, &self.transaction, &spent_proofs)?;
-
-        // verify there is a matching spent transaction for each spent_proof
-        if !spent_proofs.iter().all(|proof| {
-            self.spent_transactions
-                .contains_key(&proof.transaction_hash())
-        }) {
-            return Err(Error::MissingSpentTransaction);
-        }
-
-        // build output DBCs
-        self.build_output_dbcs(spent_proofs)
+        // Build output Dbcs.
+        self.build_output_dbcs()
     }
 
-    /// Build the output DBCs (no verification over Tx or spentproof is performed).
+    /// Build the output Dbcs (no verification over Tx or SignedSpend is performed).
     pub fn build_without_verifying(self) -> Result<Vec<(Dbc, RevealedAmount)>> {
-        let spent_proofs = self.spent_proofs()?;
-        self.build_output_dbcs(spent_proofs)
+        self.build_output_dbcs()
     }
 
-    // Private helper to build output DBCs
-    fn build_output_dbcs(
-        self,
-        spent_proofs: BTreeSet<SpentProof>,
-    ) -> Result<Vec<(Dbc, RevealedAmount)>> {
+    // Private helper to build output Dbcs.
+    fn build_output_dbcs(self) -> Result<Vec<(Dbc, RevealedAmount)>> {
         let pc_gens = PedersenGens::default();
         let output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> = self
             .revealed_outputs
@@ -269,7 +238,7 @@ impl DbcBuilder {
             .collect();
 
         let dbc_id_list: Vec<&DbcIdSource> = self
-            .transaction
+            .tx
             .outputs
             .iter()
             .map(|output| {
@@ -281,7 +250,7 @@ impl DbcBuilder {
 
         // Form the final output DBCs
         let output_dbcs: Vec<(Dbc, RevealedAmount)> = self
-            .transaction
+            .tx
             .outputs
             .iter()
             .zip(dbc_id_list)
@@ -293,37 +262,21 @@ impl DbcBuilder {
                     .collect();
                 assert_eq!(revealed_amounts.len(), 1);
 
-                let content = DbcContent::from((
+                let ciphers = DbcCiphers::from((
                     &dbc_id_src.public_address,
                     &dbc_id_src.derivation_index,
                     revealed_amounts[0],
                 ));
                 let dbc = Dbc {
-                    content,
                     id: dbc_id_src.dbc_id(),
-                    transaction: self.transaction.clone(),
-                    inputs_spent_proofs: spent_proofs.clone(),
-                    inputs_spent_transactions: self.spent_transactions.values().cloned().collect(),
+                    tx: self.tx.clone(),
+                    ciphers,
+                    signed_spends: self.signed_spends.clone(),
                 };
                 (dbc, revealed_amounts[0])
             })
             .collect();
 
         Ok(output_dbcs)
-    }
-
-    /// build spent proofs from shares.
-    pub fn spent_proofs(&self) -> Result<BTreeSet<SpentProof>> {
-        let transaction_hash = Hash::from(self.transaction.hash());
-        let spent_proofs: BTreeSet<SpentProof> = self
-            .spent_proof_shares
-            .iter()
-            .map(|(public_key, shares)| {
-                SpentProof::try_from_proof_shares(*public_key, transaction_hash, shares)
-            })
-            .chain(self.spent_proofs.iter().cloned().map(Ok))
-            .collect::<Result<_>>()?;
-
-        Ok(spent_proofs)
     }
 }

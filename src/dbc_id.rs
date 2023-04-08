@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{Error, PublicKey, Result, RevealedAmount};
-use blsttc::{serde_impl::SerdeSecret, Ciphertext, PublicKeySet, SecretKey, SecretKeySet, PK_SIZE};
+use blsttc::{serde_impl::SerdeSecret, Ciphertext, SecretKey, PK_SIZE};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -18,10 +18,6 @@ use crate::rand::{distributions::Standard, Rng, RngCore};
 /// from a PublicAddress, and the corresponding
 /// DerivedKey from the MainKey of that PublicAddress.
 pub type DerivationIndex = [u8; 32];
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
-pub struct DbcIdSet(PublicKeySet);
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -98,41 +94,6 @@ impl DbcIdSource {
     /// the value of the Dbc with that DbcId.
     pub fn dbc_id(&self) -> DbcId {
         self.public_address.new_dbc_id(&self.derivation_index)
-    }
-}
-
-/// A DerivedKeySet is used in multisig.
-/// This key set doesn't actually exist in one place,
-/// as it is the key shares operating on an item, that
-/// together form what would have required a key set.
-/// So the key set is a virtual thing, but the actual
-/// instantiation of it can be useful in tests.
-///
-/// This is the key that unlocks the value of a Dbc.
-/// Holding this key gives you access to the tokens of the
-/// Dbc with the corresponding DbcId.
-/// Like with the keys to your house or a safe, this is not something you share publicly.
-pub struct DerivedKeySet(SerdeSecret<SecretKeySet>);
-
-impl DerivedKeySet {
-    /// This is the unique identifier of the Dbc that
-    /// this instance of Dbc secret key unlocks.
-    /// The Dbc does not exists until someone has sent tokens to it.
-    pub fn dbc_id(&self) -> DbcId {
-        DbcId(self.0.public_keys().public_key())
-    }
-
-    pub fn decrypt(&self, ciphertext: &Ciphertext) -> Result<RevealedAmount> {
-        let bytes = self
-            .0
-            .secret_key()
-            .decrypt(ciphertext)
-            .ok_or(Error::DecryptionBySecretKeyFailed)?;
-        RevealedAmount::from_bytes_ref(&bytes)
-    }
-
-    pub fn derived_key(&self) -> DerivedKey {
-        DerivedKey(SerdeSecret(self.0.secret_key()))
     }
 }
 

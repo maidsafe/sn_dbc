@@ -6,8 +6,8 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::DbcTransaction;
-use crate::{BlindedAmount, DbcId, Error, Hash, Result, SpentProof, SpentProofKeyVerifier};
+use crate::transaction::{self, DbcTransaction};
+use crate::{BlindedAmount, DbcId, Error, Hash, Result, SignedSpend};
 use std::collections::BTreeSet;
 
 // Here we are putting transaction verification logic that is beyond
@@ -22,26 +22,26 @@ impl TransactionVerifier {
     /// Verifies a transaction including spent proofs.
     ///
     /// This function relies/assumes that the caller (wallet/client) obtains
-    /// the spentbook's public keys (held by SpentProofKeyVerifier) in a
+    /// the spentbook's public keys (held by SignedSpendKeyVerifier) in a
     /// trustless/verified way.  ie, the caller should not simply obtain keys
-    /// from a SpentBookNode directly, but must somehow verify that the node is
+    /// from a SpentbookNode directly, but must somehow verify that the node is
     /// a valid authority.
-    ///
-    /// note: for spent_proofs to verify, the verifier must have/know the
-    ///       public key of each spentbook section that recorded a tx input as spent.
-    pub fn verify<K: SpentProofKeyVerifier>(
-        verifier: &K,
+    pub fn verify(
         transaction: &DbcTransaction,
-        spent_proofs: &BTreeSet<SpentProof>,
+        signed_spends: &BTreeSet<SignedSpend>,
     ) -> Result<(), Error> {
-        if spent_proofs.len() != transaction.inputs.len() {
-            return Err(Error::SpentProofInputLenMismatch {
-                current: spent_proofs.len(),
+        if signed_spends.is_empty() {
+            return Err(transaction::Error::MissingTxInputs)?;
+        }
+
+        if signed_spends.len() != transaction.inputs.len() {
+            return Err(Error::SignedSpendInputLenMismatch {
+                current: signed_spends.len(),
                 expected: transaction.inputs.len(),
             });
         }
 
-        let transaction_hash = Hash::from(transaction.hash());
+        let tx_hash = Hash::from(transaction.hash());
 
         // Verify that each pubkey is unique in this transaction.
         let unique_dbc_ids: BTreeSet<DbcId> =
@@ -51,29 +51,25 @@ impl TransactionVerifier {
         }
 
         // Verify that each input has a corresponding spent proof.
-        for spent_proof in spent_proofs.iter() {
+        for signed_spend in signed_spends.iter() {
             if !transaction
                 .inputs
                 .iter()
-                .any(|m| m.dbc_id == *spent_proof.dbc_id())
+                .any(|m| m.dbc_id == *signed_spend.dbc_id())
             {
-                return Err(Error::SpentProofInputIdMismatch);
+                return Err(Error::SignedSpendInputIdMismatch);
             }
         }
 
         // Verify that each spent proof is valid
-        //
-        // note: for the proofs to verify, our key_manager must have/know
-        // the pubkey of the spentbook section that signed the proof.
-        // This is a responsibility of our caller, not this crate.
-        for spent_proof in spent_proofs.iter() {
-            spent_proof.verify(transaction_hash, verifier)?;
+        for signed_spend in signed_spends.iter() {
+            signed_spend.verify(tx_hash)?;
         }
 
         // We must get the spent proofs into the same order as inputs
         // so that resulting blinded amounts will be in the right order.
         // Note: we could use itertools crate to sort in one loop.
-        let mut spent_proofs_found: Vec<(usize, &SpentProof)> = spent_proofs
+        let mut signed_spends_found: Vec<(usize, &SignedSpend)> = signed_spends
             .iter()
             .filter_map(|s| {
                 transaction
@@ -84,11 +80,11 @@ impl TransactionVerifier {
             })
             .collect();
 
-        spent_proofs_found.sort_by_key(|s| s.0);
-        let spent_proofs_sorted: Vec<&SpentProof> =
-            spent_proofs_found.into_iter().map(|s| s.1).collect();
+        signed_spends_found.sort_by_key(|s| s.0);
+        let signed_spends_sorted: Vec<&SignedSpend> =
+            signed_spends_found.into_iter().map(|s| s.1).collect();
 
-        let blinded_amounts: Vec<BlindedAmount> = spent_proofs_sorted
+        let blinded_amounts: Vec<BlindedAmount> = signed_spends_sorted
             .iter()
             .map(|s| *s.blinded_amount())
             .collect();
@@ -105,15 +101,15 @@ impl TransactionVerifier {
 /// proofs and transactions have been provided.
 pub fn get_blinded_amounts_from_transaction(
     tx: &DbcTransaction,
-    spent_proofs: &BTreeSet<SpentProof>,
+    signed_spends: &BTreeSet<SignedSpend>,
     spent_transactions: &BTreeSet<DbcTransaction>,
 ) -> Result<Vec<(DbcId, BlindedAmount)>> {
     // Get txs that are referenced by the spent proofs.
     let mut referenced_spent_txs: Vec<&DbcTransaction> = vec![];
-    for spent_prf in spent_proofs {
+    for spent_prf in signed_spends {
         for spent_tx in spent_transactions {
             let tx_hash = Hash::from(spent_tx.hash());
-            if tx_hash == spent_prf.transaction_hash() {
+            if tx_hash == spent_prf.tx_hash() {
                 referenced_spent_txs.push(spent_tx);
             }
         }

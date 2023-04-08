@@ -14,11 +14,11 @@ use std::str::FromStr;
 mod blst;
 mod builder;
 mod dbc;
-mod dbc_content;
+mod dbc_ciphers;
 mod dbc_id;
 mod error;
-mod mint;
-mod spent_proof;
+mod signed_spend;
+mod spentbook;
 mod token;
 mod transaction;
 mod verification;
@@ -34,17 +34,14 @@ pub use crate::{
     blst::{BlindedAmount, BlindingFactor},
     builder::{DbcBuilder, OutputIdSources, TransactionBuilder},
     dbc::Dbc,
-    dbc_content::DbcContent,
+    dbc_ciphers::DbcCiphers,
     dbc_id::{random_derivation_index, DbcId, DbcIdSource, DerivationIndex, DerivedKey, MainKey},
     error::{Error, Result},
-    spent_proof::{
-        IndexedSignatureShare, SpentProof, SpentProofContent, SpentProofKeyVerifier,
-        SpentProofShare,
-    },
+    signed_spend::{SignedSpend, Spend},
     token::Token,
     transaction::{
         Amount, BlindedInput, BlindedOutput, DbcTransaction, Output, RevealedAmount, RevealedInput,
-        RevealedTransaction,
+        RevealedTx,
     },
     verification::{get_blinded_amounts_from_transaction, TransactionVerifier},
 };
@@ -61,6 +58,11 @@ impl Hash {
     /// sha3 256 hash
     pub fn hash(input: &[u8]) -> Self {
         Self::from(sha3_256(input))
+    }
+
+    /// Access the 32 byte slice of the hash
+    pub fn slice(&self) -> &[u8; 32] {
+        &self.0
     }
 
     /// Deserializes a `Hash` represented as a hex string to a `Hash`.
@@ -131,18 +133,6 @@ pub mod rng {
     }
 }
 
-#[cfg(test)]
-use {
-    crate::rand::RngCore,
-    blsttc::{SecretKeySet, SecretKeyShare},
-};
-
-#[cfg(test)]
-pub fn bls_dkg_id(rng: &mut impl RngCore) -> (PublicKeySet, SecretKeyShare, usize) {
-    let sks = SecretKeySet::random(0, rng);
-    (sks.public_keys(), sks.secret_key_share(0), 0)
-}
-
 pub(crate) fn sha3_256(input: &[u8]) -> [u8; 32] {
     use tiny_keccak::{Hasher, Sha3};
 
@@ -156,7 +146,6 @@ pub(crate) fn sha3_256(input: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::num::NonZeroU8;
     use quickcheck::{Arbitrary, Gen};
 
     #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -181,38 +170,6 @@ mod tests {
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
             Box::new((0..(self.0)).rev().map(Self))
-        }
-    }
-
-    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    pub struct NonZeroTinyInt(pub NonZeroU8);
-
-    impl NonZeroTinyInt {
-        pub fn coerce<T: From<u8>>(self) -> T {
-            self.0.get().into()
-        }
-    }
-
-    impl std::fmt::Debug for NonZeroTinyInt {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.0)
-        }
-    }
-
-    impl Arbitrary for NonZeroTinyInt {
-        fn arbitrary(g: &mut Gen) -> Self {
-            let r = NonZeroU8::new(u8::arbitrary(g) % 4 + 1)
-                .unwrap_or_else(|| panic!("Failed to generate an arbitrary non-zero u8"));
-            Self(r)
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            Box::new(
-                (1..(self.0.get()))
-                    .rev()
-                    .filter_map(NonZeroU8::new)
-                    .map(Self),
-            )
         }
     }
 

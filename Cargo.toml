@@ -22,41 +22,32 @@ hex = "0.4.3"
 merlin = "3.0.0"
 thiserror = "1.0.24"
 
-  [dependencies.curve25519-dalek]
-  package = "curve25519-dalek-ng"
-  version = "4.1.1"
+[dependencies.curve25519-dalek]
+package = "curve25519-dalek-ng"
+version = "4.1.1"
 
-  [dependencies.serde]
-  version = "1.0.133"
-  features = [ "derive", "rc" ]
-  optional = true
+[dependencies.serde]
+version = "1.0.133"
+features = [ "derive", "rc" ]
+optional = true
 
-  [dependencies.tiny-keccak]
-  features = [ "sha3" ]
-  version = "2.0.0"
+[dependencies.tiny-keccak]
+features = [ "sha3" ]
+version = "2.0.0"
 
 [dev-dependencies]
-anyhow = "1.0.40"
 criterion = "0.4.0"
 quickcheck_macros = "1"
 quickcheck = "1.0.3"
-rustyline = "10.0.0"
 
-  [dev-dependencies.sn_dbc]
-  path = "."
-  features = [ "serdes", "mock" ]
+[dev-dependencies.sn_dbc]
+path = "."
+features = [ "serdes", "mock" ]
 
-[target."cfg(unix)".dev-dependencies]
-termios = "0.3.3"
-
-  [target."cfg(unix)".dev-dependencies.pprof]
-  version = "0.11.0"
-  features = [ "flamegraph" ]
+[target."cfg(unix)".dev-dependencies.pprof]
+version = "0.11.0"
+features = [ "flamegraph" ]
 
 [[bench]]
 name = "reissue"
 harness = false
-
-[[example]]
-name = "mint-repl"
-path = "examples/mint-repl/mint-repl.rs"
