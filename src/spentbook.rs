@@ -285,7 +285,7 @@ mod tests {
                     SignedSpend {
                         spend: Spend {
                             dbc_id: *signed_spend.dbc_id(),
-                            tx_hash: signed_spend.tx_hash(),
+                            tx: signed_spend.spend.tx.clone(),
                             reason: Hash::default(),
                             blinded_amount: *signed_spend.blinded_amount(),
                         },

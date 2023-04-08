@@ -6,8 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction::{self, DbcTransaction};
-use crate::{BlindedAmount, DbcId, Error, Hash, Result, SignedSpend};
+use crate::{
+    transaction::{self, DbcTransaction},
+    BlindedAmount, DbcId, Error, Result, SignedSpend,
+};
+
 use std::collections::BTreeSet;
 
 // Here we are putting transaction verification logic that is beyond
@@ -26,37 +29,29 @@ impl TransactionVerifier {
     /// trustless/verified way.  ie, the caller should not simply obtain keys
     /// from a SpentbookNode directly, but must somehow verify that the node is
     /// a valid authority.
-    pub fn verify(
-        transaction: &DbcTransaction,
-        signed_spends: &BTreeSet<SignedSpend>,
-    ) -> Result<(), Error> {
+    pub fn verify(tx: &DbcTransaction, signed_spends: &BTreeSet<SignedSpend>) -> Result<(), Error> {
         if signed_spends.is_empty() {
             return Err(transaction::Error::MissingTxInputs)?;
         }
 
-        if signed_spends.len() != transaction.inputs.len() {
+        if signed_spends.len() != tx.inputs.len() {
             return Err(Error::SignedSpendInputLenMismatch {
                 current: signed_spends.len(),
-                expected: transaction.inputs.len(),
+                expected: tx.inputs.len(),
             });
         }
 
-        let tx_hash = Hash::from(transaction.hash());
+        let tx_hash = tx.hash();
 
         // Verify that each pubkey is unique in this transaction.
-        let unique_dbc_ids: BTreeSet<DbcId> =
-            transaction.outputs.iter().map(|o| (*o.dbc_id())).collect();
-        if unique_dbc_ids.len() != transaction.outputs.len() {
+        let unique_dbc_ids: BTreeSet<DbcId> = tx.outputs.iter().map(|o| (*o.dbc_id())).collect();
+        if unique_dbc_ids.len() != tx.outputs.len() {
             return Err(Error::DbcIdNotUniqueAcrossOutputs);
         }
 
         // Verify that each input has a corresponding spent proof.
         for signed_spend in signed_spends.iter() {
-            if !transaction
-                .inputs
-                .iter()
-                .any(|m| m.dbc_id == *signed_spend.dbc_id())
-            {
+            if !tx.inputs.iter().any(|m| m.dbc_id == *signed_spend.dbc_id()) {
                 return Err(Error::SignedSpendInputIdMismatch);
             }
         }
@@ -72,8 +67,7 @@ impl TransactionVerifier {
         let mut signed_spends_found: Vec<(usize, &SignedSpend)> = signed_spends
             .iter()
             .filter_map(|s| {
-                transaction
-                    .inputs
+                tx.inputs
                     .iter()
                     .position(|m| m.dbc_id == *s.dbc_id())
                     .map(|idx| (idx, s))
@@ -89,7 +83,7 @@ impl TransactionVerifier {
             .map(|s| *s.blinded_amount())
             .collect();
 
-        transaction.verify(&blinded_amounts)?;
+        tx.verify(&blinded_amounts)?;
 
         Ok(())
     }
@@ -108,7 +102,7 @@ pub fn get_blinded_amounts_from_transaction(
     let mut referenced_spent_txs: Vec<&DbcTransaction> = vec![];
     for spent_prf in signed_spends {
         for spent_tx in spent_transactions {
-            let tx_hash = Hash::from(spent_tx.hash());
+            let tx_hash = spent_tx.hash();
             if tx_hash == spent_prf.tx_hash() {
                 referenced_spent_txs.push(spent_tx);
             }

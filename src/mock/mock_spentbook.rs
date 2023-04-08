@@ -106,8 +106,8 @@ impl SpentbookNode {
         verify_tx: bool,
     ) -> Result<()> {
         let input_id = signed_spend.dbc_id();
-        let spend_tx_hash = signed_spend.spend.tx_hash;
-        let tx_hash = Hash::from(tx.hash());
+        let spend_tx_hash = signed_spend.tx_hash();
+        let tx_hash = tx.hash();
 
         if tx_hash != spend_tx_hash {
             return Err(Error::InvalidTransactionHash);

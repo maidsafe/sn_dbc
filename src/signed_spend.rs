@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{BlindedAmount, DbcId, Error, Hash, Result, Signature};
+use crate::{BlindedAmount, DbcId, DbcTransaction, Error, Hash, Result, Signature};
 
 use custom_debug::Debug;
 #[cfg(feature = "serde")]
@@ -31,7 +31,7 @@ impl SignedSpend {
 
     /// Get transaction hash.
     pub fn tx_hash(&self) -> Hash {
-        self.spend.tx_hash
+        self.spend.tx.hash()
     }
 
     /// Get blinded amount.
@@ -59,7 +59,7 @@ impl SignedSpend {
     /// valid for this SignedSpend.
     pub fn verify(&self, tx_hash: Hash) -> Result<()> {
         // Verify that input tx_hash matches our tx_hash which was signed by the DerivedKey of the input.
-        if tx_hash != self.spend.tx_hash {
+        if tx_hash != self.tx_hash() {
             return Err(Error::InvalidTransactionHash);
         }
 
@@ -99,8 +99,8 @@ impl std::hash::Hash for SignedSpend {
 pub struct Spend {
     /// DbcId of input Dbc that this SignedSpend is proving to be spent.
     pub dbc_id: DbcId,
-    /// Hash of transaction that the input Dbc is being spent in.
-    pub tx_hash: Hash,
+    /// The transaction that the input Dbc is being spent in.
+    pub tx: DbcTransaction,
     /// Reason why this Dbc was spent.
     pub reason: Hash,
     #[debug(skip)]
@@ -113,7 +113,7 @@ impl Spend {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
         bytes.extend(self.dbc_id.to_bytes());
-        bytes.extend(self.tx_hash.as_ref());
+        bytes.extend(self.tx.hash().as_ref());
         bytes.extend(self.reason.as_ref());
         bytes.extend(self.blinded_amount.compress().to_bytes());
         bytes
