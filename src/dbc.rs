@@ -135,10 +135,9 @@ impl Dbc {
     }
 
     /// Generate the hash of this Dbc
-    pub fn hash(&self) -> [u8; 32] {
+    pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
-
-        sha3.update(&self.tx.hash());
+        sha3.update(self.tx.hash().as_ref());
         sha3.update(&self.ciphers.to_bytes());
 
         for sp in self.signed_spends.iter() {
@@ -146,10 +145,9 @@ impl Dbc {
         }
 
         sha3.update(self.reason().as_ref());
-
         let mut hash = [0u8; 32];
         sha3.finalize(&mut hash);
-        hash
+        Hash::from(hash)
     }
 
     /// Verifies that this Dbc is valid.

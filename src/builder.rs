@@ -137,7 +137,6 @@ impl TransactionBuilder {
     pub fn build(self, reason: Hash, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
         let (tx, revealed_outputs) = self.revealed_tx.sign(rng)?;
 
-        let tx_hash = Hash::from(tx.hash());
         let signed_spends: BTreeSet<_> = tx
             .inputs
             .iter()
@@ -149,7 +148,7 @@ impl TransactionBuilder {
                     .map(|i| {
                         let spend = crate::Spend {
                             dbc_id: input.dbc_id(),
-                            tx_hash,
+                            tx: tx.clone(),
                             reason,
                             blinded_amount: input.blinded_amount,
                         };
