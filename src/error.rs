@@ -20,10 +20,10 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Node error variants.
 pub enum Error {
     /// While parsing a `Token`, precision would be lost.
-    #[error("Lost precision on the number of coins during parsing")]
+    #[error("Lost precision on the number of coins during parsing.")]
     LossOfTokenPrecision,
     /// The amount would exceed the maximum value for `Token` (u64::MAX).
-    #[error("The token amount would exceed the maximum value (u64::MAX)")]
+    #[error("The token amount would exceed the maximum value (u64::MAX).")]
     ExcessiveTokenValue,
     /// Failed to parse a `Token` from a string.
     #[error("Failed to parse: {0}")]
@@ -32,31 +32,25 @@ pub enum Error {
     #[error("Failed signature check.")]
     FailedSignature,
 
-    #[error("Unrecognised authority.")]
-    UnrecognisedAuthority,
+    #[error("Invalid Spend Signature for {0:?}")]
+    InvalidSpendSignature(DbcId),
 
-    #[error("Invalid SpentProof Signature for {0:?}")]
-    InvalidSpentProofSignature(DbcId),
-
-    #[error("Transaction hash does not match the transaction signed by spentbook")]
+    #[error("Transaction hash does not match the transaction signed by spentbook.")]
     InvalidTransactionHash,
 
-    #[error("Dbc Content is not a member of transaction outputs")]
-    DbcContentNotPresentInTransactionOutput,
+    #[error("Dbc ciphers are not present in transaction outputs.")]
+    DbcCiphersNotPresentInTransactionOutput,
 
-    #[error("BlindedOutput not found in transaction outputs")]
+    #[error("BlindedOutput not found in transaction outputs.")]
     BlindedOutputNotFound,
 
-    #[error("Missing spent transaction for at least one of the spent proofs")]
-    MissingSpentTransaction,
-
-    #[error("DbcId is not unique across all transaction outputs")]
+    #[error("DbcId is not unique across all transaction outputs.")]
     DbcIdNotUniqueAcrossOutputs,
 
     #[error(
-        "The number of SpentProof ({current}) does not match the number of inputs ({expected})"
+        "The number of SignedSpend ({current}) does not match the number of inputs ({expected})."
     )]
-    SpentProofInputLenMismatch { current: usize, expected: usize },
+    SignedSpendInputLenMismatch { current: usize, expected: usize },
 
     #[error("Missing amount for dbc id: {0:?}. There must be exactly one amount per dbc id.")]
     MissingAmountForDbcId(DbcId),
@@ -66,25 +60,22 @@ pub enum Error {
     )]
     MultipleAmountsForDbcId(DbcId),
 
-    #[error("A SpentProof DbcId does not match an MlsagSignature DbcId")]
-    SpentProofInputIdMismatch,
+    #[error("A SignedSpend DbcId does not match an MlsagSignature DbcId.")]
+    SignedSpendInputIdMismatch,
 
-    #[error("We need at least one spent proof share for {0:?} to build a SpentProof")]
-    MissingSpentProofShare(DbcId),
+    #[error("SignedSpends for {0:?} have mismatching reasons.")]
+    SignedSpendReasonMismatch(DbcId),
 
-    #[error("SpentProofShares for {0:?} have mismatching reasons")]
-    SpentProofShareReasonMismatch(DbcId),
-
-    #[error("Decryption failed")]
+    #[error("Decryption failed.")]
     DecryptionBySecretKeyFailed,
 
-    #[error("Invalid RevealedAmount bytes")]
+    #[error("Invalid RevealedAmount bytes.")]
     InvalidRevealedAmountBytes,
 
-    #[error("Blinded amounts do not match")]
+    #[error("Blinded amounts do not match.")]
     BlindedAmountsDoNotMatch,
 
-    #[error("DbcId not found")]
+    #[error("DbcId not found.")]
     DbcIdNotFound,
 
     #[error("Main key does not match public address.")]
@@ -96,9 +87,6 @@ pub enum Error {
     #[error("Could not serialize DBC to hex: {0}")]
     HexSerializationFailed(String),
 
-    #[error("Failed known key check")]
-    FailedKnownKeyCheck(String),
-
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 
@@ -106,9 +94,6 @@ pub enum Error {
     Transaction(#[from] transaction::Error),
 
     #[cfg(feature = "mock")]
-    #[error("mock object error")]
+    #[error("mock object error.")]
     Mock(#[from] crate::mock::Error),
-
-    #[error("Infallible.  Can never fail")]
-    Infallible(#[from] std::convert::Infallible),
 }

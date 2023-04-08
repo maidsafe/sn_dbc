@@ -12,7 +12,6 @@ use crate::{
     rand::{CryptoRng, RngCore},
     Dbc, Hash, Result, RevealedAmount, Token, TransactionBuilder,
 };
-use blsttc::SecretKeySet;
 
 /// A builder for initializing a set of N spentbooks and generating a
 /// genesis dbc with amount Z.
@@ -21,48 +20,20 @@ use blsttc::SecretKeySet;
 /// single Spentbook section.
 #[derive(Default)]
 pub struct GenesisBuilder {
-    pub spentbook_nodes: Vec<mock::SpentBookNode>,
+    pub spentbook_nodes: Vec<mock::SpentbookNode>,
 }
 
 impl GenesisBuilder {
-    /// generates a list of spentbook nodes sharing a random SecretKeySet and adds to the builder.
-    pub fn gen_spentbook_nodes(
-        mut self,
-        num_nodes: usize,
-        rng: &mut impl crate::rand::RngCore,
-    ) -> Result<Self> {
-        let sks = SecretKeySet::try_random(num_nodes - 1, rng)?;
-        self = self.gen_spentbook_nodes_with_sks(num_nodes, &sks);
-        Ok(self)
-    }
-
-    /// generates a list of spentbook nodes sharing a provided SecretKeySet and adds to the builder.
-    pub fn gen_spentbook_nodes_with_sks(mut self, num_nodes: usize, sks: &SecretKeySet) -> Self {
-        for i in 0..num_nodes {
-            self.spentbook_nodes
-                .push(mock::SpentBookNode::from(mock::KeyManager::from(
-                    mock::Signer::new(
-                        sks.public_keys().clone(),
-                        (i as u64, sks.secret_key_share(i).clone()),
-                    ),
-                )));
+    /// Generates a list of spentbook nodes and adds to the builder.
+    pub fn gen_spentbook_nodes(mut self, num_nodes: usize) -> Self {
+        for _ in 0..num_nodes {
+            self.spentbook_nodes.push(mock::SpentbookNode::default());
         }
         self
     }
 
-    /// adds an existing spentbook node to the builder.
-    /// All spentbook nodes must share the same public key
-    pub fn add_spentbook_node(mut self, spentbook_node: mock::SpentBookNode) -> Self {
-        if !self.spentbook_nodes.is_empty() {
-            // we only support a single mock spentbook section.  pubkeys must match.
-            assert_eq!(
-                spentbook_node.key_manager.public_key_set().public_key(),
-                self.spentbook_nodes[0]
-                    .key_manager
-                    .public_key_set()
-                    .public_key()
-            );
-        }
+    /// Adds an existing spentbook node to the builder.
+    pub fn add_spentbook_node(mut self, spentbook_node: mock::SpentbookNode) -> Self {
         self.spentbook_nodes.push(spentbook_node);
         self
     }
@@ -73,40 +44,27 @@ impl GenesisBuilder {
         mut self,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(
-        Vec<mock::SpentBookNode>,
+        Vec<mock::SpentbookNode>,
         Dbc,
         GenesisMaterial,
         RevealedAmount,
     )> {
         let genesis_material = GenesisMaterial::default();
-        let mut dbc_builder = TransactionBuilder::default()
+        let dbc_builder = TransactionBuilder::default()
             .add_input(genesis_material.genesis_tx.inputs[0].clone())
             .add_output(
                 Token::from_nano(genesis_material.genesis_tx.outputs[0].amount),
                 genesis_material.dbc_id_src,
             )
-            .build(rng)?;
+            .build(Hash::default(), rng)?;
 
-        for (dbc_id, tx) in dbc_builder.inputs() {
+        for (tx, signed_spend) in dbc_builder.signed_spends() {
             for spentbook_node in self.spentbook_nodes.iter_mut() {
-                dbc_builder = dbc_builder.add_spent_proof_share(spentbook_node.log_spent(
-                    dbc_id,
-                    tx.clone(),
-                    Hash::default(),
-                )?);
+                spentbook_node.log_spent(tx, signed_spend)?;
             }
-            dbc_builder = dbc_builder.add_spent_transaction(tx);
         }
 
-        // note: for our (mock) purposes, all spentbook nodes are verified to
-        // have the same public key.  (in the same section)
-        let spentbook_node_arbitrary = &self.spentbook_nodes[0];
-
-        let (genesis_dbc, revealed_amount) = dbc_builder
-            .build(&spentbook_node_arbitrary.key_manager)?
-            .into_iter()
-            .next()
-            .unwrap();
+        let (genesis_dbc, revealed_amount) = dbc_builder.build()?.into_iter().next().unwrap();
         Ok((
             self.spentbook_nodes,
             genesis_dbc,
@@ -122,13 +80,13 @@ impl GenesisBuilder {
         num_spentbook_nodes: usize,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(
-        Vec<mock::SpentBookNode>,
+        Vec<mock::SpentbookNode>,
         Dbc,
         GenesisMaterial,
         RevealedAmount,
     )> {
         Self::default()
-            .gen_spentbook_nodes(num_spentbook_nodes, rng)?
+            .gen_spentbook_nodes(num_spentbook_nodes)
             .build(rng)
     }
 
@@ -138,9 +96,9 @@ impl GenesisBuilder {
     #[allow(clippy::type_complexity)]
     pub fn init_genesis_single(
         rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(mock::SpentBookNode, Dbc, GenesisMaterial, RevealedAmount)> {
+    ) -> Result<(mock::SpentbookNode, Dbc, GenesisMaterial, RevealedAmount)> {
         let (spentbook_nodes, genesis_dbc, genesis_material, revealed_amount) =
-            Self::default().gen_spentbook_nodes(1, rng)?.build(rng)?;
+            Self::default().gen_spentbook_nodes(1).build(rng)?;
 
         // Note: these unwraps are safe because the above call returned Ok.
         // We could (stylistically) avoid the unwrap eg spentbook_nodes[0].clone()

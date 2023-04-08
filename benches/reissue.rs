@@ -16,17 +16,17 @@ use sn_dbc::{
 };
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const N_OUTPUTS: u64 = 100;
 
 fn bench_reissue_1_to_100(c: &mut Criterion) {
     let mut rng = rng::from_seed([0u8; 32]);
 
-    let (mut spentbook, (starting_dbc, starting_main_key)) =
+    let (mut spentbook_node, (starting_dbc, starting_main_key)) =
         generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
-    let mut dbc_builder = sn_dbc::TransactionBuilder::default()
+    let dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
             starting_dbc.derived_key(&starting_main_key).unwrap(),
             starting_dbc.revealed_amount(&starting_main_key).unwrap(),
@@ -37,26 +37,26 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
                 MainKey::random_from_rng(&mut rng).random_dbc_id_src(&mut rng),
             )
         }))
-        .build(&mut rng)
+        .build(Hash::default(), &mut rng)
         .unwrap();
 
-    for (public_key, tx) in dbc_builder.inputs() {
-        let spent_proof_share = spentbook
-            .log_spent(public_key, tx, Hash::default())
-            .unwrap();
-        dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
+    for (tx, signed_spend) in dbc_builder.signed_spends() {
+        spentbook_node.log_spent(tx, signed_spend).unwrap();
     }
 
-    let spent_proofs = dbc_builder.spent_proofs().unwrap();
-    let tx = &dbc_builder.transaction;
+    let tx = &dbc_builder.tx;
+    let signed_spends: BTreeSet<_> = dbc_builder
+        .signed_spends()
+        .iter()
+        .map(|(_, spend)| (*spend).clone())
+        .collect();
 
     c.bench_function(&format!("reissue split 1 to {N_OUTPUTS}"), |b| {
         #[cfg(unix)]
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
-            TransactionVerifier::verify(&spentbook.key_manager, black_box(tx), &spent_proofs)
-                .unwrap();
+            TransactionVerifier::verify(black_box(tx), &signed_spends).unwrap();
         });
 
         #[cfg(unix)]
@@ -83,7 +83,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         })
         .collect();
 
-    let mut dbc_builder = sn_dbc::TransactionBuilder::default()
+    let dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
             starting_dbc.derived_key(&starting_main_key).unwrap(),
             starting_dbc.revealed_amount(&starting_main_key).unwrap(),
@@ -101,21 +101,18 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                     )
                 }),
         )
-        .build(&mut rng)
+        .build(Hash::default(), &mut rng)
         .unwrap();
 
-    for (public_key, tx) in dbc_builder.inputs() {
-        let spent_proof_share = spentbook_node
-            .log_spent(public_key, tx, Hash::default())
-            .unwrap();
-        dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
+    for (tx, signed_spend) in dbc_builder.signed_spends() {
+        spentbook_node.log_spent(tx, signed_spend).unwrap();
     }
-    let dbcs = dbc_builder.build(&spentbook_node.key_manager).unwrap();
+    let dbcs = dbc_builder.build().unwrap();
 
     let main_key = MainKey::random_from_rng(&mut rng);
     let derivation_index = random_derivation_index(&mut rng);
 
-    let mut merge_dbc_builder = sn_dbc::TransactionBuilder::default()
+    let merge_dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_inputs_by_secrets(
             dbcs.into_iter()
                 .map(|(dbc, revealed_amount)| {
@@ -131,26 +128,26 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                 derivation_index,
             },
         )
-        .build(&mut rng)
+        .build(Hash::default(), &mut rng)
         .unwrap();
 
-    for (public_key, tx) in merge_dbc_builder.inputs() {
-        let spent_proof_share = spentbook_node
-            .log_spent(public_key, tx, Hash::default())
-            .unwrap();
-        merge_dbc_builder = merge_dbc_builder.add_spent_proof_share(spent_proof_share);
+    for (tx, signed_spend) in merge_dbc_builder.signed_spends() {
+        spentbook_node.log_spent(tx, signed_spend).unwrap();
     }
 
-    let spent_proofs = merge_dbc_builder.spent_proofs().unwrap();
-    let tx = &merge_dbc_builder.transaction;
+    let tx = &merge_dbc_builder.tx;
+    let signed_spends: BTreeSet<_> = merge_dbc_builder
+        .signed_spends()
+        .iter()
+        .map(|(_, spend)| (*spend).clone())
+        .collect();
 
     c.bench_function(&format!("reissue merge {N_OUTPUTS} to 1"), |b| {
         #[cfg(unix)]
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
-            TransactionVerifier::verify(&spentbook_node.key_manager, black_box(tx), &spent_proofs)
-                .unwrap();
+            TransactionVerifier::verify(black_box(tx), &signed_spends).unwrap();
         });
 
         #[cfg(unix)]
@@ -165,7 +162,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 fn generate_dbc_of_value(
     amount: Token,
     rng: &mut (impl RngCore + CryptoRng),
-) -> Result<(mock::SpentBookNode, (Dbc, MainKey))> {
+) -> Result<(mock::SpentbookNode, (Dbc, MainKey))> {
     let (mut spentbook_node, genesis_dbc, genesis_material, _revealed_amount) =
         mock::GenesisBuilder::init_genesis_single(rng)?;
 
@@ -176,7 +173,7 @@ fn generate_dbc_of_value(
 
     let main_key = MainKey::random_from_rng(rng);
 
-    let mut dbc_builder = sn_dbc::TransactionBuilder::default()
+    let dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_by_secrets(
             genesis_material.derived_key,
             genesis_dbc.revealed_amount(&genesis_material.main_key)?,
@@ -190,18 +187,13 @@ fn generate_dbc_of_value(
                 },
             )
         }))
-        .build(rng)?;
+        .build(Hash::default(), rng)?;
 
-    for (public_key, tx) in dbc_builder.inputs() {
-        let spent_proof_share = spentbook_node.log_spent(public_key, tx, Hash::default())?;
-        dbc_builder = dbc_builder.add_spent_proof_share(spent_proof_share);
+    for (tx, signed_spend) in dbc_builder.signed_spends() {
+        spentbook_node.log_spent(tx, signed_spend)?;
     }
 
-    let (starting_dbc, ..) = dbc_builder
-        .build(&spentbook_node.key_manager)?
-        .into_iter()
-        .next()
-        .unwrap();
+    let (starting_dbc, ..) = dbc_builder.build()?.into_iter().next().unwrap();
 
     Ok((spentbook_node, (starting_dbc, main_key)))
 }

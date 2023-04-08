@@ -55,6 +55,8 @@ impl RevealedInput {
 pub struct BlindedInput {
     pub dbc_id: DbcId,
     pub blinded_amount: BlindedAmount,
+    /// This is the signature of the `DerivedKey`
+    /// corresponding to this `dbc_id`
     pub signature: Signature,
 }
 
