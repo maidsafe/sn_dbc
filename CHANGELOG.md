@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [15.0.0](https://github.com/maidsafe/sn_dbc/compare/v14.0.0...v15.0.0) (2023-04-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **spend:** include tx instead of only hash
+
+* **spend:** include tx instead of only hash ([8b8089a](https://github.com/maidsafe/sn_dbc/commit/8b8089a651a3d39992f017ba974a4158f7804ed6))
+
 ## [14.0.0](https://github.com/maidsafe/sn_dbc/compare/v13.0.0...v14.0.0) (2023-04-08)
 
 
