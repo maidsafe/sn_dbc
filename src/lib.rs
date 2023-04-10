@@ -35,7 +35,10 @@ pub use crate::{
     builder::{DbcBuilder, OutputIdSources, TransactionBuilder},
     dbc::Dbc,
     dbc_ciphers::DbcCiphers,
-    dbc_id::{random_derivation_index, DbcId, DbcIdSource, DerivationIndex, DerivedKey, MainKey},
+    dbc_id::{
+        random_derivation_index, DbcId, DbcIdSource, DerivationIndex, DerivedKey, MainKey,
+        PublicAddress,
+    },
     error::{Error, Result},
     signed_spend::{SignedSpend, Spend},
     token::Token,
