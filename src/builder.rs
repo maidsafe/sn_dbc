@@ -213,7 +213,7 @@ impl DbcBuilder {
     /// See TransactionVerifier::verify() for a description of
     /// verifier requirements.
     pub fn build(self) -> Result<Vec<(Dbc, RevealedAmount)>> {
-        // Verify the tx, along with spent proofs.
+        // Verify the tx, along with signed spends.
         // Note that we do this just once for entire tx, not once per output Dbc.
         TransactionVerifier::verify(&self.tx, &self.signed_spends)?;
 

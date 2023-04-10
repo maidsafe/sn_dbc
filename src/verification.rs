@@ -22,13 +22,12 @@ use std::collections::BTreeSet;
 pub struct TransactionVerifier {}
 
 impl TransactionVerifier {
-    /// Verifies a transaction including spent proofs.
+    /// Verifies a transaction including signed spends.
     ///
     /// This function relies/assumes that the caller (wallet/client) obtains
-    /// the spentbook's public keys (held by SignedSpendKeyVerifier) in a
-    /// trustless/verified way.  ie, the caller should not simply obtain keys
-    /// from a SpentbookNode directly, but must somehow verify that the node is
-    /// a valid authority.
+    /// the DbcTransaction (held by every input spend's close group) in a
+    /// trustless/verified way. I.e., the caller should not simply obtain a
+    /// spend from a single peer, but must get the same spend from all in the close group.
     pub fn verify(tx: &DbcTransaction, signed_spends: &BTreeSet<SignedSpend>) -> Result<(), Error> {
         if signed_spends.is_empty() {
             return Err(transaction::Error::MissingTxInputs)?;
@@ -49,19 +48,19 @@ impl TransactionVerifier {
             return Err(Error::DbcIdNotUniqueAcrossOutputs);
         }
 
-        // Verify that each input has a corresponding spent proof.
+        // Verify that each input has a corresponding signed spend.
         for signed_spend in signed_spends.iter() {
             if !tx.inputs.iter().any(|m| m.dbc_id == *signed_spend.dbc_id()) {
                 return Err(Error::SignedSpendInputIdMismatch);
             }
         }
 
-        // Verify that each spent proof is valid
+        // Verify that each signed spend is valid
         for signed_spend in signed_spends.iter() {
             signed_spend.verify(tx_hash)?;
         }
 
-        // We must get the spent proofs into the same order as inputs
+        // We must get the signed spends into the same order as inputs
         // so that resulting blinded amounts will be in the right order.
         // Note: we could use itertools crate to sort in one loop.
         let mut signed_spends_found: Vec<(usize, &SignedSpend)> = signed_spends
@@ -90,7 +89,7 @@ impl TransactionVerifier {
 }
 
 /// Get the blinded amounts for the transaction.
-/// They will be part of the spent proof share that is generated.
+/// They will be part of the signed spend share that is generated.
 /// In the process of doing so, we verify the correct set of spent
 /// proofs and transactions have been provided.
 pub fn get_blinded_amounts_from_transaction(
@@ -98,7 +97,7 @@ pub fn get_blinded_amounts_from_transaction(
     signed_spends: &BTreeSet<SignedSpend>,
     spent_transactions: &BTreeSet<DbcTransaction>,
 ) -> Result<Vec<(DbcId, BlindedAmount)>> {
-    // Get txs that are referenced by the spent proofs.
+    // Get txs that are referenced by the signed spends.
     let mut referenced_spent_txs: Vec<&DbcTransaction> = vec![];
     for spent_prf in signed_spends {
         for spent_tx in spent_transactions {

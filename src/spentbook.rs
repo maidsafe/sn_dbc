@@ -273,7 +273,7 @@ mod tests {
 
             let _signed_spend = match i % 2 {
                 0 if is_invalid_signed_spend => {
-                    // drop this spent proof
+                    // drop this signed spend
                     continue;
                 }
                 1 if is_invalid_signed_spend => {

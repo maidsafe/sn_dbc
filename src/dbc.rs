@@ -170,12 +170,11 @@ impl Dbc {
         TransactionVerifier::verify(&self.tx, &self.signed_spends)?;
 
         let dbc_id = self.derived_key(main_key)?.dbc_id();
-
         if !self.tx.outputs.iter().any(|o| dbc_id.eq(o.dbc_id())) {
             return Err(Error::DbcCiphersNotPresentInTransactionOutput);
         }
 
-        // verify that all signed_spends reasons are equal
+        // verify that all signed_spend reasons are equal
         let reason = self.reason();
         let reasons_are_equal = |s: &SignedSpend| reason == s.reason();
         if !self.signed_spends.iter().all(reasons_are_equal) {
