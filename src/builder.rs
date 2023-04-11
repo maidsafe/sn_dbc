@@ -55,7 +55,15 @@ impl TransactionBuilder {
     }
 
     /// Add an input given a list of Dbcs and associated MainKeys.
-    pub fn add_inputs_dbc(
+    pub fn add_input_dbcs(mut self, main_key: &MainKey, dbcs: &[Dbc]) -> Result<Self> {
+        for dbc in dbcs.iter() {
+            self = self.add_input_dbc(dbc, main_key)?;
+        }
+        Ok(self)
+    }
+
+    /// Add an input given a list of Dbcs and associated MainKeys.
+    pub fn add_input_dbcs_with_keys(
         mut self,
         dbcs: impl IntoIterator<Item = (Dbc, MainKey)>,
     ) -> Result<Self> {
