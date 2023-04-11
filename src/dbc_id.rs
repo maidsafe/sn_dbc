@@ -175,6 +175,11 @@ impl MainKey {
         }
     }
 
+    /// Sign a message with the main key.
+    pub fn sign(&self, msg: &[u8]) -> blsttc::Signature {
+        self.0.sign(msg)
+    }
+
     /// When someone wants to send tokens to the PublicAddress of this MainKey,
     /// they generate the id of the Dbc - the DbcId - that shall hold the tokens.
     /// The created Dbc contains the encrypted derivation index, that is decrypted using
