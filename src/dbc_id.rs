@@ -118,6 +118,11 @@ impl PublicAddress {
         Self(public_key)
     }
 
+    /// Verify that the signature is valid for the message.
+    pub fn verify(&self, sig: &blsttc::Signature, msg: &[u8]) -> bool {
+        self.0.verify(sig, msg)
+    }
+
     /// A random derivation index and the public address.
     /// The random index will be used to derive a DbcId out of the public address.
     pub fn random_dbc_id_src(&self, rng: &mut impl RngCore) -> DbcIdSource {
