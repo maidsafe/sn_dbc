@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [15.1.0](https://github.com/maidsafe/sn_dbc/compare/v15.0.1...v15.1.0) (2023-04-11)
+
+
+### Features
+
+* gen rand dbc id src from public address ([6beae69](https://github.com/maidsafe/sn_dbc/commit/6beae69bd23d53536d1f6c8d738ca97d0b6e500f))
+
 ### [15.0.1](https://github.com/maidsafe/sn_dbc/compare/v15.0.0...v15.0.1) (2023-04-11)
 
 ## [15.0.0](https://github.com/maidsafe/sn_dbc/compare/v14.0.0...v15.0.0) (2023-04-09)
