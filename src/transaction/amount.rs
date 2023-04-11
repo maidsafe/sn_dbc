@@ -4,9 +4,9 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use crate::{rand::RngCore, BlindedAmount, BlindingFactor, DerivedKey, Error, Result};
+use crate::{rand::RngCore, BlindedAmount, BlindingFactor, DbcId, DerivedKey, Error, Result};
 
-use blsttc::{rand::CryptoRng, Ciphertext, PublicKey};
+use blsttc::{rand::CryptoRng, Ciphertext};
 use bulletproofs::PedersenGens;
 use std::convert::TryFrom;
 
@@ -56,9 +56,9 @@ impl RevealedAmount {
         self.blinding_factor
     }
 
-    /// Encrypt this instance to given public key, producing `Ciphertext`.
-    pub fn encrypt(&self, public_key: &PublicKey) -> Ciphertext {
-        public_key.encrypt(self.to_bytes())
+    /// Encrypt this instance to given `DbcId`, producing `Ciphertext`.
+    pub fn encrypt(&self, dbc_id: &DbcId) -> Ciphertext {
+        dbc_id.encrypt(self)
     }
 
     /// Build RevealedAmount from fixed size byte array.

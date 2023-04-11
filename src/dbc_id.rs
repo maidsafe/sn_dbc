@@ -37,7 +37,7 @@ impl DbcId {
         self.0.verify(sig, msg)
     }
 
-    pub fn encrypt(&self, revealed_amount: RevealedAmount) -> Ciphertext {
+    pub fn encrypt(&self, revealed_amount: &RevealedAmount) -> Ciphertext {
         self.0.encrypt(revealed_amount.to_bytes())
     }
 }
