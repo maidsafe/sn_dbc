@@ -210,7 +210,7 @@ mod tests {
             .collect();
 
         let dbc_builder = TransactionBuilder::default()
-            .add_inputs_dbc(second_inputs_dbcs)?
+            .add_input_dbcs_with_keys(second_inputs_dbcs)?
             .add_outputs(
                 second_output_key_map
                     .values()
