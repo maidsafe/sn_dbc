@@ -71,7 +71,7 @@ impl From<(&PublicAddress, &DerivationIndex, RevealedAmount)> for DbcCiphers {
         let derivation_index_cipher = public_address.encrypt(derivation_index);
         let revealed_amount_cipher = public_address
             .new_dbc_id(derivation_index)
-            .encrypt(revealed_amount);
+            .encrypt(&revealed_amount);
 
         Self {
             public_address: *public_address,
