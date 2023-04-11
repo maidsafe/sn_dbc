@@ -154,9 +154,22 @@ impl DbcTransaction {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
+pub struct InputHistory {
+    pub input: RevealedInput,
+    pub input_src_tx: DbcTransaction,
+}
+
+impl InputHistory {
+    fn dbc_id(&self) -> DbcId {
+        self.input.dbc_id()
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Default)]
 pub struct RevealedTx {
-    pub inputs: Vec<RevealedInput>,
+    pub inputs: Vec<InputHistory>,
     pub outputs: Vec<Output>,
 }
 
@@ -191,7 +204,7 @@ impl RevealedTx {
         let blinded_inputs: Vec<BlindedInput> = self
             .inputs
             .iter()
-            .map(|input| input.sign(&msg, &Self::pc_gens()))
+            .map(|input_history| input_history.input.sign(&msg, &Self::pc_gens()))
             .collect();
 
         Ok((
@@ -212,20 +225,23 @@ impl RevealedTx {
     }
 
     pub fn input_ids(&self) -> Vec<DbcId> {
-        self.inputs.iter().map(|input| input.dbc_id()).collect()
+        self.inputs
+            .iter()
+            .map(|input_history| input_history.dbc_id())
+            .collect()
     }
 
     fn revealed_input_amounts(&self) -> Vec<RevealedAmount> {
         self.inputs
             .iter()
-            .map(|input| *input.revealed_amount())
+            .map(|input_history| *input_history.input.revealed_amount())
             .collect()
     }
 
     fn blinded_input_amounts(&self) -> Vec<BlindedAmount> {
         self.inputs
             .iter()
-            .map(|input| input.blinded_amount(&Self::pc_gens()))
+            .map(|input_history| input_history.input.blinded_amount(&Self::pc_gens()))
             .collect()
     }
 
@@ -365,11 +381,19 @@ mod tests {
                 blinding_factor: 5u32.into(),
             },
         };
+        // The input src tx is a dummy here.
+        let input_history = InputHistory {
+            input: revealed_input,
+            input_src_tx: DbcTransaction {
+                inputs: vec![],
+                outputs: vec![],
+            },
+        };
 
         let mut blinded_amounts = BTreeMap::new();
         blinded_amounts.insert(
-            revealed_input.dbc_id(),
-            revealed_input.revealed_amount.blinded_amount(&pc_gens),
+            input_history.dbc_id(),
+            input_history.input.revealed_amount.blinded_amount(&pc_gens),
         );
         blinded_amounts.insert(
             DerivedKey::new(SecretKey::random()).dbc_id(),
@@ -381,7 +405,7 @@ mod tests {
         );
 
         let revealed_tx = RevealedTx {
-            inputs: vec![revealed_input],
+            inputs: vec![input_history],
             outputs: vec![Output {
                 dbc_id: DerivedKey::new(SecretKey::random()).dbc_id(),
                 amount: tx_amount,

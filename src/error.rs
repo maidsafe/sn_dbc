@@ -38,6 +38,12 @@ pub enum Error {
     #[error("Transaction hash does not match the transaction signed by spentbook.")]
     InvalidTransactionHash,
 
+    #[error("Missing a src transaction {src_tx_hash:?} of a signed spend {dbc_id:?}.")]
+    MissingSpentSrcTransaction {
+        dbc_id: DbcId,
+        src_tx_hash: crate::Hash,
+    },
+
     #[error("Dbc ciphers are not present in transaction outputs.")]
     DbcCiphersNotPresentInTransactionOutput,
 

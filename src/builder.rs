@@ -12,9 +12,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     dbc_id::DbcIdSource,
     transaction::{
-        DbcTransaction, Output, RevealedAmount, RevealedInput, RevealedOutput, RevealedTx,
+        DbcTransaction, InputHistory, Output, RevealedAmount, RevealedOutput, RevealedTx,
     },
-    DbcId, DerivedKey, MainKey,
+    DbcId, MainKey,
 };
 use crate::{
     rand::{CryptoRng, RngCore},
@@ -37,20 +37,25 @@ pub struct TransactionBuilder {
 
 impl TransactionBuilder {
     /// Add an input given a RevealedInput.
-    pub fn add_input(mut self, input: RevealedInput) -> Self {
+    pub fn add_input(mut self, input: InputHistory) -> Self {
         self.revealed_tx.inputs.push(input);
         self
     }
 
     /// Add an input given an iterator over RevealedInput.
-    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = RevealedInput>) -> Self {
+    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = InputHistory>) -> Self {
         self.revealed_tx.inputs.extend(inputs);
         self
     }
 
     /// Add an input given a Dbc and associated MainKey.
     pub fn add_input_dbc(mut self, dbc: &Dbc, main_key: &MainKey) -> Result<Self> {
-        self = self.add_input(dbc.as_revealed_input(main_key)?);
+        let input = dbc.as_revealed_input(main_key)?;
+        let input_src_tx = dbc.src_tx.clone();
+        self = self.add_input(InputHistory {
+            input,
+            input_src_tx,
+        });
         Ok(self)
     }
 
@@ -73,24 +78,24 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// Add an input given a DerivedKey and a RevealedAmount.
-    pub fn add_input_by_secrets(
-        mut self,
-        derived_key: DerivedKey,
-        revealed_amount: RevealedAmount,
-    ) -> Self {
-        let revealed_input = RevealedInput::new(derived_key, revealed_amount);
-        self = self.add_input(revealed_input);
-        self
-    }
+    // /// Add an input given a DerivedKey and a RevealedAmount.
+    // pub fn add_input_by_secrets(
+    //     mut self,
+    //     derived_key: DerivedKey,
+    //     revealed_amount: RevealedAmount,
+    // ) -> Self {
+    //     let revealed_input = RevealedInput::new(derived_key, revealed_amount);
+    //     self = self.add_input(revealed_input);
+    //     self
+    // }
 
-    /// Add an input given a list of (DerivedKey, RevealedAmount).
-    pub fn add_inputs_by_secrets(mut self, secrets: Vec<(DerivedKey, RevealedAmount)>) -> Self {
-        for (derived_key, revealed_amount) in secrets.into_iter() {
-            self = self.add_input_by_secrets(derived_key, revealed_amount);
-        }
-        self
-    }
+    // /// Add an input given a list of (DerivedKey, RevealedAmount).
+    // pub fn add_inputs_by_secrets(mut self, secrets: Vec<(DerivedKey, RevealedAmount)>) -> Self {
+    //     for (derived_key, revealed_amount) in secrets.into_iter() {
+    //         self = self.add_input_by_secrets(derived_key, revealed_amount);
+    //     }
+    //     self
+    // }
 
     /// Add an output given amount and the source of the DbcId for the new Dbc.
     pub fn add_output(mut self, amount: Token, dbc_id_src: DbcIdSource) -> Self {
@@ -110,7 +115,11 @@ impl TransactionBuilder {
 
     /// Get a list of input ids.
     pub fn input_ids(&self) -> Vec<DbcId> {
-        self.revealed_tx.inputs.iter().map(|t| t.dbc_id()).collect()
+        self.revealed_tx
+            .inputs
+            .iter()
+            .map(|t| t.input.dbc_id())
+            .collect()
     }
 
     /// Get sum of input amounts.
@@ -119,7 +128,7 @@ impl TransactionBuilder {
             .revealed_tx
             .inputs
             .iter()
-            .map(|t| t.revealed_amount.value)
+            .map(|t| t.input.revealed_amount.value)
             .sum();
         Token::from_nano(amount)
     }
@@ -131,7 +140,7 @@ impl TransactionBuilder {
     }
 
     /// Get inputs.
-    pub fn inputs(&self) -> &Vec<RevealedInput> {
+    pub fn inputs(&self) -> &Vec<InputHistory> {
         &self.revealed_tx.inputs
     }
 
@@ -143,24 +152,25 @@ impl TransactionBuilder {
     /// Build the DbcTransaction by signing the inputs,
     /// and generating the blinded outputs. Return a DbcBuilder.
     pub fn build(self, reason: Hash, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
-        let (tx, revealed_outputs) = self.revealed_tx.sign(rng)?;
+        let (dst_tx, revealed_outputs) = self.revealed_tx.sign(rng)?;
 
-        let signed_spends: BTreeSet<_> = tx
+        let signed_spends: BTreeSet<_> = dst_tx
             .inputs
             .iter()
             .flat_map(|input| {
                 self.revealed_tx
                     .inputs
                     .iter()
-                    .find(|i| i.dbc_id() == input.dbc_id())
+                    .find(|i| i.input.dbc_id() == input.dbc_id())
                     .map(|i| {
                         let spend = crate::Spend {
                             dbc_id: input.dbc_id(),
-                            tx: tx.clone(),
+                            dst_tx: dst_tx.clone(),
                             reason,
                             blinded_amount: input.blinded_amount,
+                            src_tx_hash: i.input_src_tx.hash(),
                         };
-                        let derived_key_sig = i.derived_key.sign(&spend.to_bytes());
+                        let derived_key_sig = i.input.derived_key.sign(&spend.to_bytes());
                         SignedSpend {
                             spend,
                             derived_key_sig,
@@ -170,7 +180,7 @@ impl TransactionBuilder {
             .collect();
 
         Ok(DbcBuilder::new(
-            tx,
+            dst_tx,
             revealed_outputs,
             self.output_id_sources,
             self.revealed_tx,
@@ -183,7 +193,7 @@ impl TransactionBuilder {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct DbcBuilder {
-    pub tx: DbcTransaction,
+    pub dst_tx: DbcTransaction,
     pub revealed_outputs: Vec<RevealedOutput>,
     pub output_id_sources: OutputIdSources,
     pub revealed_tx: RevealedTx,
@@ -193,14 +203,14 @@ pub struct DbcBuilder {
 impl DbcBuilder {
     /// Create a new DbcBuilder.
     pub fn new(
-        tx: DbcTransaction,
+        dst_tx: DbcTransaction,
         revealed_outputs: Vec<RevealedOutput>,
         output_id_sources: OutputIdSources,
         revealed_tx: RevealedTx,
         signed_spends: BTreeSet<SignedSpend>,
     ) -> Self {
         Self {
-            tx,
+            dst_tx,
             revealed_outputs,
             output_id_sources,
             revealed_tx,
@@ -208,12 +218,10 @@ impl DbcBuilder {
         }
     }
 
-    /// Return the signed spends.
-    pub fn signed_spends(&self) -> Vec<(&DbcTransaction, &SignedSpend)> {
-        self.signed_spends
-            .iter()
-            .map(|spend| (&self.tx, spend))
-            .collect()
+    /// Return the signed spends. They each already contain the
+    /// dst_tx, so the inclusion of it in the result is just for convenience.
+    pub fn signed_spends(&self) -> Vec<&SignedSpend> {
+        self.signed_spends.iter().collect()
     }
 
     /// Build the output Dbcs, verifying the transaction and SignedSpends.
@@ -223,7 +231,7 @@ impl DbcBuilder {
     pub fn build(self) -> Result<Vec<(Dbc, RevealedAmount)>> {
         // Verify the tx, along with signed spends.
         // Note that we do this just once for entire tx, not once per output Dbc.
-        TransactionVerifier::verify(&self.tx, &self.signed_spends)?;
+        TransactionVerifier::verify(&self.dst_tx, &self.signed_spends)?;
 
         // Build output Dbcs.
         self.build_output_dbcs()
@@ -245,7 +253,7 @@ impl DbcBuilder {
             .collect();
 
         let dbc_id_list: Vec<&DbcIdSource> = self
-            .tx
+            .dst_tx
             .outputs
             .iter()
             .map(|output| {
@@ -257,7 +265,7 @@ impl DbcBuilder {
 
         // Form the final output DBCs
         let output_dbcs: Vec<(Dbc, RevealedAmount)> = self
-            .tx
+            .dst_tx
             .outputs
             .iter()
             .zip(dbc_id_list)
@@ -276,7 +284,7 @@ impl DbcBuilder {
                 ));
                 let dbc = Dbc {
                     id: dbc_id_src.dbc_id(),
-                    tx: self.tx.clone(),
+                    src_tx: self.dst_tx.clone(),
                     ciphers,
                     signed_spends: self.signed_spends.clone(),
                 };

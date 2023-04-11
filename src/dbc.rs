@@ -64,8 +64,8 @@ pub struct Dbc {
     /// The id of this Dbc. It is unique, and there can never
     /// be another Dbc with the same id. It used in SignedSpends.
     pub id: DbcId,
-    /// The transaction where this DBC was created
-    pub tx: DbcTransaction,
+    /// The transaction where this DBC was created.
+    pub src_tx: DbcTransaction,
     /// Encrypted information for and about the recipient of this Dbc.
     pub ciphers: DbcCiphers,
     /// The transaction's input's SignedSpends
@@ -117,7 +117,7 @@ impl Dbc {
     /// Return the BlindedAmount for this Dbc.
     pub fn blinded_amount(&self) -> Result<BlindedAmount> {
         Ok(self
-            .tx
+            .src_tx
             .outputs
             .iter()
             .find(|o| &self.id() == o.dbc_id())
@@ -137,7 +137,7 @@ impl Dbc {
     /// Generate the hash of this Dbc
     pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
-        sha3.update(self.tx.hash().as_ref());
+        sha3.update(self.src_tx.hash().as_ref());
         sha3.update(&self.ciphers.to_bytes());
 
         for sp in self.signed_spends.iter() {
@@ -167,10 +167,10 @@ impl Dbc {
     /// see comments for Dbc::verify_amounts() for a
     /// description of how to handle Error::BlindedAmountsDoNotMatch
     pub fn verify(&self, main_key: &MainKey) -> Result<(), Error> {
-        TransactionVerifier::verify(&self.tx, &self.signed_spends)?;
+        TransactionVerifier::verify(&self.src_tx, &self.signed_spends)?;
 
         let dbc_id = self.derived_key(main_key)?.dbc_id();
-        if !self.tx.outputs.iter().any(|o| dbc_id.eq(o.dbc_id())) {
+        if !self.src_tx.outputs.iter().any(|o| dbc_id.eq(o.dbc_id())) {
             return Err(Error::DbcCiphersNotPresentInTransactionOutput);
         }
 
@@ -240,7 +240,7 @@ impl Dbc {
     /// the tx that gave rise to this Dbc.
     fn blinded_output(&self, main_key: &MainKey) -> Result<&BlindedOutput> {
         let dbc_id = self.derived_key(main_key)?.dbc_id();
-        self.tx
+        self.src_tx
             .outputs
             .iter()
             .find(|o| dbc_id.eq(o.dbc_id()))
@@ -282,7 +282,7 @@ pub(crate) mod tests {
         ));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
-            tx,
+            src_tx: tx,
             ciphers,
             signed_spends: Default::default(),
         };
@@ -314,7 +314,7 @@ pub(crate) mod tests {
         ));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
-            tx,
+            src_tx: tx,
             ciphers,
             signed_spends: Default::default(),
         };
@@ -377,7 +377,7 @@ pub(crate) mod tests {
 
         let dbc = Dbc {
             id: derived_key.dbc_id(),
-            tx,
+            src_tx: tx,
             ciphers,
             signed_spends: Default::default(),
         };
@@ -436,10 +436,8 @@ pub(crate) mod tests {
         ];
 
         let dbc_builder = crate::TransactionBuilder::default()
-            .add_input_by_secrets(
-                genesis_material.derived_key,
-                genesis_dbc.revealed_amount(&genesis_material.main_key)?,
-            )
+            .add_input_dbc(&genesis_dbc, &genesis_material.main_key)
+            .unwrap()
             .add_outputs(output_amounts.into_iter().map(|amount| {
                 (
                     amount,
@@ -451,7 +449,8 @@ pub(crate) mod tests {
             }))
             .build(Hash::default(), rng)?;
 
-        for (tx, signed_spend) in dbc_builder.signed_spends() {
+        let tx = &dbc_builder.dst_tx;
+        for signed_spend in dbc_builder.signed_spends() {
             spentbook_node.log_spent(tx, signed_spend)?
         }
 

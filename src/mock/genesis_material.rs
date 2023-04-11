@@ -8,8 +8,8 @@
 
 use crate::{
     dbc_id::DbcIdSource,
-    transaction::{Amount, Output, RevealedAmount, RevealedInput, RevealedTx},
-    DbcId, DerivedKey, MainKey,
+    transaction::{Amount, InputHistory, Output, RevealedAmount, RevealedInput, RevealedTx},
+    DbcId, DbcTransaction, DerivedKey, MainKey,
 };
 use blsttc::IntoFr;
 
@@ -57,9 +57,19 @@ impl Default for GenesisMaterial {
         );
         let input_dbc_id = revealed_input.dbc_id();
 
-        // build the pre-genesis Transaction
+        let input_history = InputHistory {
+            input: revealed_input,
+            // There is nothing in this transaction
+            // since there was no tx before genesis.
+            input_src_tx: DbcTransaction {
+                inputs: vec![],
+                outputs: vec![],
+            },
+        };
+
+        // Build the transaction where genesis was created.
         let genesis_tx = RevealedTx {
-            inputs: vec![revealed_input],
+            inputs: vec![input_history],
             outputs: vec![Output::new(
                 output_derived_key.dbc_id(),
                 Self::GENESIS_AMOUNT,
