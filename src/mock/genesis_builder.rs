@@ -58,7 +58,8 @@ impl GenesisBuilder {
             )
             .build(Hash::default(), rng)?;
 
-        for (tx, signed_spend) in dbc_builder.signed_spends() {
+        let tx = &dbc_builder.dst_tx;
+        for signed_spend in dbc_builder.signed_spends() {
             for spentbook_node in self.spentbook_nodes.iter_mut() {
                 spentbook_node.log_spent(tx, signed_spend)?;
             }

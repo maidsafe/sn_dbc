@@ -27,10 +27,8 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
     let dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_input_by_secrets(
-            starting_dbc.derived_key(&starting_main_key).unwrap(),
-            starting_dbc.revealed_amount(&starting_main_key).unwrap(),
-        )
+        .add_input_dbc(&starting_dbc, &starting_main_key)
+        .unwrap()
         .add_outputs((0..N_OUTPUTS).map(|_| {
             (
                 Token::from_nano(1),
@@ -40,23 +38,19 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .build(Hash::default(), &mut rng)
         .unwrap();
 
-    for (tx, signed_spend) in dbc_builder.signed_spends() {
-        spentbook_node.log_spent(tx, signed_spend).unwrap();
+    let dst_tx = &dbc_builder.dst_tx;
+    for signed_spend in dbc_builder.signed_spends() {
+        spentbook_node.log_spent(dst_tx, signed_spend).unwrap();
     }
 
-    let tx = &dbc_builder.tx;
-    let signed_spends: BTreeSet<_> = dbc_builder
-        .signed_spends()
-        .iter()
-        .map(|(_, spend)| (*spend).clone())
-        .collect();
+    let signed_spends: BTreeSet<_> = dbc_builder.signed_spends().into_iter().cloned().collect();
 
     c.bench_function(&format!("reissue split 1 to {N_OUTPUTS}"), |b| {
         #[cfg(unix)]
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
-            TransactionVerifier::verify(black_box(tx), &signed_spends).unwrap();
+            TransactionVerifier::verify(black_box(dst_tx), &signed_spends).unwrap();
         });
 
         #[cfg(unix)]
@@ -84,10 +78,8 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .collect();
 
     let dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_input_by_secrets(
-            starting_dbc.derived_key(&starting_main_key).unwrap(),
-            starting_dbc.revealed_amount(&starting_main_key).unwrap(),
-        )
+        .add_input_dbc(&starting_dbc, &starting_main_key)
+        .unwrap()
         .add_outputs(
             outputs
                 .iter()
@@ -104,23 +96,23 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build(Hash::default(), &mut rng)
         .unwrap();
 
-    for (tx, signed_spend) in dbc_builder.signed_spends() {
-        spentbook_node.log_spent(tx, signed_spend).unwrap();
+    let dst_tx = dbc_builder.dst_tx.clone();
+    for signed_spend in dbc_builder.signed_spends() {
+        spentbook_node.log_spent(&dst_tx, signed_spend).unwrap();
     }
     let dbcs = dbc_builder.build().unwrap();
 
     let main_key = MainKey::random_from_rng(&mut rng);
     let derivation_index = random_derivation_index(&mut rng);
 
-    let merge_dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_inputs_by_secrets(
-            dbcs.into_iter()
-                .map(|(dbc, revealed_amount)| {
-                    let (main_key, _, _) = outputs.get(&dbc.id()).unwrap();
-                    (dbc.derived_key(main_key).unwrap(), revealed_amount)
-                })
-                .collect(),
-        )
+    let mut tx_builder = sn_dbc::TransactionBuilder::default();
+
+    for (dbc, _) in dbcs.into_iter() {
+        let (main_key, _, _) = outputs.get(&dbc.id()).unwrap();
+        tx_builder = tx_builder.add_input_dbc(&dbc, main_key).unwrap();
+    }
+
+    let merge_dbc_builder = tx_builder
         .add_output(
             Token::from_nano(N_OUTPUTS),
             DbcIdSource {
@@ -131,15 +123,17 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build(Hash::default(), &mut rng)
         .unwrap();
 
-    for (tx, signed_spend) in merge_dbc_builder.signed_spends() {
-        spentbook_node.log_spent(tx, signed_spend).unwrap();
+    let merge_dst_tx = merge_dbc_builder.dst_tx.clone();
+    for signed_spend in merge_dbc_builder.signed_spends() {
+        spentbook_node
+            .log_spent(&merge_dst_tx, signed_spend)
+            .unwrap();
     }
 
-    let tx = &merge_dbc_builder.tx;
     let signed_spends: BTreeSet<_> = merge_dbc_builder
         .signed_spends()
-        .iter()
-        .map(|(_, spend)| (*spend).clone())
+        .into_iter()
+        .cloned()
         .collect();
 
     c.bench_function(&format!("reissue merge {N_OUTPUTS} to 1"), |b| {
@@ -147,7 +141,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
-            TransactionVerifier::verify(black_box(tx), &signed_spends).unwrap();
+            TransactionVerifier::verify(black_box(&merge_dst_tx), &signed_spends).unwrap();
         });
 
         #[cfg(unix)]
@@ -159,6 +153,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     });
 }
 
+#[allow(clippy::result_large_err)]
 fn generate_dbc_of_value(
     amount: Token,
     rng: &mut (impl RngCore + CryptoRng),
@@ -174,10 +169,8 @@ fn generate_dbc_of_value(
     let main_key = MainKey::random_from_rng(rng);
 
     let dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_input_by_secrets(
-            genesis_material.derived_key,
-            genesis_dbc.revealed_amount(&genesis_material.main_key)?,
-        )
+        .add_input_dbc(&genesis_dbc, &genesis_material.main_key)
+        .unwrap()
         .add_outputs(output_amounts.into_iter().map(|amount| {
             (
                 amount,
@@ -189,8 +182,9 @@ fn generate_dbc_of_value(
         }))
         .build(Hash::default(), rng)?;
 
-    for (tx, signed_spend) in dbc_builder.signed_spends() {
-        spentbook_node.log_spent(tx, signed_spend)?;
+    let tx = dbc_builder.dst_tx.clone();
+    for signed_spend in dbc_builder.signed_spends() {
+        spentbook_node.log_spent(&tx, signed_spend)?;
     }
 
     let (starting_dbc, ..) = dbc_builder.build()?.into_iter().next().unwrap();

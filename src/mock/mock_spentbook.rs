@@ -52,6 +52,7 @@ impl Default for SpentbookNode {
     fn default() -> Self {
         let genesis_material = GenesisMaterial::default();
         let blinded_amount = genesis_material.genesis_tx.inputs[0]
+            .input
             .revealed_amount()
             .blinded_amount(&PedersenGens::default());
 
@@ -93,23 +94,23 @@ impl SpentbookNode {
     #[cfg(test)]
     pub fn log_spent_and_skip_tx_verification(
         &mut self,
-        tx: &DbcTransaction,
+        dst_tx: &DbcTransaction,
         signed_spend: &SignedSpend,
     ) -> Result<()> {
-        self.log_spent_worker(tx, signed_spend, false)
+        self.log_spent_worker(dst_tx, signed_spend, false)
     }
 
     fn log_spent_worker(
         &mut self,
-        tx: &DbcTransaction,
+        dst_tx: &DbcTransaction,
         signed_spend: &SignedSpend,
         verify_tx: bool,
     ) -> Result<()> {
         let input_id = signed_spend.dbc_id();
-        let spend_tx_hash = signed_spend.tx_hash();
-        let tx_hash = tx.hash();
+        let dst_tx_hash = signed_spend.dst_tx_hash();
+        let tx_hash = dst_tx.hash();
 
-        if tx_hash != spend_tx_hash {
+        if tx_hash != dst_tx_hash {
             return Err(Error::InvalidTransactionHash);
         }
 
@@ -122,7 +123,8 @@ impl SpentbookNode {
             if input_id == genesis_dbc_id {
                 vec![(*input_id, *genesis_blinded_amount)]
             } else {
-                tx.inputs
+                dst_tx
+                    .inputs
                     .iter()
                     .map(|input| {
                         // look up matching BlindedOutput
@@ -145,7 +147,7 @@ impl SpentbookNode {
 
         if verify_tx {
             // Do not permit invalid tx to be logged.
-            tx.verify(&tx_blinded_amounts)?;
+            dst_tx.verify(&tx_blinded_amounts)?;
         }
 
         // Add dbc_id:tx_hash to dbc_id index.
@@ -156,7 +158,7 @@ impl SpentbookNode {
             let existing_tx = self
                 .transactions
                 .entry(tx_hash)
-                .or_insert_with(|| tx.clone());
+                .or_insert_with(|| dst_tx.clone());
 
             // Add dbc_id:blinded_output to dbc_id index.
             for output in existing_tx.outputs.iter() {
