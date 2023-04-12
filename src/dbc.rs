@@ -127,7 +127,7 @@ impl Dbc {
 
     /// Return the input that represents this Dbc for use as
     /// a transaction input.
-    pub fn as_revealed_input(&self, main_key: &MainKey) -> Result<RevealedInput> {
+    pub fn revealed_input(&self, main_key: &MainKey) -> Result<RevealedInput> {
         Ok(RevealedInput::new(
             self.derived_key(main_key)?,
             self.revealed_amount(main_key)?,
@@ -329,8 +329,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn as_revealed_input_should_error_if_dbc_id_is_not_derived_from_main_key() -> Result<(), Error>
-    {
+    fn revealed_input_should_error_if_dbc_id_is_not_derived_from_main_key() -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
         let (_, _, (dbc, _)) = generate_dbc_of_value_from_pk_hex(
             100,
@@ -342,7 +341,7 @@ pub(crate) mod tests {
             "d823b03be25ad306ce2c2ef8f67d8a49322ed2a8636de5dbf01f6cc3467dc91e",
         )?;
         let main_key = MainKey::new(sk);
-        let result = dbc.as_revealed_input(&main_key);
+        let result = dbc.revealed_input(&main_key);
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err().to_string(),

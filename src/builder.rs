@@ -50,7 +50,7 @@ impl TransactionBuilder {
 
     /// Add an input given a Dbc and associated MainKey.
     pub fn add_input_dbc(mut self, dbc: &Dbc, main_key: &MainKey) -> Result<Self> {
-        let input = dbc.as_revealed_input(main_key)?;
+        let input = dbc.revealed_input(main_key)?;
         let input_src_tx = dbc.src_tx.clone();
         self = self.add_input(InputHistory {
             input,
