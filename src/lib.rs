@@ -40,8 +40,8 @@ pub use crate::{
     signed_spend::{SignedSpend, Spend},
     token::Token,
     transaction::{
-        Amount, BlindedInput, BlindedOutput, DbcTransaction, Output, RevealedAmount, RevealedInput,
-        RevealedTx,
+        Amount, BlindedInput, BlindedOutput, DbcTransaction, InputHistory, Output, RevealedAmount,
+        RevealedInput, RevealedTx,
     },
     verification::{get_blinded_amounts_from_transaction, TransactionVerifier},
 };
