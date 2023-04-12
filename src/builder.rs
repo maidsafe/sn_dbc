@@ -14,7 +14,7 @@ use crate::{
     transaction::{
         DbcTransaction, InputHistory, Output, RevealedAmount, RevealedOutput, RevealedTx,
     },
-    DbcId, MainKey,
+    DbcId, DerivedKey,
 };
 use crate::{
     rand::{CryptoRng, RngCore},
@@ -48,9 +48,9 @@ impl TransactionBuilder {
         self
     }
 
-    /// Add an input given a Dbc and associated MainKey.
-    pub fn add_input_dbc(mut self, dbc: &Dbc, main_key: &MainKey) -> Result<Self> {
-        let input = dbc.revealed_input(main_key)?;
+    /// Add an input given a Dbc and its DerivedKey.
+    pub fn add_input_dbc(mut self, dbc: &Dbc, derived_key: &DerivedKey) -> Result<Self> {
+        let input = dbc.revealed_input(derived_key)?;
         let input_src_tx = dbc.src_tx.clone();
         self = self.add_input(InputHistory {
             input,
@@ -59,21 +59,10 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// Add an input given a list of Dbcs and associated MainKeys.
-    pub fn add_input_dbcs(mut self, main_key: &MainKey, dbcs: &[Dbc]) -> Result<Self> {
-        for dbc in dbcs.iter() {
-            self = self.add_input_dbc(dbc, main_key)?;
-        }
-        Ok(self)
-    }
-
-    /// Add an input given a list of Dbcs and associated MainKeys.
-    pub fn add_input_dbcs_with_keys(
-        mut self,
-        dbcs: impl IntoIterator<Item = (Dbc, MainKey)>,
-    ) -> Result<Self> {
-        for (dbc, main_key) in dbcs.into_iter() {
-            self = self.add_input_dbc(&dbc, &main_key)?;
+    /// Add an input given a list of Dbcs and associated DerivedKeys.
+    pub fn add_input_dbcs(mut self, dbcs: &[(Dbc, DerivedKey)]) -> Result<Self> {
+        for (dbc, derived_key) in dbcs.iter() {
+            self = self.add_input_dbc(dbc, derived_key)?;
         }
         Ok(self)
     }

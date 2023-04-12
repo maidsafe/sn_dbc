@@ -99,9 +99,17 @@ impl Dbc {
     }
 
     /// Decrypt and return the revealed amount.
-    pub fn revealed_amount(&self, main_key: &MainKey) -> Result<RevealedAmount> {
-        let derived_key = self.derived_key(main_key)?;
-        RevealedAmount::try_from((&derived_key, &self.ciphers.revealed_amount_cipher))
+    pub fn revealed_amount(&self, derived_key: &DerivedKey) -> Result<RevealedAmount> {
+        RevealedAmount::try_from((derived_key, &self.ciphers.revealed_amount_cipher))
+    }
+
+    /// Return the input that represents this Dbc for use as
+    /// a transaction input.
+    pub fn revealed_input(&self, derived_key: &DerivedKey) -> Result<RevealedInput> {
+        Ok(RevealedInput::new(
+            derived_key.clone(),
+            self.revealed_amount(derived_key)?,
+        ))
     }
 
     /// Return the reason why this Dbc was spent.
@@ -123,15 +131,6 @@ impl Dbc {
             .find(|o| &self.id() == o.dbc_id())
             .ok_or(Error::BlindedOutputNotFound)?
             .blinded_amount())
-    }
-
-    /// Return the input that represents this Dbc for use as
-    /// a transaction input.
-    pub fn revealed_input(&self, main_key: &MainKey) -> Result<RevealedInput> {
-        Ok(RevealedInput::new(
-            self.derived_key(main_key)?,
-            self.revealed_amount(main_key)?,
-        ))
     }
 
     /// Generate the hash of this Dbc
@@ -226,7 +225,8 @@ impl Dbc {
     /// this check, then they could be stuck with an unspendable Dbc
     /// and no recourse.
     pub(crate) fn verify_amounts(&self, main_key: &MainKey) -> Result<()> {
-        let revealed_amount: RevealedAmount = self.revealed_amount(main_key)?;
+        let derived_key = self.derived_key(main_key)?;
+        let revealed_amount: RevealedAmount = self.revealed_amount(&derived_key)?;
         let blinded_amount = revealed_amount.blinded_amount(&Default::default());
         let blinded_amount_in_tx = self.blinded_output(main_key)?.blinded_amount();
 
@@ -290,7 +290,8 @@ pub(crate) mod tests {
         let hex = dbc.to_hex()?;
 
         let dbc = Dbc::from_hex(&hex)?;
-        let amount = dbc.revealed_amount(&main_key)?.value();
+        let derived_key = dbc.derived_key(&main_key)?;
+        let amount = dbc.revealed_amount(&derived_key)?.value();
         assert_eq!(amount, 1_530_000_000);
         Ok(())
     }
@@ -318,13 +319,16 @@ pub(crate) mod tests {
             ciphers,
             signed_spends: Default::default(),
         };
+        let derived_key = dbc.derived_key(&main_key)?;
 
         let hex = dbc.to_hex()?;
-
         let dbc_from_hex = Dbc::from_hex(&hex)?;
-        let left = dbc.revealed_amount(&main_key)?.value();
-        let right = dbc_from_hex.revealed_amount(&main_key)?.value();
-        assert_eq!(left, right);
+        let derived_key_from_hex = dbc_from_hex.derived_key(&main_key)?;
+
+        let amount = dbc.revealed_amount(&derived_key)?.value();
+        let amount_from_hex = dbc_from_hex.revealed_amount(&derived_key_from_hex)?.value();
+        assert_eq!(amount, amount_from_hex);
+
         Ok(())
     }
 
@@ -341,7 +345,7 @@ pub(crate) mod tests {
             "d823b03be25ad306ce2c2ef8f67d8a49322ed2a8636de5dbf01f6cc3467dc91e",
         )?;
         let main_key = MainKey::new(sk);
-        let result = dbc.revealed_input(&main_key);
+        let result = dbc.derived_key(&main_key);
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err().to_string(),
@@ -434,8 +438,9 @@ pub(crate) mod tests {
             Token::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - amount),
         ];
 
+        let derived_key = genesis_dbc.derived_key(&genesis_material.main_key)?;
         let dbc_builder = crate::TransactionBuilder::default()
-            .add_input_dbc(&genesis_dbc, &genesis_material.main_key)
+            .add_input_dbc(&genesis_dbc, &derived_key)
             .unwrap()
             .add_outputs(output_amounts.into_iter().map(|amount| {
                 (

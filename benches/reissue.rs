@@ -26,8 +26,9 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
     let (mut spentbook_node, (starting_dbc, starting_main_key)) =
         generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
+    let derived_key = starting_dbc.derived_key(&starting_main_key).unwrap();
     let dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_input_dbc(&starting_dbc, &starting_main_key)
+        .add_input_dbc(&starting_dbc, &derived_key)
         .unwrap()
         .add_outputs((0..N_OUTPUTS).map(|_| {
             (
@@ -77,8 +78,9 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         })
         .collect();
 
+    let derived_key = starting_dbc.derived_key(&starting_main_key).unwrap();
     let dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_input_dbc(&starting_dbc, &starting_main_key)
+        .add_input_dbc(&starting_dbc, &derived_key)
         .unwrap()
         .add_outputs(
             outputs
@@ -109,7 +111,8 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
     for (dbc, _) in dbcs.into_iter() {
         let (main_key, _, _) = outputs.get(&dbc.id()).unwrap();
-        tx_builder = tx_builder.add_input_dbc(&dbc, main_key).unwrap();
+        let derived_key = dbc.derived_key(main_key).unwrap();
+        tx_builder = tx_builder.add_input_dbc(&dbc, &derived_key).unwrap();
     }
 
     let merge_dbc_builder = tx_builder
@@ -168,8 +171,9 @@ fn generate_dbc_of_value(
 
     let main_key = MainKey::random_from_rng(rng);
 
+    let derived_key = genesis_dbc.derived_key(&genesis_material.main_key).unwrap();
     let dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_input_dbc(&genesis_dbc, &genesis_material.main_key)
+        .add_input_dbc(&genesis_dbc, &derived_key)
         .unwrap()
         .add_outputs(output_amounts.into_iter().map(|amount| {
             (

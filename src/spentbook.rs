@@ -10,7 +10,7 @@
 mod tests {
     use crate::{
         tests::{TinyInt, TinyVec},
-        Hash, MainKey, RevealedAmount,
+        DerivedKey, Hash, MainKey, RevealedAmount,
     };
     use blsttc::SecretKey;
     use quickcheck_macros::quickcheck;
@@ -59,8 +59,9 @@ mod tests {
             })
             .collect();
 
+        let derived_key = genesis_dbc.derived_key(&genesis.main_key).unwrap();
         let dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(&genesis_dbc, &genesis.main_key)?
+            .add_input_dbc(&genesis_dbc, &derived_key)?
             .add_outputs(
                 first_output_key_map
                     .values()
@@ -106,9 +107,10 @@ mod tests {
                 let mut sum: u64 = 0;
                 for (dbc, _) in output_dbcs.iter() {
                     let (main_key, _, _) = first_output_key_map.get(&dbc.id()).unwrap();
+                    let derived_key = dbc.derived_key(main_key).unwrap();
                     // note: we could just use revealed amount provided by DbcBuilder::build()
                     // but we go further to verify the correct value is encrypted in the Dbc.
-                    sum += dbc.revealed_amount(main_key)?.value()
+                    sum += dbc.revealed_amount(&derived_key)?.value()
                 }
                 sum
             },
@@ -158,8 +160,9 @@ mod tests {
             })
             .collect();
 
+        let derived_key = genesis_dbc.derived_key(&genesis_material.main_key).unwrap();
         let dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(&genesis_dbc, &genesis_material.main_key)?
+            .add_input_dbc(&genesis_dbc, &derived_key)?
             .add_outputs(
                 first_output_key_map
                     .values()
@@ -191,11 +194,12 @@ mod tests {
         let first_output_dbcs = dbc_builder.build()?;
 
         // The outputs become inputs for next tx.
-        let second_inputs_dbcs: Vec<(Dbc, MainKey)> = first_output_dbcs
+        let second_inputs_dbcs: Vec<(Dbc, DerivedKey)> = first_output_dbcs
             .into_iter()
             .map(|(dbc, _revealed_amount)| {
                 let (main_key, _, _) = first_output_key_map.remove(&dbc.id()).unwrap();
-                (dbc, main_key)
+                let derived_key = dbc.derived_key(&main_key).unwrap();
+                (dbc, derived_key)
             })
             .collect();
 
@@ -212,7 +216,7 @@ mod tests {
             .collect();
 
         let dbc_builder = TransactionBuilder::default()
-            .add_input_dbcs_with_keys(second_inputs_dbcs)?
+            .add_input_dbcs(&second_inputs_dbcs)?
             .add_outputs(
                 second_output_key_map
                     .values()
@@ -395,8 +399,9 @@ mod tests {
         let b_output_main_key = MainKey::random_from_rng(&mut rng);
         let b_output_dbc_id_src = b_output_main_key.random_dbc_id_src(&mut rng);
 
+        let a_derived_key = a_dbc.derived_key(&a_main_key).unwrap();
         let dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(&a_dbc, &a_main_key)?
+            .add_input_dbc(&a_dbc, &a_derived_key)?
             .add_output(Token::from_nano(b_output_amount), b_output_dbc_id_src)
             .build(Hash::default(), &mut rng)?;
 
@@ -416,7 +421,7 @@ mod tests {
 
         // Replace the encrypted secret amount with an encrypted secret claiming
         // twice the amount.
-        let a_revealed_amount = a_dbc.revealed_amount(&a_main_key)?;
+        let a_revealed_amount = a_dbc.revealed_amount(&a_derived_key)?;
         let b_fudged_revealed_amount = RevealedAmount::from((
             b_output_amount * 2,                 // Claim we are paying twice the amount.
             a_revealed_amount.blinding_factor(), // Use the real blinding factor.
@@ -434,8 +439,9 @@ mod tests {
         ));
 
         // Obtain revealed amount (true and fudged) from the `revealed_amount_cipher` of each.
-        let b_output_revealed_amount = b_output_dbc.revealed_amount(&b_output_main_key)?;
-        let b_output_fudged_amount = b_fudged_output_dbc.revealed_amount(&b_output_main_key)?;
+        let b_derived_key = b_output_dbc.derived_key(&b_output_main_key).unwrap();
+        let b_output_revealed_amount = b_output_dbc.revealed_amount(&b_derived_key)?;
+        let b_output_fudged_amount = b_fudged_output_dbc.revealed_amount(&b_derived_key)?;
 
         // Confirm the fudged amount is double of .
         assert_eq!(
@@ -457,9 +463,7 @@ mod tests {
 
         // Confirm that the revealed amount of `b_fudged_output_dbc` (2000) does not match `b_output_amount` (1000).
         assert_ne!(
-            b_fudged_output_dbc
-                .revealed_amount(&b_output_main_key)?
-                .value(),
+            b_fudged_output_dbc.revealed_amount(&b_derived_key)?.value(),
             b_output_amount,
         );
 
@@ -471,7 +475,7 @@ mod tests {
         let c_output_dbc_id_src = c_output_main_key.random_dbc_id_src(&mut rng);
 
         let dbc_builder_fudged = crate::TransactionBuilder::default()
-            .add_input_dbc(&b_fudged_output_dbc, &b_output_main_key)?
+            .add_input_dbc(&b_fudged_output_dbc, &b_derived_key)?
             .add_output(
                 Token::from_nano(b_output_fudged_amount.value()),
                 c_output_dbc_id_src,
@@ -524,7 +528,7 @@ mod tests {
         // because entries are immutable.
 
         let dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(&b_output_dbc, &b_output_main_key)
+            .add_input_dbc(&b_output_dbc, &b_derived_key)
             .unwrap()
             .add_output(
                 Token::from_nano(b_output_revealed_amount.value()),
