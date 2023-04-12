@@ -78,25 +78,6 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    // /// Add an input given a DerivedKey and a RevealedAmount.
-    // pub fn add_input_by_secrets(
-    //     mut self,
-    //     derived_key: DerivedKey,
-    //     revealed_amount: RevealedAmount,
-    // ) -> Self {
-    //     let revealed_input = RevealedInput::new(derived_key, revealed_amount);
-    //     self = self.add_input(revealed_input);
-    //     self
-    // }
-
-    // /// Add an input given a list of (DerivedKey, RevealedAmount).
-    // pub fn add_inputs_by_secrets(mut self, secrets: Vec<(DerivedKey, RevealedAmount)>) -> Self {
-    //     for (derived_key, revealed_amount) in secrets.into_iter() {
-    //         self = self.add_input_by_secrets(derived_key, revealed_amount);
-    //     }
-    //     self
-    // }
-
     /// Add an output given amount and the source of the DbcId for the new Dbc.
     pub fn add_output(mut self, amount: Token, dbc_id_src: DbcIdSource) -> Self {
         let output = Output::new(dbc_id_src.dbc_id(), amount.as_nano());
