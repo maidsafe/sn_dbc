@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [16.0.0](https://github.com/maidsafe/sn_dbc/compare/v15.1.0...v16.0.0) (2023-04-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* include spend src tx hash
+* update encrypt api to take dbc id
+
+### Features
+
+* expose sign fn for main key ([a94a0ef](https://github.com/maidsafe/sn_dbc/commit/a94a0ef283034efec32fb8b4d919dc48746eb04b))
+* expose verify fn for public address ([23c2a8c](https://github.com/maidsafe/sn_dbc/commit/23c2a8c30c0c7b49775cc639ebedf56e0e91169a))
+* update encrypt api to take dbc id ([ef6b308](https://github.com/maidsafe/sn_dbc/commit/ef6b308148626f27db8c94c8d55122a7279fe949))
+
+
+### Bug Fixes
+
+* **txbuilder:** take borrowed mainkey ([3523055](https://github.com/maidsafe/sn_dbc/commit/35230556f51790c0734fbd65ebd4f7f50f508a30))
+
+
+* include spend src tx hash ([ed9285c](https://github.com/maidsafe/sn_dbc/commit/ed9285c30b821054d76caac5782d38bd288c6180))
+
 ## [15.1.0](https://github.com/maidsafe/sn_dbc/compare/v15.0.1...v15.1.0) (2023-04-11)
 
 
