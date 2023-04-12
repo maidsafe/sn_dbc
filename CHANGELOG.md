@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [16.0.1](https://github.com/maidsafe/sn_dbc/compare/v16.0.0...v16.0.1) (2023-04-12)
+
+
+### Bug Fixes
+
+* expose the new type taken in api ([ada0dc9](https://github.com/maidsafe/sn_dbc/commit/ada0dc9a2fd61cf1a471340cb70938262add73f0))
+
 ## [16.0.0](https://github.com/maidsafe/sn_dbc/compare/v15.1.0...v16.0.0) (2023-04-12)
 
 
