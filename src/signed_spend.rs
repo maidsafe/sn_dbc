@@ -105,11 +105,12 @@ pub struct Spend {
     /// DbcId of input Dbc that this SignedSpend is proving to be spent.
     pub dbc_id: DbcId,
     /// The transaction that the input Dbc is being spent in.
+    #[debug(skip)]
     pub dst_tx: DbcTransaction,
     /// Reason why this Dbc was spent.
     pub reason: Hash,
-    #[debug(skip)]
     /// The amount of the input Dbc.
+    #[debug(skip)]
     pub blinded_amount: BlindedAmount,
     /// The hash of the transaction that the input Dbc was created in.
     pub src_tx_hash: Hash,
