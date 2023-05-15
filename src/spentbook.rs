@@ -86,7 +86,7 @@ mod tests {
             }
         };
 
-        let tx = &dbc_builder.dst_tx;
+        let tx = &dbc_builder.spent_tx;
         for signed_spend in dbc_builder.signed_spends() {
             match spentbook_node.log_spent(tx, signed_spend) {
                 Ok(s) => s,
@@ -182,7 +182,7 @@ mod tests {
             }
         };
 
-        let tx1 = dbc_builder.dst_tx.clone();
+        let tx1 = dbc_builder.spent_tx.clone();
         for signed_spend in dbc_builder.signed_spends() {
             // normally spentbook verifies the tx, but here we skip it in order check reissue results.
             match spentbook_node.log_spent_and_skip_tx_verification(&tx1, signed_spend) {
@@ -227,10 +227,10 @@ mod tests {
         let dbc_output_amounts = first_output_amounts.clone();
         let output_total_amount: u64 = dbc_output_amounts.iter().sum();
 
-        assert_eq!(second_inputs_dbcs_len, dbc_builder.dst_tx.inputs.len());
+        assert_eq!(second_inputs_dbcs_len, dbc_builder.spent_tx.inputs.len());
         assert_eq!(second_inputs_dbcs_len, dbc_builder.signed_spends().len());
 
-        let tx2 = dbc_builder.dst_tx.clone();
+        let tx2 = dbc_builder.spent_tx.clone();
 
         // note: we make this a closure because the logic is needed in
         // a couple places.
@@ -274,7 +274,7 @@ mod tests {
             Ok(())
         };
 
-        let tx = &dbc_builder.dst_tx;
+        let tx = &dbc_builder.spent_tx;
         for (i, signed_spend) in dbc_builder.signed_spends().into_iter().enumerate() {
             let is_invalid_signed_spend = invalid_signed_spends.contains(&i);
 
@@ -292,10 +292,10 @@ mod tests {
                     SignedSpend {
                         spend: Spend {
                             dbc_id: *signed_spend.dbc_id(),
-                            dst_tx: signed_spend.spend.dst_tx.clone(),
+                            spent_tx: signed_spend.spend.spent_tx.clone(),
                             reason: Hash::default(),
                             blinded_amount: *signed_spend.blinded_amount(),
-                            src_tx_hash: tx1.hash(),
+                            dbc_creation_tx_hash: tx1.hash(),
                         },
                         derived_key_sig: SecretKey::random().sign([0u8; 32]),
                     }
@@ -405,7 +405,7 @@ mod tests {
             .add_output(Token::from_nano(b_output_amount), b_output_dbc_id_src)
             .build(Hash::default(), &mut rng)?;
 
-        let tx = &dbc_builder.dst_tx;
+        let tx = &dbc_builder.spent_tx;
         for signed_spend in dbc_builder.signed_spends() {
             spentbook_node.log_spent(tx, signed_spend)?;
         }
@@ -490,7 +490,7 @@ mod tests {
         //    being spent (i.e. is an input now), has a different amount of 2000.
         // ----------
 
-        let fudged_tx = &dbc_builder_fudged.dst_tx;
+        let fudged_tx = &dbc_builder_fudged.spent_tx;
 
         for signed_spend in dbc_builder_fudged.signed_spends() {
             match spentbook_node.log_spent(fudged_tx, signed_spend) {
@@ -537,7 +537,7 @@ mod tests {
             .build(Hash::default(), &mut rng)?;
 
         let dbc_builder_bad_spend = dbc_builder.clone();
-        let bad_tx = &dbc_builder_bad_spend.dst_tx;
+        let bad_tx = &dbc_builder_bad_spend.spent_tx;
         for signed_spend in dbc_builder_bad_spend.signed_spends() {
             let result = spentbook_node.log_spent_and_skip_tx_verification(bad_tx, signed_spend);
             // The builder should return an error because the SignedSpend does not match the tx.
@@ -571,7 +571,7 @@ mod tests {
         new_spentbook_node.log_spent(&a_dbc.src_tx, a_dbc.signed_spends.first().unwrap())?;
         new_spentbook_node.log_spent(&b_dbc.src_tx, b_dbc.signed_spends.first().unwrap())?;
 
-        let tx = &dbc_builder.dst_tx;
+        let tx = &dbc_builder.spent_tx;
         for signed_spend in dbc_builder.signed_spends() {
             new_spentbook_node.log_spent(tx, signed_spend)?;
         }

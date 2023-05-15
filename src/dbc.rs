@@ -453,7 +453,7 @@ pub(crate) mod tests {
             }))
             .build(Hash::default(), rng)?;
 
-        let tx = &dbc_builder.dst_tx;
+        let tx = &dbc_builder.spent_tx;
         for signed_spend in dbc_builder.signed_spends() {
             spentbook_node.log_spent(tx, signed_spend)?
         }
