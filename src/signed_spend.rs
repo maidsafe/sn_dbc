@@ -29,14 +29,19 @@ impl SignedSpend {
         &self.spend.dbc_id
     }
 
-    /// Get dst transaction hash.
-    pub fn dst_tx_hash(&self) -> Hash {
-        self.spend.dst_tx.hash()
+    /// Get the hash of the transaction this DBC is spent in
+    pub fn spent_tx_hash(&self) -> Hash {
+        self.spend.spent_tx.hash()
     }
 
-    /// Get src transaction hash.
-    pub fn src_tx_hash(&self) -> Hash {
-        self.spend.src_tx_hash
+    /// Get the transaction this DBC is spent in
+    pub fn spent_tx(&self) -> DbcTransaction {
+        self.spend.spent_tx.clone()
+    }
+
+    /// Get the hash of the transaction this DBC was created in
+    pub fn dbc_creation_tx_hash(&self) -> Hash {
+        self.spend.dbc_creation_tx_hash
     }
 
     /// Get blinded amount.
@@ -59,12 +64,12 @@ impl SignedSpend {
 
     /// Verify this SignedSpend
     ///
-    /// Checks that the provided dst_tx_hash equals the input dst tx hash that was
+    /// Checks that the provided spent_tx_hash equals the input dst tx hash that was
     /// signed by the DerivedKey. Also verifies that that signature is
     /// valid for this SignedSpend.
-    pub fn verify(&self, dst_tx_hash: Hash) -> Result<()> {
-        // Verify that input dst_tx_hash matches self.dst_tx_hash which was signed by the DerivedKey of the input.
-        if dst_tx_hash != self.dst_tx_hash() {
+    pub fn verify(&self, spent_tx_hash: Hash) -> Result<()> {
+        // Verify that input spent_tx_hash matches self.spent_tx_hash which was signed by the DerivedKey of the input.
+        if spent_tx_hash != self.spent_tx_hash() {
             return Err(Error::InvalidTransactionHash);
         }
 
@@ -106,14 +111,14 @@ pub struct Spend {
     pub dbc_id: DbcId,
     /// The transaction that the input Dbc is being spent in.
     #[debug(skip)]
-    pub dst_tx: DbcTransaction,
+    pub spent_tx: DbcTransaction,
     /// Reason why this Dbc was spent.
     pub reason: Hash,
     /// The amount of the input Dbc.
     #[debug(skip)]
     pub blinded_amount: BlindedAmount,
     /// The hash of the transaction that the input Dbc was created in.
-    pub src_tx_hash: Hash,
+    pub dbc_creation_tx_hash: Hash,
 }
 
 impl Spend {
@@ -121,10 +126,10 @@ impl Spend {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
         bytes.extend(self.dbc_id.to_bytes());
-        bytes.extend(self.dst_tx.hash().as_ref());
+        bytes.extend(self.spent_tx.hash().as_ref());
         bytes.extend(self.reason.as_ref());
         bytes.extend(self.blinded_amount.compress().to_bytes());
-        bytes.extend(self.src_tx_hash.as_ref());
+        bytes.extend(self.dbc_creation_tx_hash.as_ref());
         bytes
     }
 

@@ -94,23 +94,23 @@ impl SpentbookNode {
     #[cfg(test)]
     pub fn log_spent_and_skip_tx_verification(
         &mut self,
-        dst_tx: &DbcTransaction,
+        spent_tx: &DbcTransaction,
         signed_spend: &SignedSpend,
     ) -> Result<()> {
-        self.log_spent_worker(dst_tx, signed_spend, false)
+        self.log_spent_worker(spent_tx, signed_spend, false)
     }
 
     fn log_spent_worker(
         &mut self,
-        dst_tx: &DbcTransaction,
+        spent_tx: &DbcTransaction,
         signed_spend: &SignedSpend,
         verify_tx: bool,
     ) -> Result<()> {
         let input_id = signed_spend.dbc_id();
-        let dst_tx_hash = signed_spend.dst_tx_hash();
-        let tx_hash = dst_tx.hash();
+        let spent_tx_hash = signed_spend.spent_tx_hash();
+        let tx_hash = spent_tx.hash();
 
-        if tx_hash != dst_tx_hash {
+        if tx_hash != spent_tx_hash {
             return Err(Error::InvalidTransactionHash);
         }
 
@@ -123,7 +123,7 @@ impl SpentbookNode {
             if input_id == genesis_dbc_id {
                 vec![(*input_id, *genesis_blinded_amount)]
             } else {
-                dst_tx
+                spent_tx
                     .inputs
                     .iter()
                     .map(|input| {
@@ -147,7 +147,7 @@ impl SpentbookNode {
 
         if verify_tx {
             // Do not permit invalid tx to be logged.
-            dst_tx.verify(&tx_blinded_amounts)?;
+            spent_tx.verify(&tx_blinded_amounts)?;
         }
 
         // Add dbc_id:tx_hash to dbc_id index.
@@ -158,7 +158,7 @@ impl SpentbookNode {
             let existing_tx = self
                 .transactions
                 .entry(tx_hash)
-                .or_insert_with(|| dst_tx.clone());
+                .or_insert_with(|| spent_tx.clone());
 
             // Add dbc_id:blinded_output to dbc_id index.
             for output in existing_tx.outputs.iter() {

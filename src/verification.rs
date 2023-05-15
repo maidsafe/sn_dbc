@@ -29,32 +29,32 @@ impl TransactionVerifier {
     /// trustless/verified way. I.e., the caller should not simply obtain a
     /// spend from a single peer, but must get the same spend from all in the close group.
     pub fn verify(
-        dst_tx: &DbcTransaction,
+        spent_tx: &DbcTransaction,
         signed_spends: &BTreeSet<SignedSpend>,
     ) -> Result<(), Error> {
         if signed_spends.is_empty() {
             return Err(transaction::Error::MissingTxInputs)?;
         }
 
-        if signed_spends.len() != dst_tx.inputs.len() {
+        if signed_spends.len() != spent_tx.inputs.len() {
             return Err(Error::SignedSpendInputLenMismatch {
                 current: signed_spends.len(),
-                expected: dst_tx.inputs.len(),
+                expected: spent_tx.inputs.len(),
             });
         }
 
-        let dst_tx_hash = dst_tx.hash();
+        let spent_tx_hash = spent_tx.hash();
 
         // Verify that each pubkey is unique in this transaction.
         let unique_dbc_ids: BTreeSet<DbcId> =
-            dst_tx.outputs.iter().map(|o| (*o.dbc_id())).collect();
-        if unique_dbc_ids.len() != dst_tx.outputs.len() {
+            spent_tx.outputs.iter().map(|o| (*o.dbc_id())).collect();
+        if unique_dbc_ids.len() != spent_tx.outputs.len() {
             return Err(Error::DbcIdNotUniqueAcrossOutputs);
         }
 
         // Verify that each input has a corresponding signed spend.
         for signed_spend in signed_spends.iter() {
-            if !dst_tx
+            if !spent_tx
                 .inputs
                 .iter()
                 .any(|m| m.dbc_id == *signed_spend.dbc_id())
@@ -65,7 +65,7 @@ impl TransactionVerifier {
 
         // Verify that each signed spend is valid
         for signed_spend in signed_spends.iter() {
-            signed_spend.verify(dst_tx_hash)?;
+            signed_spend.verify(spent_tx_hash)?;
         }
 
         // We must get the signed spends into the same order as inputs
@@ -74,7 +74,7 @@ impl TransactionVerifier {
         let mut signed_spends_found: Vec<(usize, &SignedSpend)> = signed_spends
             .iter()
             .filter_map(|s| {
-                dst_tx
+                spent_tx
                     .inputs
                     .iter()
                     .position(|m| m.dbc_id == *s.dbc_id())
@@ -91,7 +91,7 @@ impl TransactionVerifier {
             .map(|s| *s.blinded_amount())
             .collect();
 
-        dst_tx.verify(&blinded_amounts)?;
+        spent_tx.verify(&blinded_amounts)?;
 
         Ok(())
     }
@@ -102,29 +102,29 @@ impl TransactionVerifier {
 /// In the process of doing so, we verify the correct set of signed
 /// spends and transactions have been provided.
 pub fn get_blinded_amounts_from_transaction(
-    dst_tx: &DbcTransaction,
+    spent_tx: &DbcTransaction,
     input_signed_spends: &BTreeSet<SignedSpend>,
     spent_src_transactions: &BTreeMap<crate::Hash, DbcTransaction>,
 ) -> Result<Vec<(DbcId, BlindedAmount)>> {
     // Get txs that are referenced by the signed spends.
     let mut referenced_spent_txs: Vec<_> = vec![];
     for input in input_signed_spends {
-        if let Some(src_tx) = spent_src_transactions.get(&input.spend.src_tx_hash) {
-            if src_tx.hash() == input.spend.src_tx_hash {
+        if let Some(src_tx) = spent_src_transactions.get(&input.spend.dbc_creation_tx_hash) {
+            if src_tx.hash() == input.spend.dbc_creation_tx_hash {
                 referenced_spent_txs.push(src_tx);
                 continue;
             }
         }
         return Err(Error::MissingSpentSrcTransaction {
             dbc_id: *input.dbc_id(),
-            src_tx_hash: input.spend.src_tx_hash,
+            dbc_creation_tx_hash: input.spend.dbc_creation_tx_hash,
         });
     }
 
     // For each input's DbcId, look up the matching
     // blinded amount in the tx where it was created - its source tx.
     let mut tx_keys_and_blinded_amounts = Vec::<(DbcId, BlindedAmount)>::new();
-    for input in &dst_tx.inputs {
+    for input in &spent_tx.inputs {
         let input_dbc_id = input.dbc_id();
 
         let matching_amounts: Vec<BlindedAmount> = referenced_spent_txs

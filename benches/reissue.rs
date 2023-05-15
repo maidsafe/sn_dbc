@@ -39,9 +39,9 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .build(Hash::default(), &mut rng)
         .unwrap();
 
-    let dst_tx = &dbc_builder.dst_tx;
+    let spent_tx = &dbc_builder.spent_tx;
     for signed_spend in dbc_builder.signed_spends() {
-        spentbook_node.log_spent(dst_tx, signed_spend).unwrap();
+        spentbook_node.log_spent(spent_tx, signed_spend).unwrap();
     }
 
     let signed_spends: BTreeSet<_> = dbc_builder.signed_spends().into_iter().cloned().collect();
@@ -51,7 +51,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
-            TransactionVerifier::verify(black_box(dst_tx), &signed_spends).unwrap();
+            TransactionVerifier::verify(black_box(spent_tx), &signed_spends).unwrap();
         });
 
         #[cfg(unix)]
@@ -98,9 +98,9 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build(Hash::default(), &mut rng)
         .unwrap();
 
-    let dst_tx = dbc_builder.dst_tx.clone();
+    let spent_tx = dbc_builder.spent_tx.clone();
     for signed_spend in dbc_builder.signed_spends() {
-        spentbook_node.log_spent(&dst_tx, signed_spend).unwrap();
+        spentbook_node.log_spent(&spent_tx, signed_spend).unwrap();
     }
     let dbcs = dbc_builder.build().unwrap();
 
@@ -126,10 +126,10 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build(Hash::default(), &mut rng)
         .unwrap();
 
-    let merge_dst_tx = merge_dbc_builder.dst_tx.clone();
+    let merge_spent_tx = merge_dbc_builder.spent_tx.clone();
     for signed_spend in merge_dbc_builder.signed_spends() {
         spentbook_node
-            .log_spent(&merge_dst_tx, signed_spend)
+            .log_spent(&merge_spent_tx, signed_spend)
             .unwrap();
     }
 
@@ -144,7 +144,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
-            TransactionVerifier::verify(black_box(&merge_dst_tx), &signed_spends).unwrap();
+            TransactionVerifier::verify(black_box(&merge_spent_tx), &signed_spends).unwrap();
         });
 
         #[cfg(unix)]
@@ -186,7 +186,7 @@ fn generate_dbc_of_value(
         }))
         .build(Hash::default(), rng)?;
 
-    let tx = dbc_builder.dst_tx.clone();
+    let tx = dbc_builder.spent_tx.clone();
     for signed_spend in dbc_builder.signed_spends() {
         spentbook_node.log_spent(&tx, signed_spend)?;
     }
