@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [18.0.0](https://github.com/maidsafe/sn_dbc/compare/v17.0.1...v18.0.0) (2023-05-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* renames fields and methods in Spend
+
+### Features
+
+* rename spends with better names ([3a608aa](https://github.com/maidsafe/sn_dbc/commit/3a608aa93da224e604a9a95359b64732a68f202f))
+
 ### [17.0.1](https://github.com/maidsafe/sn_dbc/compare/v17.0.0...v17.0.1) (2023-05-01)
 
 ## [17.0.0](https://github.com/maidsafe/sn_dbc/compare/v16.0.1...v17.0.0) (2023-04-13)
