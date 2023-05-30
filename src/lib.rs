@@ -48,9 +48,7 @@ pub use crate::{
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::fmt;
-#[cfg(feature = "serde")]
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -69,27 +67,19 @@ impl Hash {
     }
 
     /// Deserializes a `Hash` represented as a hex string to a `Hash`.
-    #[cfg(feature = "serde")]
     pub fn from_hex(hex: &str) -> Result<Self, Error> {
-        let mut bytes =
-            hex::decode(hex).map_err(|e| Error::HexDeserializationFailed(e.to_string()))?;
-        bytes.reverse();
-        let h: Hash = bincode::deserialize(&bytes)
+        let mut h = Self::default();
+        hex::decode_to_slice(hex, &mut h.0)
             .map_err(|e| Error::HexDeserializationFailed(e.to_string()))?;
         Ok(h)
     }
 
     /// Serialize this `Hash` instance to a hex string.
-    #[cfg(feature = "serde")]
-    pub fn to_hex(&self) -> Result<String, Error> {
-        let mut serialized =
-            bincode::serialize(&self).map_err(|e| Error::HexSerializationFailed(e.to_string()))?;
-        serialized.reverse();
-        Ok(hex::encode(serialized))
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.0)
     }
 }
 
-#[cfg(feature = "serde")]
 impl FromStr for Hash {
     type Err = Error;
 
@@ -107,7 +97,7 @@ impl From<[u8; 32]> for Hash {
 // Display Hash value as hex in Debug output.  consolidates 36 lines to 3 for pretty output
 impl fmt::Debug for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Hash").field(&hex::encode(self.0)).finish()
+        f.debug_tuple("Hash").field(&self.to_hex()).finish()
     }
 }
 
@@ -210,9 +200,38 @@ mod tests {
     fn hash() {
         let data = b"hello world";
         let expected = b"\
-    \x64\x4b\xcc\x7e\x56\x43\x73\x04\x09\x99\xaa\xc8\x9e\x76\x22\xf3\
-    \xca\x71\xfb\xa1\xd9\x72\xfd\x94\xa3\x1c\x3b\xfb\xf2\x4e\x39\x38\
-";
+            \x64\x4b\xcc\x7e\x56\x43\x73\x04\x09\x99\xaa\xc8\x9e\x76\x22\xf3\
+            \xca\x71\xfb\xa1\xd9\x72\xfd\x94\xa3\x1c\x3b\xfb\xf2\x4e\x39\x38\
+        ";
         assert_eq!(sha3_256(data), *expected);
+
+        let hash = Hash::hash(data);
+        assert_eq!(hash.slice(), expected);
+    }
+
+    #[test]
+    fn hex_encoding() {
+        let data = b"hello world";
+        let expected_hex = "644bcc7e564373040999aac89e7622f3ca71fba1d972fd94a31c3bfbf24e3938";
+
+        let hash = Hash::hash(data);
+
+        assert_eq!(hash.to_hex(), expected_hex.to_string());
+        assert_eq!(Hash::from_hex(expected_hex), Ok(hash));
+
+        let too_long_hex = format!("{expected_hex}ab");
+        assert_eq!(
+            Hash::from_hex(&too_long_hex),
+            Err(Error::HexDeserializationFailed(
+                "Invalid string length".to_string()
+            ))
+        );
+
+        assert_eq!(
+            Hash::from_hex(&expected_hex[0..30]),
+            Err(Error::HexDeserializationFailed(
+                "Invalid string length".to_string()
+            ))
+        );
     }
 }
