@@ -20,6 +20,7 @@ pub struct SignedSpend {
     /// The Spend, which together with signature over it, constitutes the SignedSpend.
     pub spend: Spend,
     /// The DerivedKey's signature over (the hash of) Spend, confirming that the Dbc was intended to be spent.
+    #[debug(skip)]
     pub derived_key_sig: Signature,
 }
 
@@ -113,11 +114,13 @@ pub struct Spend {
     #[debug(skip)]
     pub spent_tx: DbcTransaction,
     /// Reason why this Dbc was spent.
+    #[debug(skip)]
     pub reason: Hash,
     /// The amount of the input Dbc.
     #[debug(skip)]
     pub blinded_amount: BlindedAmount,
     /// The hash of the transaction that the input Dbc was created in.
+    #[debug(skip)]
     pub dbc_creation_tx_hash: Hash,
 }
 
