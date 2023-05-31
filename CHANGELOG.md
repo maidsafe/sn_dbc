@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [18.1.0](https://github.com/maidsafe/sn_dbc/compare/v18.0.0...v18.1.0) (2023-05-31)
+
+
+### Features
+
+* only print dbc_id when printing SignedSpend ([3351dc8](https://github.com/maidsafe/sn_dbc/commit/3351dc8a5efc1b53638e65620261eab326f3eb5d))
+
 ## [18.0.0](https://github.com/maidsafe/sn_dbc/compare/v17.0.1...v18.0.0) (2023-05-19)
 
 
