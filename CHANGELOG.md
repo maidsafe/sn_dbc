@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [19.0.0](https://github.com/maidsafe/sn_dbc/compare/v18.1.0...v19.0.0) (2023-05-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove bincode serialisation from Hash hex-encoding
+
+* remove bincode serialisation from Hash hex-encoding ([84312ec](https://github.com/maidsafe/sn_dbc/commit/84312ece1f65fbc51e02974ea5db25af8ca4db13))
+
 ## [18.1.0](https://github.com/maidsafe/sn_dbc/compare/v18.0.0...v18.1.0) (2023-05-31)
 
 
