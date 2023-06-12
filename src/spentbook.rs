@@ -428,8 +428,8 @@ mod tests {
         ));
 
         let (b_output_dbc, ..) = b_output_dbcs[0].clone();
+        let (mut b_fudged_output_dbc, ..) = b_output_dbcs[0].clone();
 
-        let mut b_fudged_output_dbc = b_output_dbc.clone();
         // We set the `revealed_amount_cipher` of `b_fudged_output_dbc`
         // to be the fudged amount (2000) instead of the real amount in `b_output_dbc` cipher (1000).
         b_fudged_output_dbc.ciphers = DbcCiphers::from((
