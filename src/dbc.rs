@@ -59,14 +59,16 @@ use crate::{
 /// MainKey from the user, and then call an API function that accepts a MainKey,
 /// eg: `dbc.revealed_amount(&main_key)`
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(custom_debug::Debug, Clone, Eq, PartialEq)]
 pub struct Dbc {
     /// The id of this Dbc. It is unique, and there can never
     /// be another Dbc with the same id. It used in SignedSpends.
     pub id: DbcId,
     /// The transaction where this DBC was created.
+    #[debug(skip)]
     pub src_tx: DbcTransaction,
     /// Encrypted information for and about the recipient of this Dbc.
+    #[debug(skip)]
     pub ciphers: DbcCiphers,
     /// The transaction's input's SignedSpends
     pub signed_spends: BTreeSet<SignedSpend>,
