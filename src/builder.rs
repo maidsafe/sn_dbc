@@ -138,7 +138,7 @@ impl TransactionBuilder {
                             spent_tx: spent_tx.clone(),
                             reason,
                             blinded_amount: input.blinded_amount,
-                            dbc_creation_tx_hash: i.input_src_tx.hash(),
+                            dbc_creation_tx: i.input_src_tx.clone(),
                         };
                         let derived_key_sig = i.input.derived_key.sign(&spend.to_bytes());
                         SignedSpend {

@@ -109,15 +109,15 @@ pub fn get_blinded_amounts_from_transaction(
     // Get txs that are referenced by the signed spends.
     let mut referenced_spent_txs: Vec<_> = vec![];
     for input in input_signed_spends {
-        if let Some(src_tx) = spent_src_transactions.get(&input.spend.dbc_creation_tx_hash) {
-            if src_tx.hash() == input.spend.dbc_creation_tx_hash {
+        if let Some(src_tx) = spent_src_transactions.get(&input.spend.dbc_creation_tx.hash()) {
+            if src_tx.hash() == input.spend.dbc_creation_tx.hash() {
                 referenced_spent_txs.push(src_tx);
                 continue;
             }
         }
         return Err(Error::MissingSpentSrcTransaction {
             dbc_id: *input.dbc_id(),
-            dbc_creation_tx_hash: input.spend.dbc_creation_tx_hash,
+            dbc_creation_tx_hash: input.spend.dbc_creation_tx.hash(),
         });
     }
 
