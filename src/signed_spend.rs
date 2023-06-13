@@ -42,7 +42,7 @@ impl SignedSpend {
 
     /// Get the hash of the transaction this DBC was created in
     pub fn dbc_creation_tx_hash(&self) -> Hash {
-        self.spend.dbc_creation_tx_hash
+        self.spend.dbc_creation_tx.hash()
     }
 
     /// Get blinded amount.
@@ -119,20 +119,21 @@ pub struct Spend {
     /// The amount of the input Dbc.
     #[debug(skip)]
     pub blinded_amount: BlindedAmount,
-    /// The hash of the transaction that the input Dbc was created in.
+    /// The transaction that the input Dbc was created in.
     #[debug(skip)]
-    pub dbc_creation_tx_hash: Hash,
+    pub dbc_creation_tx: DbcTransaction,
 }
 
 impl Spend {
     /// Represent this Spend as bytes.
+    /// There is no from_bytes, because this function is not symetric as it uses hashes
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
         bytes.extend(self.dbc_id.to_bytes());
         bytes.extend(self.spent_tx.hash().as_ref());
         bytes.extend(self.reason.as_ref());
         bytes.extend(self.blinded_amount.compress().to_bytes());
-        bytes.extend(self.dbc_creation_tx_hash.as_ref());
+        bytes.extend(self.dbc_creation_tx.hash().as_ref());
         bytes
     }
 

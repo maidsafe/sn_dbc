@@ -295,7 +295,7 @@ mod tests {
                             spent_tx: signed_spend.spend.spent_tx.clone(),
                             reason: Hash::default(),
                             blinded_amount: *signed_spend.blinded_amount(),
-                            dbc_creation_tx_hash: tx1.hash(),
+                            dbc_creation_tx: tx1.clone(),
                         },
                         derived_key_sig: SecretKey::random().sign([0u8; 32]),
                     }
