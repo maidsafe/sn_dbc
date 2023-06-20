@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [19.1.0](https://github.com/maidsafe/sn_dbc/compare/v19.0.1...v19.1.0) (2023-06-20)
+
+
+### Features
+
+* include parent tx in spend ([3e8f3bf](https://github.com/maidsafe/sn_dbc/commit/3e8f3bf8ede4d29eb902d5db8af6299a095d0423))
+
 ### [19.0.1](https://github.com/maidsafe/sn_dbc/compare/v19.0.0...v19.0.1) (2023-06-12)
 
 ## [19.0.0](https://github.com/maidsafe/sn_dbc/compare/v18.1.0...v19.0.0) (2023-05-31)
