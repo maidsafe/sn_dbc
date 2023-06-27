@@ -8,9 +8,8 @@
 
 use crate::{
     transaction::{self, DbcTransaction},
-    BlindedAmount, DbcId, Error, Result, SignedSpend,
+    Amount, DbcId, Error, Result, SignedSpend,
 };
-
 use std::collections::{BTreeMap, BTreeSet};
 
 // Here we are putting transaction verification logic that is beyond
@@ -18,7 +17,6 @@ use std::collections::{BTreeMap, BTreeSet};
 //
 // Another way to do this would be to create a NewType wrapper for DbcTransaction.
 // We can discuss if that is better or not.
-
 pub struct TransactionVerifier {}
 
 impl TransactionVerifier {
@@ -69,7 +67,7 @@ impl TransactionVerifier {
         }
 
         // We must get the signed spends into the same order as inputs
-        // so that resulting blinded amounts will be in the right order.
+        // so that resulting amounts will be in the right order.
         // Note: we could use itertools crate to sort in one loop.
         let mut signed_spends_found: Vec<(usize, &SignedSpend)> = signed_spends
             .iter()
@@ -83,29 +81,22 @@ impl TransactionVerifier {
             .collect();
 
         signed_spends_found.sort_by_key(|s| s.0);
-        let signed_spends_sorted: Vec<&SignedSpend> =
-            signed_spends_found.into_iter().map(|s| s.1).collect();
 
-        let blinded_amounts: Vec<BlindedAmount> = signed_spends_sorted
-            .iter()
-            .map(|s| *s.blinded_amount())
-            .collect();
-
-        spent_tx.verify(&blinded_amounts)?;
+        spent_tx.verify()?;
 
         Ok(())
     }
 }
 
-/// Get the blinded amounts for the transaction.
+/// Get the amounts for the transaction.
 /// They will be part of the signed spend that is generated.
 /// In the process of doing so, we verify the correct set of signed
 /// spends and transactions have been provided.
-pub fn get_blinded_amounts_from_transaction(
+pub fn get_amounts_from_transaction(
     spent_tx: &DbcTransaction,
     input_signed_spends: &BTreeSet<SignedSpend>,
     spent_src_transactions: &BTreeMap<crate::Hash, DbcTransaction>,
-) -> Result<Vec<(DbcId, BlindedAmount)>> {
+) -> Result<Vec<(DbcId, Amount)>> {
     // Get txs that are referenced by the signed spends.
     let mut referenced_spent_txs: Vec<_> = vec![];
     for input in input_signed_spends {
@@ -121,29 +112,28 @@ pub fn get_blinded_amounts_from_transaction(
         });
     }
 
-    // For each input's DbcId, look up the matching
-    // blinded amount in the tx where it was created - its source tx.
-    let mut tx_keys_and_blinded_amounts = Vec::<(DbcId, BlindedAmount)>::new();
+    // For each input's DbcId, look up the matching amount in the tx where it was created - its source tx.
+    let mut tx_keys_and_amounts = Vec::<(DbcId, Amount)>::new();
     for input in &spent_tx.inputs {
         let input_dbc_id = input.dbc_id();
 
-        let matching_amounts: Vec<BlindedAmount> = referenced_spent_txs
+        let matching_amounts: Vec<Amount> = referenced_spent_txs
             .iter()
             .flat_map(|input_src_tx| {
                 input_src_tx
                     .outputs
                     .iter()
                     .find(|output| output.dbc_id() == &input_dbc_id)
-                    .map(|output| output.blinded_amount())
+                    .map(|output| output.amount)
             })
             .collect();
 
         match matching_amounts[..] {
             [] => return Err(Error::MissingAmountForDbcId(input_dbc_id)),
-            [one_amount] => tx_keys_and_blinded_amounts.push((input_dbc_id, one_amount)),
+            [one_amount] => tx_keys_and_amounts.push((input_dbc_id, one_amount)),
             [_, _, ..] => return Err(Error::MultipleAmountsForDbcId(input_dbc_id)),
         }
     }
 
-    Ok(tx_keys_and_blinded_amounts)
+    Ok(tx_keys_and_amounts)
 }

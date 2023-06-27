@@ -6,18 +6,16 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use std::{collections::BTreeSet, convert::TryFrom};
-use tiny_keccak::{Hasher, Sha3};
-
+use crate::{
+    dbc_id::PublicAddress,
+    transaction::{Amount, DbcTransaction},
+    DbcCiphers, DbcId, DerivationIndex, DerivedKey, Error, Hash, MainKey, Result, SignedSpend,
+    TransactionVerifier,
+};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-
-use crate::dbc_id::PublicAddress;
-use crate::transaction::{BlindedOutput, DbcTransaction, RevealedAmount, RevealedInput};
-use crate::{
-    BlindedAmount, DbcCiphers, DbcId, DerivationIndex, DerivedKey, Error, Hash, MainKey, Result,
-    SignedSpend, TransactionVerifier,
-};
+use std::collections::BTreeSet;
+use tiny_keccak::{Hasher, Sha3};
 
 /// Represents a Digital Bearer Certificate (Dbc).
 ///
@@ -57,7 +55,7 @@ use crate::{
 ///
 /// To spend or work with a Dbc, wallet software must obtain the corresponding
 /// MainKey from the user, and then call an API function that accepts a MainKey,
-/// eg: `dbc.revealed_amount(&main_key)`
+/// eg: `dbc.derivation_index(&main_key)`
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(custom_debug::Debug, Clone, Eq, PartialEq)]
 pub struct Dbc {
@@ -100,20 +98,6 @@ impl Dbc {
         self.ciphers.derivation_index(main_key)
     }
 
-    /// Decrypt and return the revealed amount.
-    pub fn revealed_amount(&self, derived_key: &DerivedKey) -> Result<RevealedAmount> {
-        RevealedAmount::try_from((derived_key, &self.ciphers.revealed_amount_cipher))
-    }
-
-    /// Return the input that represents this Dbc for use as
-    /// a transaction input.
-    pub fn revealed_input(&self, derived_key: &DerivedKey) -> Result<RevealedInput> {
-        Ok(RevealedInput::new(
-            derived_key.clone(),
-            self.revealed_amount(derived_key)?,
-        ))
-    }
-
     /// Return the reason why this Dbc was spent.
     /// Will be the default Hash (empty) if reason is none.
     pub fn reason(&self) -> Hash {
@@ -124,15 +108,15 @@ impl Dbc {
             .unwrap_or_default()
     }
 
-    /// Return the BlindedAmount for this Dbc.
-    pub fn blinded_amount(&self) -> Result<BlindedAmount> {
+    /// Return the Amount for this Dbc.
+    pub fn amount(&self) -> Result<Amount> {
         Ok(self
             .src_tx
             .outputs
             .iter()
             .find(|o| &self.id() == o.dbc_id())
-            .ok_or(Error::BlindedOutputNotFound)?
-            .blinded_amount())
+            .ok_or(Error::OutputNotFound)?
+            .amount)
     }
 
     /// Generate the hash of this Dbc
@@ -164,9 +148,6 @@ impl Dbc {
     ///
     /// see TransactionVerifier::verify() for a description of
     /// verifier requirements.
-    ///
-    /// see comments for Dbc::verify_amounts() for a
-    /// description of how to handle Error::BlindedAmountsDoNotMatch
     pub fn verify(&self, main_key: &MainKey) -> Result<(), Error> {
         TransactionVerifier::verify(&self.src_tx, &self.signed_spends)?;
 
@@ -183,6 +164,16 @@ impl Dbc {
         }
 
         self.verify_amounts(main_key)
+    }
+
+    pub(crate) fn verify_amounts(&self, main_key: &MainKey) -> Result<()> {
+        let derived_key = self.derived_key(main_key)?;
+        let decrypted_amount = derived_key.decrypt(&self.ciphers.amount_cipher)?;
+
+        match self.amount()? == decrypted_amount {
+            true => Ok(()),
+            false => Err(Error::AmountsDoNotMatch),
+        }
     }
 
     /// Deserializes a `Dbc` represented as a hex string to a `Dbc`.
@@ -204,50 +195,6 @@ impl Dbc {
         serialized.reverse();
         Ok(hex::encode(serialized))
     }
-
-    /// Checks if the encrypted amount + blinding factor in the Dbc equals
-    /// the blinded amount in the transaction.
-    /// This is done by
-    /// 1. Decrypting the `revealed_amount_cipher` into a RevealedAmount.
-    /// 2. Forming a BlindedAmount out of the RevealedAmount.
-    /// 3. Comparing that instance with the one in the dbc blinded output in the tx.
-    ///
-    /// If the blinded amounts do not match, then the Dbc cannot be spent
-    /// using the RevealedAmount provided.
-    ///
-    /// To clarify, the Dbc is still spendable, however the correct
-    /// RevealedAmount need to be obtained from the sender somehow.
-    ///
-    /// As an example, if the Dbc recipient is a merchant, they typically
-    /// would not provide goods to the purchaser if this check fails.
-    /// However the purchaser may still be able to remedy the situation by
-    /// providing the correct RevealedAmount to the merchant.
-    ///
-    /// If the merchant were to send the goods without first performing
-    /// this check, then they could be stuck with an unspendable Dbc
-    /// and no recourse.
-    pub(crate) fn verify_amounts(&self, main_key: &MainKey) -> Result<()> {
-        let derived_key = self.derived_key(main_key)?;
-        let revealed_amount: RevealedAmount = self.revealed_amount(&derived_key)?;
-        let blinded_amount = revealed_amount.blinded_amount(&Default::default());
-        let blinded_amount_in_tx = self.blinded_output(main_key)?.blinded_amount();
-
-        match blinded_amount == blinded_amount_in_tx {
-            true => Ok(()),
-            false => Err(Error::BlindedAmountsDoNotMatch),
-        }
-    }
-
-    /// The blinded output for this Dbc, is found in
-    /// the tx that gave rise to this Dbc.
-    fn blinded_output(&self, main_key: &MainKey) -> Result<&BlindedOutput> {
-        let dbc_id = self.derived_key(main_key)?.dbc_id();
-        self.src_tx
-            .outputs
-            .iter()
-            .find(|o| dbc_id.eq(o.dbc_id()))
-            .ok_or(Error::BlindedOutputNotFound)
-    }
 }
 
 #[cfg(test)]
@@ -258,7 +205,7 @@ pub(crate) mod tests {
         dbc_id::{random_derivation_index, DbcIdSource},
         mock,
         rand::{CryptoRng, RngCore},
-        transaction::{Output, RevealedTx},
+        transaction::{Output, TransactionIntermediate},
         Hash, Token,
     };
 
@@ -272,15 +219,15 @@ pub(crate) mod tests {
         let main_key = MainKey::random_from_rng(&mut rng);
         let derivation_index = random_derivation_index(&mut rng);
         let derived_key = main_key.derive_key(&derivation_index);
-        let tx_material = RevealedTx {
+        let tx_material = TransactionIntermediate {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
-        let (tx, revealed_amounts) = tx_material.sign(&mut rng).expect("Failed to sign tx");
+        let tx = tx_material.sign().expect("Failed to sign tx");
         let ciphers = DbcCiphers::from((
             &main_key.public_address(),
             &derivation_index,
-            revealed_amounts[0].revealed_amount,
+            tx.outputs[0].amount,
         ));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
@@ -292,9 +239,7 @@ pub(crate) mod tests {
         let hex = dbc.to_hex()?;
 
         let dbc = Dbc::from_hex(&hex)?;
-        let derived_key = dbc.derived_key(&main_key)?;
-        let amount = dbc.revealed_amount(&derived_key)?.value();
-        assert_eq!(amount, 1_530_000_000);
+        assert_eq!(dbc.amount()?.value, 1_530_000_000);
         Ok(())
     }
 
@@ -305,15 +250,15 @@ pub(crate) mod tests {
         let main_key = MainKey::random_from_rng(&mut rng);
         let derivation_index = random_derivation_index(&mut rng);
         let derived_key = main_key.derive_key(&derivation_index);
-        let tx_material = RevealedTx {
+        let tx_material = TransactionIntermediate {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
-        let (tx, revealed_amounts) = tx_material.sign(&mut rng).expect("Failed to sign tx");
+        let tx = tx_material.sign().expect("Failed to sign tx");
         let ciphers = DbcCiphers::from((
             &main_key.public_address(),
             &derivation_index,
-            revealed_amounts[0].revealed_amount,
+            tx.outputs[0].amount,
         ));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
@@ -321,21 +266,17 @@ pub(crate) mod tests {
             ciphers,
             signed_spends: Default::default(),
         };
-        let derived_key = dbc.derived_key(&main_key)?;
 
         let hex = dbc.to_hex()?;
         let dbc_from_hex = Dbc::from_hex(&hex)?;
-        let derived_key_from_hex = dbc_from_hex.derived_key(&main_key)?;
 
-        let amount = dbc.revealed_amount(&derived_key)?.value();
-        let amount_from_hex = dbc_from_hex.revealed_amount(&derived_key_from_hex)?.value();
-        assert_eq!(amount, amount_from_hex);
+        assert_eq!(dbc.amount()?, dbc_from_hex.amount()?);
 
         Ok(())
     }
 
     #[test]
-    fn revealed_input_should_error_if_dbc_id_is_not_derived_from_main_key() -> Result<(), Error> {
+    fn input_should_error_if_dbc_id_is_not_derived_from_main_key() -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
         let (_, _, (dbc, _)) = generate_dbc_of_value_from_pk_hex(
             100,
@@ -365,21 +306,20 @@ pub(crate) mod tests {
         let derivation_index = random_derivation_index(&mut rng);
         let derived_key = main_key.derive_key(&derivation_index);
 
-        let tx_material = RevealedTx {
+        let tx_material = TransactionIntermediate {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
 
-        let (tx, revealed_amounts) = tx_material.sign(&mut rng).expect("Failed to sign tx");
+        let tx = tx_material.sign().expect("Failed to sign tx");
 
-        assert_eq!(revealed_amounts.len(), 1);
+        assert_eq!(tx.outputs.len(), 1);
 
         let ciphers = DbcCiphers::from((
             &main_key.public_address(),
             &derivation_index,
-            revealed_amounts[0].revealed_amount,
+            tx.outputs[0].amount,
         ));
-
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
@@ -416,24 +356,13 @@ pub(crate) mod tests {
         generate_dbc_of_value(amount, public_address, rng)
     }
 
-    pub(crate) fn generate_dbc_and_its_main_key(
-        amount: u64,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<(mock::SpentbookNode, Dbc, Dbc, MainKey)> {
-        let output_main_key = MainKey::random_from_rng(rng);
-        let output_public_address = output_main_key.public_address();
-        let (sb_node, genesis_dbc, (output_dbc, _change)) =
-            generate_dbc_of_value(amount, output_public_address, rng)?;
-        Ok((sb_node, genesis_dbc, output_dbc, output_main_key))
-    }
-
     fn generate_dbc_of_value(
         amount: u64,
         recipient: PublicAddress,
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Result<(mock::SpentbookNode, Dbc, (Dbc, Dbc))> {
-        let (mut spentbook_node, genesis_dbc, genesis_material, _revealed_amount) =
-            mock::GenesisBuilder::init_genesis_single(rng)?;
+        let (mut spentbook_node, genesis_dbc, genesis_material, _) =
+            mock::GenesisBuilder::init_genesis_single()?;
 
         let output_amounts = vec![
             Token::from_nano(amount),
@@ -453,7 +382,7 @@ pub(crate) mod tests {
                     },
                 )
             }))
-            .build(Hash::default(), rng)?;
+            .build(Hash::default())?;
 
         let tx = &dbc_builder.spent_tx;
         for signed_spend in dbc_builder.signed_spends() {
@@ -461,8 +390,8 @@ pub(crate) mod tests {
         }
 
         let mut iter = dbc_builder.build()?.into_iter();
-        let (starting_dbc, ..) = iter.next().unwrap();
-        let (change_dbc, ..) = iter.next().unwrap();
+        let (starting_dbc, _) = iter.next().unwrap();
+        let (change_dbc, _) = iter.next().unwrap();
 
         Ok((spentbook_node, genesis_dbc, (starting_dbc, change_dbc)))
     }

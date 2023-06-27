@@ -6,13 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{Error, PublicKey, Result, RevealedAmount};
+use crate::rand::{distributions::Standard, Rng, RngCore};
+use crate::{Amount, Error, PublicKey, Result};
 use blsttc::{serde_impl::SerdeSecret, Ciphertext, SecretKey, PK_SIZE};
-
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-
-use crate::rand::{distributions::Standard, Rng, RngCore};
 
 /// This is used to generate a new DbcId
 /// from a PublicAddress, and the corresponding
@@ -37,8 +35,8 @@ impl DbcId {
         self.0.verify(sig, msg)
     }
 
-    pub fn encrypt(&self, revealed_amount: &RevealedAmount) -> Ciphertext {
-        self.0.encrypt(revealed_amount.to_bytes())
+    pub fn encrypt(&self, amount: &Amount) -> Ciphertext {
+        self.0.encrypt(amount.to_bytes())
     }
 }
 
@@ -62,16 +60,16 @@ impl DerivedKey {
         DbcId(self.0.public_key())
     }
 
-    pub(crate) fn decrypt(&self, ciphertext: &Ciphertext) -> Result<RevealedAmount> {
+    pub(crate) fn sign(&self, msg: &[u8]) -> blsttc::Signature {
+        self.0.sign(msg)
+    }
+
+    pub(crate) fn decrypt(&self, ciphertext: &Ciphertext) -> Result<Amount> {
         let bytes = self
             .0
             .decrypt(ciphertext)
             .ok_or(Error::DecryptionBySecretKeyFailed)?;
-        RevealedAmount::from_bytes_ref(&bytes)
-    }
-
-    pub(crate) fn sign(&self, msg: &[u8]) -> blsttc::Signature {
-        self.0.sign(msg)
+        Amount::from_bytes(&bytes)
     }
 }
 

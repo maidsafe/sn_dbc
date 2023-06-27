@@ -8,14 +8,13 @@
 
 #![allow(clippy::from_iter_instead_of_collect)]
 
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use sn_dbc::{
     mock,
     rand::{CryptoRng, RngCore},
     random_derivation_index, rng, Dbc, DbcIdSource, Hash, MainKey, Result, Token,
     TransactionVerifier,
 };
-
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::collections::{BTreeMap, BTreeSet};
 
 const N_OUTPUTS: u64 = 100;
@@ -36,7 +35,7 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
                 MainKey::random_from_rng(&mut rng).random_dbc_id_src(&mut rng),
             )
         }))
-        .build(Hash::default(), &mut rng)
+        .build(Hash::default())
         .unwrap();
 
     let spent_tx = &dbc_builder.spent_tx;
@@ -95,7 +94,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                     )
                 }),
         )
-        .build(Hash::default(), &mut rng)
+        .build(Hash::default())
         .unwrap();
 
     let spent_tx = dbc_builder.spent_tx.clone();
@@ -123,7 +122,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
                 derivation_index,
             },
         )
-        .build(Hash::default(), &mut rng)
+        .build(Hash::default())
         .unwrap();
 
     let merge_spent_tx = merge_dbc_builder.spent_tx.clone();
@@ -161,8 +160,8 @@ fn generate_dbc_of_value(
     amount: Token,
     rng: &mut (impl RngCore + CryptoRng),
 ) -> Result<(mock::SpentbookNode, (Dbc, MainKey))> {
-    let (mut spentbook_node, genesis_dbc, genesis_material, _revealed_amount) =
-        mock::GenesisBuilder::init_genesis_single(rng)?;
+    let (mut spentbook_node, genesis_dbc, genesis_material, _amount) =
+        mock::GenesisBuilder::init_genesis_single()?;
 
     let output_amounts = vec![
         amount,
@@ -184,14 +183,14 @@ fn generate_dbc_of_value(
                 },
             )
         }))
-        .build(Hash::default(), rng)?;
+        .build(Hash::default())?;
 
     let tx = dbc_builder.spent_tx.clone();
     for signed_spend in dbc_builder.signed_spends() {
         spentbook_node.log_spent(&tx, signed_spend)?;
     }
 
-    let (starting_dbc, ..) = dbc_builder.build()?.into_iter().next().unwrap();
+    let (starting_dbc, _) = dbc_builder.build()?.into_iter().next().unwrap();
 
     Ok((spentbook_node, (starting_dbc, main_key)))
 }

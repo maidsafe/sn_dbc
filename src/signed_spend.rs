@@ -6,8 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{BlindedAmount, DbcId, DbcTransaction, Error, Hash, Result, Signature};
-
+use crate::{Amount, DbcId, DbcTransaction, Error, Hash, Result, Signature};
 use custom_debug::Debug;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -45,9 +44,9 @@ impl SignedSpend {
         self.spend.dbc_creation_tx.hash()
     }
 
-    /// Get blinded amount.
-    pub fn blinded_amount(&self) -> &BlindedAmount {
-        &self.spend.blinded_amount
+    /// Get amount.
+    pub fn amount(&self) -> &Amount {
+        &self.spend.amount
     }
 
     /// Get reason.
@@ -118,7 +117,7 @@ pub struct Spend {
     pub reason: Hash,
     /// The amount of the input Dbc.
     #[debug(skip)]
-    pub blinded_amount: BlindedAmount,
+    pub amount: Amount,
     /// The transaction that the input Dbc was created in.
     #[debug(skip)]
     pub dbc_creation_tx: DbcTransaction,
@@ -132,7 +131,7 @@ impl Spend {
         bytes.extend(self.dbc_id.to_bytes());
         bytes.extend(self.spent_tx.hash().as_ref());
         bytes.extend(self.reason.as_ref());
-        bytes.extend(self.blinded_amount.compress().to_bytes());
+        bytes.extend(self.amount.to_bytes());
         bytes.extend(self.dbc_creation_tx.hash().as_ref());
         bytes
     }
