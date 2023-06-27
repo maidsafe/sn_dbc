@@ -8,7 +8,6 @@
 
 #![allow(clippy::result_large_err)]
 
-mod blst;
 mod builder;
 mod dbc;
 mod dbc_ciphers;
@@ -22,13 +21,8 @@ mod verification;
 
 #[cfg(feature = "mock")]
 pub mod mock;
-
 // re-export crates used in our public API
-pub use blsttc::{self, rand, Ciphertext, PublicKey, PublicKeySet, Signature, SignatureShare};
-pub use bulletproofs::PedersenGens;
-
 pub use crate::{
-    blst::{BlindedAmount, BlindingFactor},
     builder::{DbcBuilder, OutputIdSources, TransactionBuilder},
     dbc::Dbc,
     dbc_ciphers::DbcCiphers,
@@ -40,11 +34,11 @@ pub use crate::{
     signed_spend::{SignedSpend, Spend},
     token::Token,
     transaction::{
-        Amount, BlindedInput, BlindedOutput, DbcTransaction, InputHistory, Output, RevealedAmount,
-        RevealedInput, RevealedTx,
+        Amount, DbcTransaction, Input, InputIntermediate, Output, TransactionIntermediate,
     },
-    verification::{get_blinded_amounts_from_transaction, TransactionVerifier},
+    verification::{get_amounts_from_transaction, TransactionVerifier},
 };
+pub use blsttc::{self, rand, Ciphertext, PublicKey, PublicKeySet, Signature, SignatureShare};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

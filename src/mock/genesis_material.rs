@@ -8,15 +8,15 @@
 
 use crate::{
     dbc_id::DbcIdSource,
-    transaction::{Amount, InputHistory, Output, RevealedAmount, RevealedInput, RevealedTx},
+    transaction::{Amount, InputIntermediate, Output, TransactionIntermediate},
     DbcId, DbcTransaction, DerivedKey, MainKey,
 };
 use blsttc::IntoFr;
 
-/// represents all the inputs required to build the Genesis Dbc.
+/// Represents all the inputs required to build the Genesis Dbc.
 pub struct GenesisMaterial {
     pub input_dbc_id: DbcId,
-    pub genesis_tx: RevealedTx,
+    pub genesis_tx: TransactionIntermediate,
     pub main_key: MainKey,
     pub derived_key: DerivedKey, // unlocks the genesis dbc
     pub dbc_id_src: DbcIdSource, // genesis dbc id is derived from these
@@ -24,11 +24,11 @@ pub struct GenesisMaterial {
 
 impl GenesisMaterial {
     /// The Genesis DBC will mint all possible tokens.
-    pub const GENESIS_AMOUNT: Amount = Amount::MAX; // aka 2^64
+    pub const GENESIS_AMOUNT: u64 = u64::MAX; // aka 2^64
 }
 
 impl Default for GenesisMaterial {
-    /// generate the GenesisMaterial.
+    /// Generate the GenesisMaterial.
     ///
     /// It uses GenesisMaterial::GENESIS_AMOUNT by default
     fn default() -> Self {
@@ -47,18 +47,11 @@ impl Default for GenesisMaterial {
         let output_derivation_index = [1; 32];
         let output_derived_key = output_main_key.derive_key(&output_derivation_index);
 
-        // build our input
-        let revealed_input = RevealedInput::new(
-            input_derived_key,
-            RevealedAmount {
+        let input_intermediate = InputIntermediate {
+            derived_key: input_derived_key,
+            amount: Amount {
                 value: Self::GENESIS_AMOUNT,
-                blinding_factor: 42u32.into(), // just a random number
             },
-        );
-        let input_dbc_id = revealed_input.dbc_id();
-
-        let input_history = InputHistory {
-            input: revealed_input,
             // There is nothing in this transaction
             // since there was no tx before genesis.
             input_src_tx: DbcTransaction {
@@ -66,10 +59,11 @@ impl Default for GenesisMaterial {
                 outputs: vec![],
             },
         };
+        let input_dbc_id = input_intermediate.dbc_id();
 
         // Build the transaction where genesis was created.
-        let genesis_tx = RevealedTx {
-            inputs: vec![input_history],
+        let genesis_tx = TransactionIntermediate {
+            inputs: vec![input_intermediate],
             outputs: vec![Output::new(
                 output_derived_key.dbc_id(),
                 Self::GENESIS_AMOUNT,

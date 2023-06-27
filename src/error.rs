@@ -6,10 +6,9 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use thiserror::Error;
-
 use crate::transaction;
 use crate::DbcId;
+use thiserror::Error;
 
 /// Specialisation of `std::Result`.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -29,9 +28,6 @@ pub enum Error {
     #[error("Failed to parse: {0}")]
     FailedToParseToken(String),
 
-    #[error("Failed signature check.")]
-    FailedSignature,
-
     #[error("Invalid Spend Signature for {0:?}")]
     InvalidSpendSignature(DbcId),
 
@@ -47,8 +43,8 @@ pub enum Error {
     #[error("Dbc ciphers are not present in transaction outputs.")]
     DbcCiphersNotPresentInTransactionOutput,
 
-    #[error("BlindedOutput not found in transaction outputs.")]
-    BlindedOutputNotFound,
+    #[error("Output not found in transaction outputs.")]
+    OutputNotFound,
 
     #[error("DbcId is not unique across all transaction outputs.")]
     DbcIdNotUniqueAcrossOutputs,
@@ -75,11 +71,11 @@ pub enum Error {
     #[error("Decryption failed.")]
     DecryptionBySecretKeyFailed,
 
-    #[error("Invalid RevealedAmount bytes.")]
-    InvalidRevealedAmountBytes,
+    #[error("Invalid Amount bytes.")]
+    InvalidAmountBytes,
 
-    #[error("Blinded amounts do not match.")]
-    BlindedAmountsDoNotMatch,
+    #[error("Amounts do not match.")]
+    AmountsDoNotMatch,
 
     #[error("DbcId not found.")]
     DbcIdNotFound,

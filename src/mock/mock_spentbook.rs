@@ -7,14 +7,10 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use super::GenesisMaterial;
-
 use crate::{
-    dbc_id::PublicAddress,
-    transaction::{BlindedOutput, DbcTransaction},
-    BlindedAmount, DbcId, Error, Hash, Result, SignedSpend,
+    dbc_id::PublicAddress, transaction::DbcTransaction, Amount, DbcId, Error, Hash, Output, Result,
+    SignedSpend,
 };
-
-use bulletproofs::PedersenGens;
 use std::collections::{BTreeMap, HashMap};
 
 /// This is a mock SpentBook used for our test cases. A proper implementation
@@ -24,18 +20,18 @@ use std::collections::{BTreeMap, HashMap};
 /// it stores only a single copy of each Tx and includes indexes:
 ///     tx_hash    --> Tx
 ///     public_key  --> tx_hash
-///     public_key --> BlindedOutput
+///     public_key --> Output
 ///
 /// The public_key map eliminates a full table scan when matching
-/// public keys for each input of logged Tx to public key of BlindedOutput in
+/// public keys for each input of logged Tx to public key of Output in
 /// already-spent Txs.
 ///
-/// This impl does duplicate the BlindedOutputs in the public_key index, which
+/// This impl does duplicate the Outputs in the public_key index, which
 /// is not ideal and should not be done for a "real" system.
 ///
 /// Another approach would be to map public_key --> tx_hash. This eliminates
-/// the need to store duplicate BlindedOutput. One could lookup the Tx with
-/// the desired BlindedOutput, and then iterate through outputs to actually find it.
+/// the need to store duplicate Output. One could lookup the Tx with
+/// the desired Output, and then iterate through outputs to actually find it.
 ///
 /// See the very first commit of this file For a naive impl that uses only
 /// a single map<public_key, tx>.
@@ -44,24 +40,21 @@ pub struct SpentbookNode {
     pub id: PublicAddress,
     pub transactions: HashMap<Hash, DbcTransaction>,
     pub dbc_ids: BTreeMap<DbcId, Hash>,
-    pub outputs_by_input_id: BTreeMap<DbcId, BlindedOutput>,
-    pub genesis: (DbcId, BlindedAmount),
+    pub outputs_by_input_id: BTreeMap<DbcId, Output>,
+    pub genesis: (DbcId, Amount),
 }
 
 impl Default for SpentbookNode {
     fn default() -> Self {
         let genesis_material = GenesisMaterial::default();
-        let blinded_amount = genesis_material.genesis_tx.inputs[0]
-            .input
-            .revealed_amount()
-            .blinded_amount(&PedersenGens::default());
+        let amount = genesis_material.genesis_tx.inputs[0].amount;
 
         Self {
             id: PublicAddress::new(blsttc::SecretKey::random().public_key()),
             transactions: Default::default(),
             dbc_ids: Default::default(),
             outputs_by_input_id: Default::default(),
-            genesis: (genesis_material.input_dbc_id, blinded_amount),
+            genesis: (genesis_material.input_dbc_id, amount),
         }
     }
 }
@@ -114,40 +107,9 @@ impl SpentbookNode {
             return Err(Error::InvalidTransactionHash);
         }
 
-        // If this is the very first tx logged and genesis dbc_id was not
-        // provided, then it becomes the genesis tx.
-        let (genesis_dbc_id, genesis_blinded_amount) = &self.genesis;
-
-        // Input amounts are not available in spentbook for genesis transaction.
-        let blinded_amounts_by_input_ids: Vec<(DbcId, BlindedAmount)> =
-            if input_id == genesis_dbc_id {
-                vec![(*input_id, *genesis_blinded_amount)]
-            } else {
-                spent_tx
-                    .inputs
-                    .iter()
-                    .map(|input| {
-                        // look up matching BlindedOutput
-                        let input_id = input.dbc_id();
-                        let blinded_output = self.outputs_by_input_id.get(&input_id);
-                        match blinded_output {
-                            Some(p) => Ok((input_id, p.blinded_amount())),
-                            None => Err(Error::MissingAmountForDbcId(input_id)),
-                        }
-                    })
-                    .collect::<Result<_>>()?
-            };
-
-        // Grab all blinded amounts, grouped by input PublicKey
-        // Needed for Tx verification.
-        let tx_blinded_amounts: Vec<BlindedAmount> = blinded_amounts_by_input_ids
-            .into_iter()
-            .map(|(_, c)| c)
-            .collect();
-
         if verify_tx {
             // Do not permit invalid tx to be logged.
-            spent_tx.verify(&tx_blinded_amounts)?;
+            spent_tx.verify()?;
         }
 
         // Add dbc_id:tx_hash to dbc_id index.
@@ -160,7 +122,7 @@ impl SpentbookNode {
                 .entry(tx_hash)
                 .or_insert_with(|| spent_tx.clone());
 
-            // Add dbc_id:blinded_output to dbc_id index.
+            // Add dbc_id:output to dbc_id index.
             for output in existing_tx.outputs.iter() {
                 let output_id = *output.dbc_id();
                 // This will make later inputs able to find its previous

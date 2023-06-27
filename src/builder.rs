@@ -6,23 +6,15 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use bulletproofs::PedersenGens;
-use std::collections::{BTreeMap, BTreeSet};
-
 use crate::{
     dbc_id::DbcIdSource,
-    transaction::{
-        DbcTransaction, InputHistory, Output, RevealedAmount, RevealedOutput, RevealedTx,
-    },
-    DbcId, DerivedKey,
+    transaction::{DbcTransaction, InputIntermediate, Output, TransactionIntermediate},
+    Amount, DbcId, DerivedKey,
 };
-use crate::{
-    rand::{CryptoRng, RngCore},
-    BlindedAmount, Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token, TransactionVerifier,
-};
-
+use crate::{Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token, TransactionVerifier};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub type OutputIdSources = BTreeMap<DbcId, DbcIdSource>;
 
@@ -31,29 +23,29 @@ pub type OutputIdSources = BTreeMap<DbcId, DbcIdSource>;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
-    revealed_tx: RevealedTx,
+    tx: TransactionIntermediate,
     output_id_sources: OutputIdSources,
 }
 
 impl TransactionBuilder {
-    /// Add an input given a RevealedInput.
-    pub fn add_input(mut self, input: InputHistory) -> Self {
-        self.revealed_tx.inputs.push(input);
+    /// Add an input given a InputIntermediate.
+    pub fn add_input(mut self, input: InputIntermediate) -> Self {
+        self.tx.inputs.push(input);
         self
     }
 
-    /// Add an input given an iterator over RevealedInput.
-    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = InputHistory>) -> Self {
-        self.revealed_tx.inputs.extend(inputs);
+    /// Add an input given an iterator over InputIntermediate.
+    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = InputIntermediate>) -> Self {
+        self.tx.inputs.extend(inputs);
         self
     }
 
     /// Add an input given a Dbc and its DerivedKey.
     pub fn add_input_dbc(mut self, dbc: &Dbc, derived_key: &DerivedKey) -> Result<Self> {
-        let input = dbc.revealed_input(derived_key)?;
         let input_src_tx = dbc.src_tx.clone();
-        self = self.add_input(InputHistory {
-            input,
+        self = self.add_input(InputIntermediate {
+            derived_key: derived_key.clone(),
+            amount: dbc.amount()?,
             input_src_tx,
         });
         Ok(self)
@@ -71,7 +63,7 @@ impl TransactionBuilder {
     pub fn add_output(mut self, amount: Token, dbc_id_src: DbcIdSource) -> Self {
         let output = Output::new(dbc_id_src.dbc_id(), amount.as_nano());
         self.output_id_sources.insert(output.dbc_id, dbc_id_src);
-        self.revealed_tx.outputs.push(output);
+        self.tx.outputs.push(output);
         self
     }
 
@@ -85,62 +77,52 @@ impl TransactionBuilder {
 
     /// Get a list of input ids.
     pub fn input_ids(&self) -> Vec<DbcId> {
-        self.revealed_tx
-            .inputs
-            .iter()
-            .map(|t| t.input.dbc_id())
-            .collect()
+        self.tx.inputs.iter().map(|t| t.dbc_id()).collect()
     }
 
     /// Get sum of input amounts.
     pub fn inputs_amount_sum(&self) -> Token {
-        let amount = self
-            .revealed_tx
-            .inputs
-            .iter()
-            .map(|t| t.input.revealed_amount.value)
-            .sum();
+        let amount = self.tx.inputs.iter().map(|t| t.amount.value).sum();
         Token::from_nano(amount)
     }
 
     /// Get sum of output amounts.
     pub fn outputs_amount_sum(&self) -> Token {
-        let amount = self.revealed_tx.outputs.iter().map(|o| o.amount).sum();
+        let amount = self.tx.outputs.iter().map(|o| o.amount.value).sum();
         Token::from_nano(amount)
     }
 
     /// Get inputs.
-    pub fn inputs(&self) -> &Vec<InputHistory> {
-        &self.revealed_tx.inputs
+    pub fn inputs(&self) -> &Vec<InputIntermediate> {
+        &self.tx.inputs
     }
 
     /// Get outputs.
     pub fn outputs(&self) -> &Vec<Output> {
-        &self.revealed_tx.outputs
+        &self.tx.outputs
     }
 
-    /// Build the DbcTransaction by signing the inputs,
-    /// and generating the blinded outputs. Return a DbcBuilder.
-    pub fn build(self, reason: Hash, rng: impl RngCore + CryptoRng) -> Result<DbcBuilder> {
-        let (spent_tx, revealed_outputs) = self.revealed_tx.sign(rng)?;
+    /// Build the DbcTransaction by signing the inputs. Return a DbcBuilder.
+    pub fn build(self, reason: Hash) -> Result<DbcBuilder> {
+        let spent_tx = self.tx.sign()?;
 
         let signed_spends: BTreeSet<_> = spent_tx
             .inputs
             .iter()
             .flat_map(|input| {
-                self.revealed_tx
+                self.tx
                     .inputs
                     .iter()
-                    .find(|i| i.input.dbc_id() == input.dbc_id())
+                    .find(|i| i.dbc_id() == input.dbc_id())
                     .map(|i| {
-                        let spend = crate::Spend {
+                        let spend: crate::Spend = crate::Spend {
                             dbc_id: input.dbc_id(),
                             spent_tx: spent_tx.clone(),
                             reason,
-                            blinded_amount: input.blinded_amount,
+                            amount: input.amount,
                             dbc_creation_tx: i.input_src_tx.clone(),
                         };
-                        let derived_key_sig = i.input.derived_key.sign(&spend.to_bytes());
+                        let derived_key_sig = i.derived_key.sign(&spend.to_bytes());
                         SignedSpend {
                             spend,
                             derived_key_sig,
@@ -151,9 +133,7 @@ impl TransactionBuilder {
 
         Ok(DbcBuilder::new(
             spent_tx,
-            revealed_outputs,
             self.output_id_sources,
-            self.revealed_tx,
             signed_spends,
         ))
     }
@@ -164,9 +144,7 @@ impl TransactionBuilder {
 #[derive(Debug, Clone)]
 pub struct DbcBuilder {
     pub spent_tx: DbcTransaction,
-    pub revealed_outputs: Vec<RevealedOutput>,
     pub output_id_sources: OutputIdSources,
-    pub revealed_tx: RevealedTx,
     pub signed_spends: BTreeSet<SignedSpend>,
 }
 
@@ -174,16 +152,12 @@ impl DbcBuilder {
     /// Create a new DbcBuilder.
     pub fn new(
         spent_tx: DbcTransaction,
-        revealed_outputs: Vec<RevealedOutput>,
         output_id_sources: OutputIdSources,
-        revealed_tx: RevealedTx,
         signed_spends: BTreeSet<SignedSpend>,
     ) -> Self {
         Self {
             spent_tx,
-            revealed_outputs,
             output_id_sources,
-            revealed_tx,
             signed_spends,
         }
     }
@@ -198,7 +172,7 @@ impl DbcBuilder {
     ///
     /// See TransactionVerifier::verify() for a description of
     /// verifier requirements.
-    pub fn build(self) -> Result<Vec<(Dbc, RevealedAmount)>> {
+    pub fn build(self) -> Result<Vec<(Dbc, Amount)>> {
         // Verify the tx, along with signed spends.
         // Note that we do this just once for entire tx, not once per output Dbc.
         TransactionVerifier::verify(&self.spent_tx, &self.signed_spends)?;
@@ -208,60 +182,35 @@ impl DbcBuilder {
     }
 
     /// Build the output Dbcs (no verification over Tx or SignedSpend is performed).
-    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, RevealedAmount)>> {
+    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, Amount)>> {
         self.build_output_dbcs()
     }
 
     // Private helper to build output Dbcs.
-    fn build_output_dbcs(self) -> Result<Vec<(Dbc, RevealedAmount)>> {
-        let pc_gens = PedersenGens::default();
-        let output_blinded_and_revealed_amounts: Vec<(BlindedAmount, RevealedAmount)> = self
-            .revealed_outputs
-            .iter()
-            .map(|output| output.revealed_amount)
-            .map(|r| (r.blinded_amount(&pc_gens), r))
-            .collect();
-
-        let dbc_id_list: Vec<&DbcIdSource> = self
-            .spent_tx
+    fn build_output_dbcs(self) -> Result<Vec<(Dbc, Amount)>> {
+        self.spent_tx
             .outputs
             .iter()
             .map(|output| {
-                self.output_id_sources
-                    .get(output.dbc_id())
-                    .ok_or(Error::DbcIdNotFound)
-            })
-            .collect::<Result<_>>()?;
-
-        // Form the final output DBCs
-        let output_dbcs: Vec<(Dbc, RevealedAmount)> = self
-            .spent_tx
-            .outputs
-            .iter()
-            .zip(dbc_id_list)
-            .map(|(output, dbc_id_src)| {
-                let revealed_amounts: Vec<RevealedAmount> = output_blinded_and_revealed_amounts
-                    .iter()
-                    .filter(|(c, _)| *c == output.blinded_amount())
-                    .map(|(_, r)| *r)
-                    .collect();
-                assert_eq!(revealed_amounts.len(), 1);
-
+                let dbc_id_src = self
+                    .output_id_sources
+                    .get(&output.dbc_id)
+                    .ok_or(Error::DbcIdNotFound)?;
                 let ciphers = DbcCiphers::from((
                     &dbc_id_src.public_address,
                     &dbc_id_src.derivation_index,
-                    revealed_amounts[0],
+                    output.amount,
                 ));
-                let dbc = Dbc {
-                    id: dbc_id_src.dbc_id(),
-                    src_tx: self.spent_tx.clone(),
-                    ciphers,
-                    signed_spends: self.signed_spends.clone(),
-                };
-                (dbc, revealed_amounts[0])
+                Ok((
+                    Dbc {
+                        id: dbc_id_src.dbc_id(),
+                        src_tx: self.spent_tx.clone(),
+                        ciphers,
+                        signed_spends: self.signed_spends.clone(),
+                    },
+                    output.amount,
+                ))
             })
-            .collect();
-
-        Ok(output_dbcs)
+            .collect()
     }
 }
