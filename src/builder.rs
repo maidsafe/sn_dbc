@@ -196,11 +196,8 @@ impl DbcBuilder {
                     .output_id_sources
                     .get(&output.dbc_id)
                     .ok_or(Error::DbcIdNotFound)?;
-                let ciphers = DbcCiphers::from((
-                    &dbc_id_src.public_address,
-                    &dbc_id_src.derivation_index,
-                    output.amount,
-                ));
+                let ciphers =
+                    DbcCiphers::from((&dbc_id_src.public_address, &dbc_id_src.derivation_index));
                 Ok((
                     Dbc {
                         id: dbc_id_src.dbc_id(),

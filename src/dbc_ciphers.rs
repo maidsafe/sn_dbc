@@ -6,15 +6,11 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
+use crate::{dbc_id::PublicAddress, DerivationIndex, Hash, MainKey, Result};
 use blsttc::Ciphertext;
-use tiny_keccak::{Hasher, Sha3};
-
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-
-use crate::dbc_id::PublicAddress;
-use crate::{Amount, DerivationIndex, MainKey};
-use crate::{Hash, Result};
+use tiny_keccak::{Hasher, Sha3};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -40,41 +36,30 @@ pub struct DbcCiphers {
     /// So the actual PublicAddress the tokens in this Dbc was sent to, is unknown to
     /// anyone not in posession of the MainKey corresponding to the above mentioned PublicAddress.
     pub derivation_index_cipher: Ciphertext,
-
-    /// The Amount encrypted to the DbcId
-    /// The DbcId is obtained when having the derivation index, which is
-    /// gotten from the derivation_index_cipher, as described above. Then
-    /// the following fn can be called:
-    ///   self.public_address.new_dbc_id(derivation_index)
-    pub amount_cipher: Ciphertext,
 }
 
 /// Represents the ciphers of a Dbc.
-impl From<(PublicAddress, Ciphertext, Ciphertext)> for DbcCiphers {
+impl From<(PublicAddress, Ciphertext)> for DbcCiphers {
     // Create a new DbcCiphers for signing.
-    fn from(params: (PublicAddress, Ciphertext, Ciphertext)) -> Self {
-        let (public_address, derivation_index_cipher, amount_cipher) = params;
+    fn from(params: (PublicAddress, Ciphertext)) -> Self {
+        let (public_address, derivation_index_cipher) = params;
         Self {
             public_address,
             derivation_index_cipher,
-            amount_cipher,
         }
     }
 }
 
 /// Represents the ciphers of a Dbc.
-impl From<(&PublicAddress, &DerivationIndex, Amount)> for DbcCiphers {
+impl From<(&PublicAddress, &DerivationIndex)> for DbcCiphers {
     // Create a new DbcCiphers for signing.
-    fn from(params: (&PublicAddress, &DerivationIndex, Amount)) -> Self {
-        let (public_address, derivation_index, amount) = params;
-
+    fn from(params: (&PublicAddress, &DerivationIndex)) -> Self {
+        let (public_address, derivation_index) = params;
         let derivation_index_cipher = public_address.encrypt(derivation_index);
-        let amount_cipher = public_address.new_dbc_id(derivation_index).encrypt(&amount);
 
         Self {
             public_address: *public_address,
             derivation_index_cipher,
-            amount_cipher,
         }
     }
 }
@@ -91,7 +76,6 @@ impl DbcCiphers {
         let mut bytes: Vec<u8> = Default::default();
         bytes.extend(&self.public_address.to_bytes());
         bytes.extend(&self.derivation_index_cipher.to_bytes());
-        bytes.extend(&self.amount_cipher.to_bytes());
         bytes
     }
 

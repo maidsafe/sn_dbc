@@ -162,18 +162,7 @@ impl Dbc {
         if !self.signed_spends.iter().all(reasons_are_equal) {
             return Err(Error::SignedSpendReasonMismatch(dbc_id));
         }
-
-        self.verify_amounts(main_key)
-    }
-
-    pub(crate) fn verify_amounts(&self, main_key: &MainKey) -> Result<()> {
-        let derived_key = self.derived_key(main_key)?;
-        let decrypted_amount = derived_key.decrypt(&self.ciphers.amount_cipher)?;
-
-        match self.amount()? == decrypted_amount {
-            true => Ok(()),
-            false => Err(Error::AmountsDoNotMatch),
-        }
+        Ok(())
     }
 
     /// Deserializes a `Dbc` represented as a hex string to a `Dbc`.
@@ -224,11 +213,7 @@ pub(crate) mod tests {
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
         let tx = tx_material.sign().expect("Failed to sign tx");
-        let ciphers = DbcCiphers::from((
-            &main_key.public_address(),
-            &derivation_index,
-            tx.outputs[0].amount,
-        ));
+        let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
@@ -255,11 +240,7 @@ pub(crate) mod tests {
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
         let tx = tx_material.sign().expect("Failed to sign tx");
-        let ciphers = DbcCiphers::from((
-            &main_key.public_address(),
-            &derivation_index,
-            tx.outputs[0].amount,
-        ));
+        let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
@@ -315,11 +296,7 @@ pub(crate) mod tests {
 
         assert_eq!(tx.outputs.len(), 1);
 
-        let ciphers = DbcCiphers::from((
-            &main_key.public_address(),
-            &derivation_index,
-            tx.outputs[0].amount,
-        ));
+        let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
