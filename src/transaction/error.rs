@@ -10,8 +10,6 @@ use thiserror::Error;
 pub enum Error {
     #[error("The input and output amounts of the tx do not match.")]
     InconsistentDbcTransaction,
-    #[error("The signature is not valid.")]
-    InvalidSignature,
     #[error("The Dbc tx must have at least one input.")]
     MissingTxInputs,
     #[error("Dbc id is not unique across all tx inputs.")]
