@@ -13,7 +13,6 @@ use sn_dbc::{
     mock,
     rand::{CryptoRng, RngCore},
     random_derivation_index, rng, Dbc, DbcIdSource, Hash, MainKey, Result, Token,
-    TransactionVerifier,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -50,7 +49,9 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
-            TransactionVerifier::verify(black_box(spent_tx), &signed_spends).unwrap();
+            black_box(spent_tx)
+                .verify_against_inputs_spent(&signed_spends)
+                .unwrap();
         });
 
         #[cfg(unix)]
@@ -143,7 +144,9 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         let guard = pprof::ProfilerGuard::new(100).unwrap();
 
         b.iter(|| {
-            TransactionVerifier::verify(black_box(&merge_spent_tx), &signed_spends).unwrap();
+            black_box(&merge_spent_tx)
+                .verify_against_inputs_spent(&signed_spends)
+                .unwrap();
         });
 
         #[cfg(unix)]

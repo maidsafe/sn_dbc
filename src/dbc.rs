@@ -10,7 +10,6 @@ use crate::{
     dbc_id::PublicAddress,
     transaction::{Amount, DbcTransaction},
     DbcCiphers, DbcId, DerivationIndex, DerivedKey, Error, Hash, MainKey, Result, SignedSpend,
-    TransactionVerifier,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -149,7 +148,8 @@ impl Dbc {
     /// see TransactionVerifier::verify() for a description of
     /// verifier requirements.
     pub fn verify(&self, main_key: &MainKey) -> Result<(), Error> {
-        TransactionVerifier::verify(&self.src_tx, &self.signed_spends)?;
+        self.src_tx
+            .verify_against_inputs_spent(&self.signed_spends)?;
 
         let dbc_id = self.derived_key(main_key)?.dbc_id();
         if !self.src_tx.outputs.iter().any(|o| dbc_id.eq(o.dbc_id())) {
@@ -304,12 +304,7 @@ pub(crate) mod tests {
             signed_spends: Default::default(),
         };
 
-        assert!(matches!(
-            dbc.verify(&main_key),
-            Err(Error::Transaction(
-                crate::transaction::Error::MissingTxInputs
-            ))
-        ));
+        assert!(matches!(dbc.verify(&main_key), Err(Error::MissingTxInputs)));
 
         Ok(())
     }

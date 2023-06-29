@@ -5,18 +5,17 @@
 // Please see the LICENSE file for more details.
 
 mod amount;
-mod error;
 mod input;
 mod output;
 
-use crate::DbcId;
+use crate::{DbcId, SignedSpend};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BTreeSet};
 use tiny_keccak::{Hasher, Sha3};
 
+use crate::Error;
 pub use amount::Amount;
-pub(crate) use error::Error;
 pub use input::{Input, InputIntermediate};
 pub use output::Output;
 
@@ -108,6 +107,66 @@ impl DbcTransaction {
         } else {
             Ok(())
         }
+    }
+
+    /// Verifies a transaction including signed spends.
+    ///
+    /// This function relies/assumes that the caller (wallet/client) obtains
+    /// the DbcTransaction (held by every input spend's close group) in a
+    /// trustless/verified way. I.e., the caller should not simply obtain a
+    /// spend from a single peer, but must get the same spend from all in the close group.
+    pub fn verify_against_inputs_spent(&self, signed_spends: &BTreeSet<SignedSpend>) -> Result<()> {
+        if signed_spends.is_empty() {
+            return Err(Error::MissingTxInputs)?;
+        }
+
+        if signed_spends.len() != self.inputs.len() {
+            return Err(Error::SignedSpendInputLenMismatch {
+                current: signed_spends.len(),
+                expected: self.inputs.len(),
+            });
+        }
+
+        let spent_tx_hash = self.hash();
+
+        // Verify that each pubkey is unique in this transaction.
+        let unique_dbc_ids: BTreeSet<DbcId> = self.outputs.iter().map(|o| (*o.dbc_id())).collect();
+        if unique_dbc_ids.len() != self.outputs.len() {
+            return Err(Error::DbcIdNotUniqueAcrossOutputs);
+        }
+
+        // Verify that each input has a corresponding signed spend.
+        for signed_spend in signed_spends.iter() {
+            if !self
+                .inputs
+                .iter()
+                .any(|m| m.dbc_id == *signed_spend.dbc_id())
+            {
+                return Err(Error::SignedSpendInputIdMismatch);
+            }
+        }
+
+        // Verify that each signed spend is valid
+        for signed_spend in signed_spends.iter() {
+            signed_spend.verify(spent_tx_hash)?;
+        }
+
+        // We must get the signed spends into the same order as inputs
+        // so that resulting amounts will be in the right order.
+        // Note: we could use itertools crate to sort in one loop.
+        let mut signed_spends_found: Vec<(usize, &SignedSpend)> = signed_spends
+            .iter()
+            .filter_map(|s| {
+                self.inputs
+                    .iter()
+                    .position(|m| m.dbc_id == *s.dbc_id())
+                    .map(|idx| (idx, s))
+            })
+            .collect();
+
+        signed_spends_found.sort_by_key(|s| s.0);
+
+        self.verify()
     }
 }
 

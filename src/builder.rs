@@ -11,7 +11,7 @@ use crate::{
     transaction::{DbcTransaction, InputIntermediate, Output, TransactionIntermediate},
     Amount, DbcId, DerivedKey,
 };
-use crate::{Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token, TransactionVerifier};
+use crate::{Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -175,7 +175,8 @@ impl DbcBuilder {
     pub fn build(self) -> Result<Vec<(Dbc, Amount)>> {
         // Verify the tx, along with signed spends.
         // Note that we do this just once for entire tx, not once per output Dbc.
-        TransactionVerifier::verify(&self.spent_tx, &self.signed_spends)?;
+        self.spent_tx
+            .verify_against_inputs_spent(&self.signed_spends)?;
 
         // Build output Dbcs.
         self.build_output_dbcs()
