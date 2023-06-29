@@ -63,28 +63,6 @@ impl DerivedKey {
     }
 }
 
-/// This is a source that a specific DbcId can be derived from,
-/// since it contains a PublicAddress, and a specific derivation
-/// index. This struct is also used as source of the derivation
-/// index when encrypting the ciphers in the created Dbc.
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone)]
-pub struct DbcIdSource {
-    ///
-    pub public_address: PublicAddress,
-    ///
-    pub derivation_index: DerivationIndex,
-}
-
-impl DbcIdSource {
-    /// The id of a new Dbc that is sent to the PublicAddress.
-    /// The DbcId has a corresponding DerivedKey, which unlocks
-    /// the value of the Dbc with that DbcId.
-    pub fn dbc_id(&self) -> DbcId {
-        self.public_address.new_dbc_id(&self.derivation_index)
-    }
-}
-
 /// This is a public address to which tokens can be sent.
 /// The tokens will be sent via a unique Dbc.
 ///
@@ -109,15 +87,6 @@ impl PublicAddress {
     /// Verify that the signature is valid for the message.
     pub fn verify(&self, sig: &blsttc::Signature, msg: &[u8]) -> bool {
         self.0.verify(sig, msg)
-    }
-
-    /// A random derivation index and the public address.
-    /// The random index will be used to derive a DbcId out of the public address.
-    pub fn random_dbc_id_src(&self, rng: &mut impl RngCore) -> DbcIdSource {
-        DbcIdSource {
-            public_address: *self,
-            derivation_index: random_derivation_index(rng),
-        }
     }
 
     /// Generate a new DbcId from provided DerivationIndex.
@@ -157,15 +126,6 @@ impl MainKey {
     /// to which payments can be made by getting a new unique identifier for a Dbc to be created.
     pub fn public_address(&self) -> PublicAddress {
         PublicAddress(self.0.public_key())
-    }
-
-    /// A random derivation index and the public address.
-    /// The random index will be used to derive a DbcId out of the public address.
-    pub fn random_dbc_id_src(&self, rng: &mut impl RngCore) -> DbcIdSource {
-        DbcIdSource {
-            public_address: self.public_address(),
-            derivation_index: random_derivation_index(rng),
-        }
     }
 
     /// Sign a message with the main key.

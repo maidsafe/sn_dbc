@@ -7,7 +7,6 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    dbc_id::DbcIdSource,
     transaction::{DbcTransaction, Output},
     Amount, DbcId, DerivationIndex, DerivedKey, Input, PublicAddress, Spend,
 };
@@ -16,8 +15,6 @@ use crate::{Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub type OutputIdSources = BTreeMap<DbcId, DbcIdSource>;
-pub type InputTx = DbcTransaction;
 pub type InputSrcTx = DbcTransaction;
 
 /// A builder to create a DBC transaction from
@@ -29,15 +26,30 @@ pub struct TransactionBuilder {
     outputs: Vec<Output>,
     input_details: BTreeMap<DbcId, (DerivedKey, InputSrcTx)>,
     output_details: BTreeMap<DbcId, (PublicAddress, DerivationIndex)>,
-    output_id_sources: OutputIdSources,
 }
 
 impl TransactionBuilder {
-    /// Add an input given a the `Input`, the `DerivedKey` for the input and the `InputSrcTx`
-    pub fn add_input(mut self, input: Input, derived_key: DerivedKey, src_tx: InputSrcTx) -> Self {
+    /// Add an input given a the Input, the input's derived_key and the input's src transaction
+    pub fn add_input(
+        mut self,
+        input: Input,
+        derived_key: DerivedKey,
+        input_src_tx: InputSrcTx,
+    ) -> Self {
         self.input_details
-            .insert(input.dbc_id(), (derived_key, src_tx));
+            .insert(input.dbc_id(), (derived_key, input_src_tx));
         self.inputs.push(input);
+        self
+    }
+
+    /// Add an input given an iterator over the Input, the input's derived_key and the input's src transaction
+    pub fn add_inputs(
+        mut self,
+        inputs: impl IntoIterator<Item = (Input, DerivedKey, InputSrcTx)>,
+    ) -> Self {
+        for (input, derived_key, input_src_tx) in inputs.into_iter() {
+            self = self.add_input(input, derived_key, input_src_tx);
+        }
         self
     }
 
@@ -60,18 +72,30 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// Add an output given amount and the source of the DbcId for the new Dbc.
-    pub fn add_output(mut self, amount: Token, dbc_id_src: DbcIdSource) -> Self {
-        let output = Output::new(dbc_id_src.dbc_id(), amount.as_nano());
-        self.output_id_sources.insert(output.dbc_id, dbc_id_src);
+    /// Add an output given the token, the PublicAddress and the DerivationIndex
+    pub fn add_output(
+        mut self,
+        amount: Token,
+        public_address: PublicAddress,
+        derivation_index: DerivationIndex,
+    ) -> Self {
+        let dbc_id = public_address.new_dbc_id(&derivation_index);
+
+        self.output_details
+            .insert(dbc_id, (public_address, derivation_index));
+        let output = Output::new(dbc_id, amount.as_nano());
         self.outputs.push(output);
+
         self
     }
 
-    /// Add a list of outputs given the amounts and sources of DbcIds for the new Dbcs.
-    pub fn add_outputs(mut self, outputs: impl IntoIterator<Item = (Token, DbcIdSource)>) -> Self {
-        for (amount, dbc_id_src) in outputs.into_iter() {
-            self = self.add_output(amount, dbc_id_src);
+    /// Add a list of outputs given the tokens, the PublicAddress and the DerivationIndex
+    pub fn add_outputs(
+        mut self,
+        outputs: impl IntoIterator<Item = (Token, PublicAddress, DerivationIndex)>,
+    ) -> Self {
+        for (amount, public_address, derivation_index) in outputs.into_iter() {
+            self = self.add_output(amount, public_address, derivation_index);
         }
         self
     }
@@ -131,7 +155,7 @@ impl TransactionBuilder {
 
         Ok(DbcBuilder::new(
             spent_tx,
-            self.output_id_sources,
+            self.output_details,
             signed_spends,
         ))
     }
@@ -142,7 +166,7 @@ impl TransactionBuilder {
 #[derive(Debug, Clone)]
 pub struct DbcBuilder {
     pub spent_tx: DbcTransaction,
-    pub output_id_sources: OutputIdSources,
+    pub output_details: BTreeMap<DbcId, (PublicAddress, DerivationIndex)>,
     pub signed_spends: BTreeSet<SignedSpend>,
 }
 
@@ -150,12 +174,12 @@ impl DbcBuilder {
     /// Create a new DbcBuilder.
     pub fn new(
         spent_tx: DbcTransaction,
-        output_id_sources: OutputIdSources,
+        output_details: BTreeMap<DbcId, (PublicAddress, DerivationIndex)>,
         signed_spends: BTreeSet<SignedSpend>,
     ) -> Self {
         Self {
             spent_tx,
-            output_id_sources,
+            output_details,
             signed_spends,
         }
     }
@@ -191,17 +215,16 @@ impl DbcBuilder {
             .outputs
             .iter()
             .map(|output| {
-                let dbc_id_src = self
-                    .output_id_sources
+                let (public_address, derivation_index) = self
+                    .output_details
                     .get(&output.dbc_id)
                     .ok_or(Error::DbcIdNotFound)?;
-                let ciphers =
-                    DbcCiphers::from((&dbc_id_src.public_address, &dbc_id_src.derivation_index));
+
                 Ok((
                     Dbc {
-                        id: dbc_id_src.dbc_id(),
+                        id: public_address.new_dbc_id(derivation_index),
                         src_tx: self.spent_tx.clone(),
-                        ciphers,
+                        ciphers: DbcCiphers::from((public_address, derivation_index)),
                         signed_spends: self.signed_spends.clone(),
                     },
                     output.amount,

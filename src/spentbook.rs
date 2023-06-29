@@ -9,7 +9,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        mock,
+        mock, random_derivation_index,
         tests::{TinyInt, TinyVec},
         Dbc, DerivedKey, Error, Hash, MainKey, Result, SignedSpend, Spend, Token,
         TransactionBuilder,
@@ -49,20 +49,23 @@ mod tests {
             .iter()
             .map(|amount| {
                 let main_key = MainKey::random_from_rng(&mut rng);
-                let dbc_id_src = main_key.random_dbc_id_src(&mut rng);
-                let dbc_id = dbc_id_src.dbc_id();
-                (dbc_id, (main_key, dbc_id_src, Token::from_nano(*amount)))
+                let derivation_index = random_derivation_index(&mut rng);
+                let dbc_id = main_key.public_address().new_dbc_id(&derivation_index);
+                (
+                    dbc_id,
+                    (main_key, derivation_index, Token::from_nano(*amount)),
+                )
             })
             .collect();
 
         let derived_key = genesis_dbc.derived_key(&genesis.main_key).unwrap();
         let dbc_builder = TransactionBuilder::default()
             .add_input_dbc(&genesis_dbc, &derived_key)?
-            .add_outputs(
-                first_output_key_map
-                    .values()
-                    .map(|(_, dbc_id_src, amount)| (*amount, *dbc_id_src)),
-            )
+            .add_outputs(first_output_key_map.values().map(
+                |(main_key, derivation_index, amount)| {
+                    (*amount, main_key.public_address(), *derivation_index)
+                },
+            ))
             .build(Hash::default())?;
 
         // We make this a closure to keep the spentbook loop readable.
@@ -144,20 +147,23 @@ mod tests {
             .iter()
             .map(|amount| {
                 let main_key = MainKey::random_from_rng(&mut rng);
-                let dbc_id_src = main_key.random_dbc_id_src(&mut rng);
-                let dbc_id = dbc_id_src.dbc_id();
-                (dbc_id, (main_key, dbc_id_src, Token::from_nano(*amount)))
+                let derivation_index = random_derivation_index(&mut rng);
+                let dbc_id = main_key.public_address().new_dbc_id(&derivation_index);
+                (
+                    dbc_id,
+                    (main_key, derivation_index, Token::from_nano(*amount)),
+                )
             })
             .collect();
 
         let derived_key = genesis_dbc.derived_key(&genesis_material.main_key).unwrap();
         let dbc_builder = TransactionBuilder::default()
             .add_input_dbc(&genesis_dbc, &derived_key)?
-            .add_outputs(
-                first_output_key_map
-                    .values()
-                    .map(|(_, dbc_id_src, amount)| (*amount, *dbc_id_src)),
-            )
+            .add_outputs(first_output_key_map.values().map(
+                |(main_key, derivation_index, amount)| {
+                    (*amount, main_key.public_address(), *derivation_index)
+                },
+            ))
             .build(Hash::default())?;
 
         // note: we make this a closure to keep the spentbook loop readable.
@@ -199,19 +205,22 @@ mod tests {
             .iter()
             .map(|amount| {
                 let main_key = MainKey::random_from_rng(&mut rng);
-                let dbc_id_src = main_key.random_dbc_id_src(&mut rng);
-                let dbc_id = dbc_id_src.dbc_id();
-                (dbc_id, (main_key, dbc_id_src, Token::from_nano(*amount)))
+                let derivation_index = random_derivation_index(&mut rng);
+                let dbc_id = main_key.public_address().new_dbc_id(&derivation_index);
+                (
+                    dbc_id,
+                    (main_key, derivation_index, Token::from_nano(*amount)),
+                )
             })
             .collect();
 
         let dbc_builder = TransactionBuilder::default()
             .add_input_dbcs(&second_inputs_dbcs)?
-            .add_outputs(
-                second_output_key_map
-                    .values()
-                    .map(|(_, dbc_id_src, amount)| (*amount, *dbc_id_src)),
-            )
+            .add_outputs(second_output_key_map.values().map(
+                |(main_key, derivation_index, amount)| {
+                    (*amount, main_key.public_address(), *derivation_index)
+                },
+            ))
             .build(Hash::default())?;
 
         let dbc_output_amounts = first_output_amounts.clone();

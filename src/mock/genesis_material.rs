@@ -7,21 +7,17 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    builder::{InputSrcTx, InputTx},
-    dbc_id::DbcIdSource,
-    transaction::Output,
-    DbcId, DbcTransaction, DerivedKey, Input, MainKey,
+    builder::InputSrcTx, transaction::Output, DbcId, DbcTransaction, DerivationIndex, DerivedKey,
+    Input, MainKey,
 };
 use blsttc::IntoFr;
 
 /// Represents all the inputs required to build the Genesis Dbc.
 pub struct GenesisMaterial {
     pub input_dbc_id: DbcId,
-    // actual, key, input_src
-    pub genesis_tx: (InputTx, DerivedKey, InputSrcTx),
+    pub genesis_tx: (DbcTransaction, DerivedKey, InputSrcTx),
     pub main_key: MainKey,
-    pub derived_key: DerivedKey, // unlocks the genesis dbc
-    pub dbc_id_src: DbcIdSource, // genesis dbc id is derived from these
+    pub derivation_index: DerivationIndex,
 }
 
 impl GenesisMaterial {
@@ -62,38 +58,11 @@ impl Default for GenesisMaterial {
             outputs: vec![],
         };
 
-        // let input_intermediate = InputIntermediate {
-        //     derived_key: input_derived_key,
-        //     amount: Amount {
-        //         value: Self::GENESIS_AMOUNT,
-        //     },
-        //     // There is nothing in this transaction
-        //     // since there was no tx before genesis.
-        //     input_src_tx: DbcTransaction {
-        //         inputs: vec![],
-        //         outputs: vec![],
-        //     },
-        // };
-
-        // let genesis_tx = TransactionIntermediate {
-        //     inputs: vec![input_intermediate],
-        //     outputs: vec![Output::new(
-        //         output_derived_key.dbc_id(),
-        //         Self::GENESIS_AMOUNT,
-        //     )],
-        // };
-
-        let output_dbc_id_src = DbcIdSource {
-            public_address: output_main_key.public_address(),
-            derivation_index: output_derivation_index,
-        };
-
         Self {
             input_dbc_id: input_derived_key.dbc_id(), // the id of the fictional dbc being reissued to genesis dbc
             genesis_tx: (genesis_tx, input_derived_key, input_src_tx), // there genesis dbc was created
             main_key: output_main_key,
-            derived_key: output_derived_key, // unlocks genesis
-            dbc_id_src: output_dbc_id_src,
+            derivation_index: output_derivation_index,
         }
     }
 }
