@@ -103,8 +103,20 @@ impl DbcTransaction {
         }
 
         // Check that the input and output amounts are equal.
-        let input_sum: u64 = self.inputs.iter().map(|i| i.amount.value).sum();
-        let output_sum: u64 = self.outputs.iter().map(|o| o.amount.value).sum();
+        let input_sum: u64 = self
+            .inputs
+            .iter()
+            .map(|i| i.amount.value)
+            .try_fold(0, |acc: u64, i| {
+                acc.checked_add(i).ok_or(Error::NumericOverflow)
+            })?;
+        let output_sum: u64 = self
+            .outputs
+            .iter()
+            .map(|o| o.amount.value)
+            .try_fold(0, |acc: u64, o| {
+                acc.checked_add(o).ok_or(Error::NumericOverflow)
+            })?;
 
         if input_sum != output_sum {
             Err(Error::InconsistentDbcTransaction)
