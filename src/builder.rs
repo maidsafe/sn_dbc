@@ -8,7 +8,7 @@
 
 use crate::{
     transaction::{DbcTransaction, Output},
-    Amount, DbcId, DerivationIndex, DerivedKey, Input, PublicAddress, Spend,
+    DbcId, DerivationIndex, DerivedKey, Input, PublicAddress, Spend,
 };
 use crate::{Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token};
 #[cfg(feature = "serde")]
@@ -58,7 +58,7 @@ impl TransactionBuilder {
         let input_src_tx = dbc.src_tx.clone();
         let input = Input {
             dbc_id: dbc.id(),
-            amount: dbc.amount()?,
+            token: dbc.token()?,
         };
         self = self.add_input(input, derived_key.clone(), input_src_tx);
         Ok(self)
@@ -75,7 +75,7 @@ impl TransactionBuilder {
     /// Add an output given the token, the PublicAddress and the DerivationIndex
     pub fn add_output(
         mut self,
-        amount: Token,
+        token: Token,
         public_address: PublicAddress,
         derivation_index: DerivationIndex,
     ) -> Self {
@@ -83,7 +83,7 @@ impl TransactionBuilder {
 
         self.output_details
             .insert(dbc_id, (public_address, derivation_index));
-        let output = Output::new(dbc_id, amount.as_nano());
+        let output = Output::new(dbc_id, token.as_nano());
         self.outputs.push(output);
 
         self
@@ -94,8 +94,8 @@ impl TransactionBuilder {
         mut self,
         outputs: impl IntoIterator<Item = (Token, PublicAddress, DerivationIndex)>,
     ) -> Self {
-        for (amount, public_address, derivation_index) in outputs.into_iter() {
-            self = self.add_output(amount, public_address, derivation_index);
+        for (token, public_address, derivation_index) in outputs.into_iter() {
+            self = self.add_output(token, public_address, derivation_index);
         }
         self
     }
@@ -105,15 +105,15 @@ impl TransactionBuilder {
         self.inputs.iter().map(|i| i.dbc_id()).collect()
     }
 
-    /// Get sum of input amounts.
-    pub fn inputs_amount_sum(&self) -> Token {
-        let amount = self.inputs.iter().map(|i| i.amount).sum();
+    /// Get sum of input Tokens.
+    pub fn inputs_tokens_sum(&self) -> Token {
+        let amount = self.inputs.iter().map(|i| i.token.as_nano()).sum();
         Token::from_nano(amount)
     }
 
-    /// Get sum of output amounts.
-    pub fn outputs_amount_sum(&self) -> Token {
-        let amount = self.outputs.iter().map(|o| o.amount).sum();
+    /// Get sum of output Tokens.
+    pub fn outputs_tokens_sum(&self) -> Token {
+        let amount = self.outputs.iter().map(|o| o.token.as_nano()).sum();
         Token::from_nano(amount)
     }
 
@@ -142,7 +142,7 @@ impl TransactionBuilder {
                     dbc_id: input.dbc_id(),
                     spent_tx: spent_tx.clone(),
                     reason,
-                    amount: input.amount,
+                    token: input.token,
                     dbc_creation_tx: input_src_tx.clone(),
                 };
                 let derived_key_sig = derived_key.sign(&spend.to_bytes());
@@ -194,7 +194,7 @@ impl DbcBuilder {
     ///
     /// See TransactionVerifier::verify() for a description of
     /// verifier requirements.
-    pub fn build(self) -> Result<Vec<(Dbc, Amount)>> {
+    pub fn build(self) -> Result<Vec<(Dbc, Token)>> {
         // Verify the tx, along with signed spends.
         // Note that we do this just once for entire tx, not once per output Dbc.
         self.spent_tx
@@ -205,12 +205,12 @@ impl DbcBuilder {
     }
 
     /// Build the output Dbcs (no verification over Tx or SignedSpend is performed).
-    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, Amount)>> {
+    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, Token)>> {
         self.build_output_dbcs()
     }
 
     // Private helper to build output Dbcs.
-    fn build_output_dbcs(self) -> Result<Vec<(Dbc, Amount)>> {
+    fn build_output_dbcs(self) -> Result<Vec<(Dbc, Token)>> {
         self.spent_tx
             .outputs
             .iter()
@@ -227,7 +227,7 @@ impl DbcBuilder {
                         ciphers: DbcCiphers::from((public_address, derivation_index)),
                         signed_spends: self.signed_spends.clone(),
                     },
-                    output.amount,
+                    output.token,
                 ))
             })
             .collect()

@@ -8,8 +8,8 @@
 
 use super::GenesisMaterial;
 use crate::{
-    dbc_id::PublicAddress, transaction::DbcTransaction, Amount, DbcId, Error, Hash, Output, Result,
-    SignedSpend,
+    dbc_id::PublicAddress, transaction::DbcTransaction, DbcId, Error, Hash, Output, Result,
+    SignedSpend, Token,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -41,20 +41,20 @@ pub struct SpentbookNode {
     pub transactions: HashMap<Hash, DbcTransaction>,
     pub dbc_ids: BTreeMap<DbcId, Hash>,
     pub outputs_by_input_id: BTreeMap<DbcId, Output>,
-    pub genesis: (DbcId, Amount),
+    pub genesis: (DbcId, Token),
 }
 
 impl Default for SpentbookNode {
     fn default() -> Self {
         let genesis_material = GenesisMaterial::default();
-        let amount = genesis_material.genesis_tx.0.inputs[0].amount;
+        let token = genesis_material.genesis_tx.0.inputs[0].token;
 
         Self {
             id: PublicAddress::new(blsttc::SecretKey::random().public_key()),
             transactions: Default::default(),
             dbc_ids: Default::default(),
             outputs_by_input_id: Default::default(),
-            genesis: (genesis_material.input_dbc_id, amount),
+            genesis: (genesis_material.input_dbc_id, token),
         }
     }
 }

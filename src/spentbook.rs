@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn issue_genesis() -> Result<(), Error> {
-        let (_spentbook_node, genesis_dbc, genesis, _amount) =
+        let (_spentbook_node, genesis_dbc, genesis, _token) =
             mock::GenesisBuilder::init_genesis_single()?;
 
         let verified = genesis_dbc.verify(&genesis.main_key);
@@ -42,7 +42,7 @@ mod tests {
         let n_outputs = output_amounts.len();
         let output_amount: u64 = output_amounts.iter().sum();
 
-        let (mut spentbook_node, genesis_dbc, genesis, _amount) =
+        let (mut spentbook_node, genesis_dbc, genesis, _token) =
             mock::GenesisBuilder::init_genesis_single()?;
 
         let first_output_key_map: BTreeMap<_, _> = output_amounts
@@ -89,11 +89,11 @@ mod tests {
         }
         let output_dbcs = dbc_builder.build()?;
 
-        for (dbc, output_amount) in output_dbcs.iter() {
-            let (main_key, _, amount) = first_output_key_map.get(&dbc.id()).unwrap();
-            let dbc_amount = dbc.amount()?;
-            assert_eq!(amount.as_nano(), dbc_amount);
-            assert_eq!(dbc_amount, *output_amount);
+        for (dbc, output_token) in output_dbcs.iter() {
+            let (main_key, _, token) = first_output_key_map.get(&dbc.id()).unwrap();
+            let dbc_token = dbc.token()?;
+            assert_eq!(token, &dbc_token);
+            assert_eq!(dbc_token, *output_token);
             assert!(dbc.verify(main_key).is_ok());
         }
 
@@ -103,7 +103,7 @@ mod tests {
                 for (dbc, _) in output_dbcs.iter() {
                     // note: we could just use the amount provided by DbcBuilder::build()
                     // but we go further to verify the correct value is encrypted in the Dbc.
-                    sum += dbc.amount()?
+                    sum += dbc.token()?.as_nano()
                 }
                 sum
             },
@@ -140,7 +140,7 @@ mod tests {
                 .map(TinyInt::coerce::<usize>),
         );
 
-        let (mut spentbook_node, genesis_dbc, genesis_material, _amount) =
+        let (mut spentbook_node, genesis_dbc, genesis_material, _token) =
             mock::GenesisBuilder::init_genesis_single()?;
 
         let mut first_output_key_map: BTreeMap<_, _> = first_input_amounts
@@ -160,8 +160,8 @@ mod tests {
         let dbc_builder = TransactionBuilder::default()
             .add_input_dbc(&genesis_dbc, &derived_key)?
             .add_outputs(first_output_key_map.values().map(
-                |(main_key, derivation_index, amount)| {
-                    (*amount, main_key.public_address(), *derivation_index)
+                |(main_key, derivation_index, token)| {
+                    (*token, main_key.public_address(), *derivation_index)
                 },
             ))
             .build(Hash::default())?;
@@ -217,8 +217,8 @@ mod tests {
         let dbc_builder = TransactionBuilder::default()
             .add_input_dbcs(&second_inputs_dbcs)?
             .add_outputs(second_output_key_map.values().map(
-                |(main_key, derivation_index, amount)| {
-                    (*amount, main_key.public_address(), *derivation_index)
+                |(main_key, derivation_index, token)| {
+                    (*token, main_key.public_address(), *derivation_index)
                 },
             ))
             .build(Hash::default())?;
@@ -290,7 +290,7 @@ mod tests {
                             dbc_id: *signed_spend.dbc_id(),
                             spent_tx: signed_spend.spend.spent_tx.clone(),
                             reason: Hash::default(),
-                            amount: *signed_spend.amount(),
+                            token: *signed_spend.token(),
                             dbc_creation_tx: tx1.clone(),
                         },
                         derived_key_sig: SecretKey::random().sign([0u8; 32]),
