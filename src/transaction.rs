@@ -4,38 +4,35 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-// mod amount;
-
-use crate::{DbcId, SignedSpend};
+use crate::{DbcId, SignedSpend, Token};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BTreeSet};
 use tiny_keccak::{Hasher, Sha3};
 
 use crate::Error;
-// pub use amount::Amount;
 
 type Result<T> = std::result::Result<T, Error>;
-
-/// Represents a Dbc's value.
-pub type Amount = u64;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Input {
     pub dbc_id: DbcId,
-    pub amount: Amount,
+    pub token: Token,
 }
 
 impl Input {
     pub fn new(dbc_id: DbcId, amount: u64) -> Self {
-        Self { dbc_id, amount }
+        Self {
+            dbc_id,
+            token: Token::from_nano(amount),
+        }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.dbc_id.to_bytes().as_ref());
-        v.extend(self.amount.to_ne_bytes());
+        v.extend(self.token.to_bytes());
         v
     }
 
@@ -48,18 +45,21 @@ impl Input {
 #[derive(Debug, Clone)]
 pub struct Output {
     pub dbc_id: DbcId,
-    pub amount: Amount,
+    pub token: Token,
 }
 
 impl Output {
     pub fn new(dbc_id: DbcId, amount: u64) -> Self {
-        Self { dbc_id, amount }
+        Self {
+            dbc_id,
+            token: Token::from_nano(amount),
+        }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.dbc_id.to_bytes().as_ref());
-        v.extend(self.amount.to_ne_bytes());
+        v.extend(self.token.to_bytes());
         v
     }
 
@@ -133,20 +133,20 @@ impl DbcTransaction {
             return Err(Error::DbcIdNotUniqueAcrossInputs);
         }
 
-        // Check that the input and output amounts are equal.
+        // Check that the input and output tokens are equal.
         let input_sum: u64 = self
             .inputs
             .iter()
-            .map(|i| i.amount)
+            .map(|i| i.token)
             .try_fold(0, |acc: u64, i| {
-                acc.checked_add(i).ok_or(Error::NumericOverflow)
+                acc.checked_add(i.as_nano()).ok_or(Error::NumericOverflow)
             })?;
         let output_sum: u64 = self
             .outputs
             .iter()
-            .map(|o| o.amount)
+            .map(|o| o.token)
             .try_fold(0, |acc: u64, o| {
-                acc.checked_add(o).ok_or(Error::NumericOverflow)
+                acc.checked_add(o.as_nano()).ok_or(Error::NumericOverflow)
             })?;
 
         if input_sum != output_sum {

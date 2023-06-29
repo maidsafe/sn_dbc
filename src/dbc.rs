@@ -7,9 +7,8 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    dbc_id::PublicAddress,
-    transaction::{Amount, DbcTransaction},
-    DbcCiphers, DbcId, DerivationIndex, DerivedKey, Error, Hash, MainKey, Result, SignedSpend,
+    dbc_id::PublicAddress, transaction::DbcTransaction, DbcCiphers, DbcId, DerivationIndex,
+    DerivedKey, Error, Hash, MainKey, Result, SignedSpend, Token,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -107,15 +106,15 @@ impl Dbc {
             .unwrap_or_default()
     }
 
-    /// Return the Amount for this Dbc.
-    pub fn amount(&self) -> Result<Amount> {
+    /// Return the Tokens for this Dbc.
+    pub fn token(&self) -> Result<Token> {
         Ok(self
             .src_tx
             .outputs
             .iter()
             .find(|o| &self.id() == o.dbc_id())
             .ok_or(Error::OutputNotFound)?
-            .amount)
+            .token)
     }
 
     /// Generate the hash of this Dbc
@@ -222,7 +221,7 @@ pub(crate) mod tests {
         let hex = dbc.to_hex()?;
 
         let dbc = Dbc::from_hex(&hex)?;
-        assert_eq!(dbc.amount()?, 1_530_000_000);
+        assert_eq!(dbc.token()?.as_nano(), 1_530_000_000);
         Ok(())
     }
 
@@ -248,7 +247,7 @@ pub(crate) mod tests {
         let hex = dbc.to_hex()?;
         let dbc_from_hex = Dbc::from_hex(&hex)?;
 
-        assert_eq!(dbc.amount()?, dbc_from_hex.amount()?);
+        assert_eq!(dbc.token()?, dbc_from_hex.token()?);
 
         Ok(())
     }
@@ -329,7 +328,7 @@ pub(crate) mod tests {
         let (mut spentbook_node, genesis_dbc, genesis_material, _) =
             mock::GenesisBuilder::init_genesis_single()?;
 
-        let output_amounts = vec![
+        let output_tokens = vec![
             Token::from_nano(amount),
             Token::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - amount),
         ];
@@ -339,9 +338,9 @@ pub(crate) mod tests {
             .add_input_dbc(&genesis_dbc, &derived_key)
             .unwrap()
             .add_outputs(
-                output_amounts
+                output_tokens
                     .into_iter()
-                    .map(|amount| (amount, recipient, random_derivation_index(rng))),
+                    .map(|token| (token, recipient, random_derivation_index(rng))),
             )
             .build(Hash::default())?;
 

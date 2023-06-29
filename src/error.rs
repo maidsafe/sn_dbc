@@ -33,12 +33,6 @@ pub enum Error {
     #[error("Transaction hash does not match the transaction signed by spentbook.")]
     InvalidTransactionHash,
 
-    #[error("Missing a src transaction {dbc_creation_tx_hash:?} of a signed spend {dbc_id:?}.")]
-    MissingSpentSrcTransaction {
-        dbc_id: DbcId,
-        dbc_creation_tx_hash: crate::Hash,
-    },
-
     #[error("Dbc ciphers are not present in transaction outputs.")]
     DbcCiphersNotPresentInTransactionOutput,
 
@@ -53,14 +47,6 @@ pub enum Error {
     )]
     SignedSpendInputLenMismatch { current: usize, expected: usize },
 
-    #[error("Missing amount for dbc id: {0:?}. There must be exactly one amount per dbc id.")]
-    MissingAmountForDbcId(DbcId),
-
-    #[error(
-        "Multiple amounts found for dbc id: {0:?}. There must be exactly one amount per dbc idy."
-    )]
-    MultipleAmountsForDbcId(DbcId),
-
     #[error("A SignedSpend DbcId does not match an MlsagSignature DbcId.")]
     SignedSpendInputIdMismatch,
 
@@ -69,9 +55,6 @@ pub enum Error {
 
     #[error("Decryption failed.")]
     DecryptionBySecretKeyFailed,
-
-    #[error("Invalid Amount bytes.")]
-    InvalidAmountBytes,
 
     #[error("DbcId not found.")]
     DbcIdNotFound,

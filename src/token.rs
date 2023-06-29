@@ -50,6 +50,11 @@ impl Token {
     pub fn checked_sub(self, rhs: Token) -> Option<Token> {
         self.0.checked_sub(rhs.0).map(Self::from_nano)
     }
+
+    /// Converts the Tokens into bytes
+    pub fn to_bytes(&self) -> [u8; 8] {
+        self.0.to_ne_bytes()
+    }
 }
 
 impl FromStr for Token {

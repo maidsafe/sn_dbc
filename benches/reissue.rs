@@ -87,8 +87,8 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .add_outputs(
             outputs
                 .iter()
-                .map(|(_, (main_key, derivation_index, amount))| {
-                    (*amount, main_key.public_address(), *derivation_index)
+                .map(|(_, (main_key, derivation_index, token))| {
+                    (*token, main_key.public_address(), *derivation_index)
                 }),
         )
         .build(Hash::default())
@@ -154,15 +154,15 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 
 #[allow(clippy::result_large_err)]
 fn generate_dbc_of_value(
-    amount: Token,
+    token: Token,
     rng: &mut (impl RngCore + CryptoRng),
 ) -> Result<(mock::SpentbookNode, (Dbc, MainKey))> {
-    let (mut spentbook_node, genesis_dbc, genesis_material, _amount) =
+    let (mut spentbook_node, genesis_dbc, genesis_material, __token) =
         mock::GenesisBuilder::init_genesis_single()?;
 
-    let output_amounts = vec![
-        amount,
-        Token::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - amount.as_nano()),
+    let output_tokens = vec![
+        token,
+        Token::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - token.as_nano()),
     ];
 
     let main_key = MainKey::random_from_rng(rng);
@@ -171,9 +171,9 @@ fn generate_dbc_of_value(
     let dbc_builder = sn_dbc::TransactionBuilder::default()
         .add_input_dbc(&genesis_dbc, &derived_key)
         .unwrap()
-        .add_outputs(output_amounts.into_iter().map(|amount| {
+        .add_outputs(output_tokens.into_iter().map(|token| {
             (
-                amount,
+                token,
                 main_key.public_address(),
                 random_derivation_index(rng),
             )
