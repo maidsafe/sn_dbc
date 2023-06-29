@@ -74,9 +74,6 @@ pub enum Error {
     #[error("Invalid Amount bytes.")]
     InvalidAmountBytes,
 
-    #[error("Amounts do not match.")]
-    AmountsDoNotMatch,
-
     #[error("DbcId not found.")]
     DbcIdNotFound,
 
