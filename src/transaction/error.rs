@@ -16,4 +16,6 @@ pub enum Error {
     MissingTxInputs,
     #[error("Dbc id is not unique across all tx inputs.")]
     DbcIdNotUniqueAcrossInputs,
+    #[error("Overflow occurred while adding values")]
+    NumericOverflow,
 }
