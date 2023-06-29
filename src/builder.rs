@@ -83,13 +83,13 @@ impl TransactionBuilder {
 
     /// Get sum of input amounts.
     pub fn inputs_amount_sum(&self) -> Token {
-        let amount = self.inputs.iter().map(|i| i.amount.value).sum();
+        let amount = self.inputs.iter().map(|i| i.amount).sum();
         Token::from_nano(amount)
     }
 
     /// Get sum of output amounts.
     pub fn outputs_amount_sum(&self) -> Token {
-        let amount = self.outputs.iter().map(|o| o.amount.value).sum();
+        let amount = self.outputs.iter().map(|o| o.amount).sum();
         Token::from_nano(amount)
     }
 

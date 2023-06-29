@@ -131,7 +131,7 @@ impl Spend {
         bytes.extend(self.dbc_id.to_bytes());
         bytes.extend(self.spent_tx.hash().as_ref());
         bytes.extend(self.reason.as_ref());
-        bytes.extend(self.amount.to_bytes());
+        bytes.extend(self.amount.to_ne_bytes());
         bytes.extend(self.dbc_creation_tx.hash().as_ref());
         bytes
     }

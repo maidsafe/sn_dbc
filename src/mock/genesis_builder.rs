@@ -45,7 +45,7 @@ impl GenesisBuilder {
                 genesis_material.genesis_tx.2.clone(),
             )
             .add_output(
-                Token::from_nano(genesis_material.genesis_tx.0.outputs[0].amount.value),
+                Token::from_nano(genesis_material.genesis_tx.0.outputs[0].amount),
                 genesis_material.dbc_id_src,
             )
             .build(Hash::default())?;
