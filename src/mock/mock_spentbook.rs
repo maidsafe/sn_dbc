@@ -47,7 +47,7 @@ pub struct SpentbookNode {
 impl Default for SpentbookNode {
     fn default() -> Self {
         let genesis_material = GenesisMaterial::default();
-        let amount = genesis_material.genesis_tx.inputs[0].amount;
+        let amount = genesis_material.genesis_tx.0.inputs[0].amount;
 
         Self {
             id: PublicAddress::new(blsttc::SecretKey::random().public_key()),

@@ -7,16 +7,18 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
+    builder::{InputSrcTx, InputTx},
     dbc_id::DbcIdSource,
-    transaction::{Amount, InputIntermediate, Output, TransactionIntermediate},
-    DbcId, DbcTransaction, DerivedKey, MainKey,
+    transaction::Output,
+    DbcId, DbcTransaction, DerivedKey, Input, MainKey,
 };
 use blsttc::IntoFr;
 
 /// Represents all the inputs required to build the Genesis Dbc.
 pub struct GenesisMaterial {
     pub input_dbc_id: DbcId,
-    pub genesis_tx: TransactionIntermediate,
+    // actual, key, input_src
+    pub genesis_tx: (InputTx, DerivedKey, InputSrcTx),
     pub main_key: MainKey,
     pub derived_key: DerivedKey, // unlocks the genesis dbc
     pub dbc_id_src: DbcIdSource, // genesis dbc id is derived from these
@@ -47,28 +49,39 @@ impl Default for GenesisMaterial {
         let output_derivation_index = [1; 32];
         let output_derived_key = output_main_key.derive_key(&output_derivation_index);
 
-        let input_intermediate = InputIntermediate {
-            derived_key: input_derived_key,
-            amount: Amount {
-                value: Self::GENESIS_AMOUNT,
-            },
-            // There is nothing in this transaction
-            // since there was no tx before genesis.
-            input_src_tx: DbcTransaction {
-                inputs: vec![],
-                outputs: vec![],
-            },
-        };
-        let input_dbc_id = input_intermediate.dbc_id();
-
         // Build the transaction where genesis was created.
-        let genesis_tx = TransactionIntermediate {
-            inputs: vec![input_intermediate],
-            outputs: vec![Output::new(
-                output_derived_key.dbc_id(),
-                Self::GENESIS_AMOUNT,
-            )],
+        let input = Input::new(input_derived_key.dbc_id(), Self::GENESIS_AMOUNT);
+        let output = Output::new(output_derived_key.dbc_id(), Self::GENESIS_AMOUNT);
+        let genesis_tx = DbcTransaction {
+            inputs: vec![input],
+            outputs: vec![output],
         };
+
+        let input_src_tx = DbcTransaction {
+            inputs: vec![],
+            outputs: vec![],
+        };
+
+        // let input_intermediate = InputIntermediate {
+        //     derived_key: input_derived_key,
+        //     amount: Amount {
+        //         value: Self::GENESIS_AMOUNT,
+        //     },
+        //     // There is nothing in this transaction
+        //     // since there was no tx before genesis.
+        //     input_src_tx: DbcTransaction {
+        //         inputs: vec![],
+        //         outputs: vec![],
+        //     },
+        // };
+
+        // let genesis_tx = TransactionIntermediate {
+        //     inputs: vec![input_intermediate],
+        //     outputs: vec![Output::new(
+        //         output_derived_key.dbc_id(),
+        //         Self::GENESIS_AMOUNT,
+        //     )],
+        // };
 
         let output_dbc_id_src = DbcIdSource {
             public_address: output_main_key.public_address(),
@@ -76,8 +89,8 @@ impl Default for GenesisMaterial {
         };
 
         Self {
-            input_dbc_id, // the id of the fictional dbc being reissued to genesis dbc
-            genesis_tx,   // there genesis dbc was created
+            input_dbc_id: input_derived_key.dbc_id(), // the id of the fictional dbc being reissued to genesis dbc
+            genesis_tx: (genesis_tx, input_derived_key, input_src_tx), // there genesis dbc was created
             main_key: output_main_key,
             derived_key: output_derived_key, // unlocks genesis
             dbc_id_src: output_dbc_id_src,

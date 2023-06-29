@@ -194,10 +194,9 @@ pub(crate) mod tests {
         dbc_id::{random_derivation_index, DbcIdSource},
         mock,
         rand::{CryptoRng, RngCore},
-        transaction::{Output, TransactionIntermediate},
+        transaction::Output,
         Hash, Token,
     };
-
     use blsttc::{PublicKey, SecretKey};
     use std::convert::TryInto;
 
@@ -208,11 +207,10 @@ pub(crate) mod tests {
         let main_key = MainKey::random_from_rng(&mut rng);
         let derivation_index = random_derivation_index(&mut rng);
         let derived_key = main_key.derive_key(&derivation_index);
-        let tx_material = TransactionIntermediate {
+        let tx = DbcTransaction {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
-        let tx = tx_material.sign().expect("Failed to sign tx");
         let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
@@ -235,11 +233,10 @@ pub(crate) mod tests {
         let main_key = MainKey::random_from_rng(&mut rng);
         let derivation_index = random_derivation_index(&mut rng);
         let derived_key = main_key.derive_key(&derivation_index);
-        let tx_material = TransactionIntermediate {
+        let tx = DbcTransaction {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
-        let tx = tx_material.sign().expect("Failed to sign tx");
         let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
@@ -287,14 +284,10 @@ pub(crate) mod tests {
         let derivation_index = random_derivation_index(&mut rng);
         let derived_key = main_key.derive_key(&derivation_index);
 
-        let tx_material = TransactionIntermediate {
+        let tx = DbcTransaction {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
         };
-
-        let tx = tx_material.sign().expect("Failed to sign tx");
-
-        assert_eq!(tx.outputs.len(), 1);
 
         let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {

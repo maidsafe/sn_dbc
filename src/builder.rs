@@ -8,8 +8,8 @@
 
 use crate::{
     dbc_id::DbcIdSource,
-    transaction::{DbcTransaction, InputIntermediate, Output, TransactionIntermediate},
-    Amount, DbcId, DerivedKey,
+    transaction::{DbcTransaction, Output},
+    Amount, DbcId, DerivationIndex, DerivedKey, Input, PublicAddress, Spend,
 };
 use crate::{Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token};
 #[cfg(feature = "serde")]
@@ -17,37 +17,38 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub type OutputIdSources = BTreeMap<DbcId, DbcIdSource>;
+pub type InputTx = DbcTransaction;
+pub type InputSrcTx = DbcTransaction;
 
 /// A builder to create a DBC transaction from
 /// inputs and outputs.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
-    tx: TransactionIntermediate,
+    inputs: Vec<Input>,
+    outputs: Vec<Output>,
+    input_details: BTreeMap<DbcId, (DerivedKey, InputSrcTx)>,
+    output_details: BTreeMap<DbcId, (PublicAddress, DerivationIndex)>,
     output_id_sources: OutputIdSources,
 }
 
 impl TransactionBuilder {
-    /// Add an input given a InputIntermediate.
-    pub fn add_input(mut self, input: InputIntermediate) -> Self {
-        self.tx.inputs.push(input);
-        self
-    }
-
-    /// Add an input given an iterator over InputIntermediate.
-    pub fn add_inputs(mut self, inputs: impl IntoIterator<Item = InputIntermediate>) -> Self {
-        self.tx.inputs.extend(inputs);
+    /// Add an input given a the `Input`, the `DerivedKey` for the input and the `InputSrcTx`
+    pub fn add_input(mut self, input: Input, derived_key: DerivedKey, src_tx: InputSrcTx) -> Self {
+        self.input_details
+            .insert(input.dbc_id(), (derived_key, src_tx));
+        self.inputs.push(input);
         self
     }
 
     /// Add an input given a Dbc and its DerivedKey.
     pub fn add_input_dbc(mut self, dbc: &Dbc, derived_key: &DerivedKey) -> Result<Self> {
         let input_src_tx = dbc.src_tx.clone();
-        self = self.add_input(InputIntermediate {
-            derived_key: derived_key.clone(),
+        let input = Input {
+            dbc_id: dbc.id(),
             amount: dbc.amount()?,
-            input_src_tx,
-        });
+        };
+        self = self.add_input(input, derived_key.clone(), input_src_tx);
         Ok(self)
     }
 
@@ -63,7 +64,7 @@ impl TransactionBuilder {
     pub fn add_output(mut self, amount: Token, dbc_id_src: DbcIdSource) -> Self {
         let output = Output::new(dbc_id_src.dbc_id(), amount.as_nano());
         self.output_id_sources.insert(output.dbc_id, dbc_id_src);
-        self.tx.outputs.push(output);
+        self.outputs.push(output);
         self
     }
 
@@ -77,57 +78,54 @@ impl TransactionBuilder {
 
     /// Get a list of input ids.
     pub fn input_ids(&self) -> Vec<DbcId> {
-        self.tx.inputs.iter().map(|t| t.dbc_id()).collect()
+        self.inputs.iter().map(|i| i.dbc_id()).collect()
     }
 
     /// Get sum of input amounts.
     pub fn inputs_amount_sum(&self) -> Token {
-        let amount = self.tx.inputs.iter().map(|t| t.amount.value).sum();
+        let amount = self.inputs.iter().map(|i| i.amount.value).sum();
         Token::from_nano(amount)
     }
 
     /// Get sum of output amounts.
     pub fn outputs_amount_sum(&self) -> Token {
-        let amount = self.tx.outputs.iter().map(|o| o.amount.value).sum();
+        let amount = self.outputs.iter().map(|o| o.amount.value).sum();
         Token::from_nano(amount)
     }
 
     /// Get inputs.
-    pub fn inputs(&self) -> &Vec<InputIntermediate> {
-        &self.tx.inputs
+    pub fn inputs(&self) -> &Vec<Input> {
+        &self.inputs
     }
 
     /// Get outputs.
     pub fn outputs(&self) -> &Vec<Output> {
-        &self.tx.outputs
+        &self.outputs
     }
 
     /// Build the DbcTransaction by signing the inputs. Return a DbcBuilder.
     pub fn build(self, reason: Hash) -> Result<DbcBuilder> {
-        let spent_tx = self.tx.sign()?;
-
-        let signed_spends: BTreeSet<_> = spent_tx
+        let spent_tx = DbcTransaction {
+            inputs: self.inputs.clone(),
+            outputs: self.outputs.clone(),
+        };
+        let signed_spends: BTreeSet<_> = self
             .inputs
             .iter()
             .flat_map(|input| {
-                self.tx
-                    .inputs
-                    .iter()
-                    .find(|i| i.dbc_id() == input.dbc_id())
-                    .map(|i| {
-                        let spend: crate::Spend = crate::Spend {
-                            dbc_id: input.dbc_id(),
-                            spent_tx: spent_tx.clone(),
-                            reason,
-                            amount: input.amount,
-                            dbc_creation_tx: i.input_src_tx.clone(),
-                        };
-                        let derived_key_sig = i.derived_key.sign(&spend.to_bytes());
-                        SignedSpend {
-                            spend,
-                            derived_key_sig,
-                        }
-                    })
+                let (derived_key, input_src_tx) = self.input_details.get(&input.dbc_id)?;
+                let spend = Spend {
+                    dbc_id: input.dbc_id(),
+                    spent_tx: spent_tx.clone(),
+                    reason,
+                    amount: input.amount,
+                    dbc_creation_tx: input_src_tx.clone(),
+                };
+                let derived_key_sig = derived_key.sign(&spend.to_bytes());
+                Some(SignedSpend {
+                    spend,
+                    derived_key_sig,
+                })
             })
             .collect();
 

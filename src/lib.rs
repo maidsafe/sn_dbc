@@ -32,9 +32,7 @@ pub use crate::{
     error::{Error, Result},
     signed_spend::{SignedSpend, Spend},
     token::Token,
-    transaction::{
-        Amount, DbcTransaction, Input, InputIntermediate, Output, TransactionIntermediate,
-    },
+    transaction::{Amount, DbcTransaction, Input, Output},
 };
 pub use blsttc::{self, rand, Ciphertext, PublicKey, PublicKeySet, Signature, SignatureShare};
 
