@@ -88,9 +88,9 @@ mod tests {
 
         for (dbc, output_amount) in output_dbcs.iter() {
             let (main_key, _, amount) = first_output_key_map.get(&dbc.id()).unwrap();
-            let dbc_amount = dbc.amount()?.value;
+            let dbc_amount = dbc.amount()?;
             assert_eq!(amount.as_nano(), dbc_amount);
-            assert_eq!(dbc_amount, output_amount.value);
+            assert_eq!(dbc_amount, *output_amount);
             assert!(dbc.verify(main_key).is_ok());
         }
 
@@ -100,7 +100,7 @@ mod tests {
                 for (dbc, _) in output_dbcs.iter() {
                     // note: we could just use the amount provided by DbcBuilder::build()
                     // but we go further to verify the correct value is encrypted in the Dbc.
-                    sum += dbc.amount()?.value
+                    sum += dbc.amount()?
                 }
                 sum
             },

@@ -222,7 +222,7 @@ pub(crate) mod tests {
         let hex = dbc.to_hex()?;
 
         let dbc = Dbc::from_hex(&hex)?;
-        assert_eq!(dbc.amount()?.value, 1_530_000_000);
+        assert_eq!(dbc.amount()?, 1_530_000_000);
         Ok(())
     }
 

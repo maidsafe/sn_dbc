@@ -4,7 +4,7 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-mod amount;
+// mod amount;
 
 use crate::{DbcId, SignedSpend};
 #[cfg(feature = "serde")]
@@ -13,9 +13,12 @@ use std::{cmp::Ordering, collections::BTreeSet};
 use tiny_keccak::{Hasher, Sha3};
 
 use crate::Error;
-pub use amount::Amount;
+// pub use amount::Amount;
 
 type Result<T> = std::result::Result<T, Error>;
+
+/// Represents a Dbc's value.
+pub type Amount = u64;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -26,16 +29,13 @@ pub struct Input {
 
 impl Input {
     pub fn new(dbc_id: DbcId, amount: u64) -> Self {
-        Self {
-            dbc_id,
-            amount: Amount { value: amount },
-        }
+        Self { dbc_id, amount }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.dbc_id.to_bytes().as_ref());
-        v.extend(self.amount.to_bytes());
+        v.extend(self.amount.to_ne_bytes());
         v
     }
 
@@ -53,16 +53,13 @@ pub struct Output {
 
 impl Output {
     pub fn new(dbc_id: DbcId, amount: u64) -> Self {
-        Self {
-            dbc_id,
-            amount: Amount { value: amount },
-        }
+        Self { dbc_id, amount }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend(self.dbc_id.to_bytes().as_ref());
-        v.extend(self.amount.to_bytes());
+        v.extend(self.amount.to_ne_bytes());
         v
     }
 
@@ -140,14 +137,14 @@ impl DbcTransaction {
         let input_sum: u64 = self
             .inputs
             .iter()
-            .map(|i| i.amount.value)
+            .map(|i| i.amount)
             .try_fold(0, |acc: u64, i| {
                 acc.checked_add(i).ok_or(Error::NumericOverflow)
             })?;
         let output_sum: u64 = self
             .outputs
             .iter()
-            .map(|o| o.amount.value)
+            .map(|o| o.amount)
             .try_fold(0, |acc: u64, o| {
                 acc.checked_add(o).ok_or(Error::NumericOverflow)
             })?;
