@@ -39,9 +39,13 @@ impl GenesisBuilder {
     pub fn build(mut self) -> Result<(Vec<mock::SpentbookNode>, Dbc, GenesisMaterial, Amount)> {
         let genesis_material = GenesisMaterial::default();
         let dbc_builder = TransactionBuilder::default()
-            .add_input(genesis_material.genesis_tx.inputs[0].clone())
+            .add_input(
+                genesis_material.genesis_tx.0.inputs[0].clone(),
+                genesis_material.genesis_tx.1.clone(),
+                genesis_material.genesis_tx.2.clone(),
+            )
             .add_output(
-                Token::from_nano(genesis_material.genesis_tx.outputs[0].amount.value),
+                Token::from_nano(genesis_material.genesis_tx.0.outputs[0].amount.value),
                 genesis_material.dbc_id_src,
             )
             .build(Hash::default())?;
