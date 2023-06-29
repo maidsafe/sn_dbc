@@ -22,13 +22,10 @@ mod transaction;
 pub mod mock;
 // re-export crates used in our public API
 pub use crate::{
-    builder::{DbcBuilder, OutputIdSources, TransactionBuilder},
+    builder::{DbcBuilder, TransactionBuilder},
     dbc::Dbc,
     dbc_ciphers::DbcCiphers,
-    dbc_id::{
-        random_derivation_index, DbcId, DbcIdSource, DerivationIndex, DerivedKey, MainKey,
-        PublicAddress,
-    },
+    dbc_id::{random_derivation_index, DbcId, DerivationIndex, DerivedKey, MainKey, PublicAddress},
     error::{Error, Result},
     signed_spend::{SignedSpend, Spend},
     token::Token,

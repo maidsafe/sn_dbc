@@ -46,7 +46,8 @@ impl GenesisBuilder {
             )
             .add_output(
                 Token::from_nano(genesis_material.genesis_tx.0.outputs[0].amount),
-                genesis_material.dbc_id_src,
+                genesis_material.main_key.public_address(),
+                genesis_material.derivation_index,
             )
             .build(Hash::default())?;
 

@@ -12,7 +12,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use sn_dbc::{
     mock,
     rand::{CryptoRng, RngCore},
-    random_derivation_index, rng, Dbc, DbcIdSource, Hash, MainKey, Result, Token,
+    random_derivation_index, rng, Dbc, Hash, MainKey, Result, Token,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -29,9 +29,11 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .add_input_dbc(&starting_dbc, &derived_key)
         .unwrap()
         .add_outputs((0..N_OUTPUTS).map(|_| {
+            let main_key = MainKey::random_from_rng(&mut rng);
             (
                 Token::from_nano(1),
-                MainKey::random_from_rng(&mut rng).random_dbc_id_src(&mut rng),
+                main_key.public_address(),
+                random_derivation_index(&mut rng),
             )
         }))
         .build(Hash::default())
@@ -86,13 +88,7 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
             outputs
                 .iter()
                 .map(|(_, (main_key, derivation_index, amount))| {
-                    (
-                        *amount,
-                        DbcIdSource {
-                            public_address: main_key.public_address(),
-                            derivation_index: *derivation_index,
-                        },
-                    )
+                    (*amount, main_key.public_address(), *derivation_index)
                 }),
         )
         .build(Hash::default())
@@ -118,10 +114,8 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
     let merge_dbc_builder = tx_builder
         .add_output(
             Token::from_nano(N_OUTPUTS),
-            DbcIdSource {
-                public_address: main_key.public_address(),
-                derivation_index,
-            },
+            main_key.public_address(),
+            derivation_index,
         )
         .build(Hash::default())
         .unwrap();
@@ -180,10 +174,8 @@ fn generate_dbc_of_value(
         .add_outputs(output_amounts.into_iter().map(|amount| {
             (
                 amount,
-                DbcIdSource {
-                    public_address: main_key.public_address(),
-                    derivation_index: random_derivation_index(rng),
-                },
+                main_key.public_address(),
+                random_derivation_index(rng),
             )
         }))
         .build(Hash::default())?;

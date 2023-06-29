@@ -191,7 +191,7 @@ pub(crate) mod tests {
     use super::*;
 
     use crate::{
-        dbc_id::{random_derivation_index, DbcIdSource},
+        dbc_id::random_derivation_index,
         mock,
         rand::{CryptoRng, RngCore},
         transaction::Output,
@@ -338,15 +338,11 @@ pub(crate) mod tests {
         let dbc_builder = crate::TransactionBuilder::default()
             .add_input_dbc(&genesis_dbc, &derived_key)
             .unwrap()
-            .add_outputs(output_amounts.into_iter().map(|amount| {
-                (
-                    amount,
-                    DbcIdSource {
-                        public_address: recipient,
-                        derivation_index: random_derivation_index(rng),
-                    },
-                )
-            }))
+            .add_outputs(
+                output_amounts
+                    .into_iter()
+                    .map(|amount| (amount, recipient, random_derivation_index(rng))),
+            )
             .build(Hash::default())?;
 
         let tx = &dbc_builder.spent_tx;
