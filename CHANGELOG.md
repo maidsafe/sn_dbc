@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [19.1.1](https://github.com/maidsafe/sn_dbc/compare/v19.1.0...v19.1.1) (2023-06-29)
+
+
+### Bug Fixes
+
+* check for overflow while adding values ([3c27b94](https://github.com/maidsafe/sn_dbc/commit/3c27b94311db585a76cc94369142d50ccdfb61b0))
+
 ## [19.1.0](https://github.com/maidsafe/sn_dbc/compare/v19.0.1...v19.1.0) (2023-06-20)
 
 
