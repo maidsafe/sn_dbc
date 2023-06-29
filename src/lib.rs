@@ -17,7 +17,6 @@ mod signed_spend;
 mod spentbook;
 mod token;
 mod transaction;
-mod verification;
 
 #[cfg(feature = "mock")]
 pub mod mock;
@@ -36,7 +35,6 @@ pub use crate::{
     transaction::{
         Amount, DbcTransaction, Input, InputIntermediate, Output, TransactionIntermediate,
     },
-    verification::{get_amounts_from_transaction, TransactionVerifier},
 };
 pub use blsttc::{self, rand, Ciphertext, PublicKey, PublicKeySet, Signature, SignatureShare};
 

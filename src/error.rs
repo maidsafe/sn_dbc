@@ -6,7 +6,6 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::transaction;
 use crate::DbcId;
 use thiserror::Error;
 
@@ -89,8 +88,17 @@ pub enum Error {
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 
-    #[error("Transaction error: {0}")]
-    Transaction(#[from] transaction::Error),
+    #[error("The input and output amounts of the tx do not match.")]
+    InconsistentDbcTransaction,
+
+    #[error("The Dbc tx must have at least one input.")]
+    MissingTxInputs,
+
+    #[error("Dbc id is not unique across all tx inputs.")]
+    DbcIdNotUniqueAcrossInputs,
+
+    #[error("Overflow occurred while adding values")]
+    NumericOverflow,
 
     #[cfg(feature = "mock")]
     #[error("mock object error.")]

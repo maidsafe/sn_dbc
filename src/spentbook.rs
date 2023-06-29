@@ -68,7 +68,7 @@ mod tests {
         // We make this a closure to keep the spentbook loop readable.
         let check_error = |error: Error| -> Result<()> {
             match error {
-                Error::Transaction(crate::transaction::Error::InconsistentDbcTransaction) => {
+                Error::InconsistentDbcTransaction => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
@@ -163,7 +163,7 @@ mod tests {
         // note: we make this a closure to keep the spentbook loop readable.
         let check_tx_error = |error: Error| -> Result<()> {
             match error {
-                Error::Transaction(crate::transaction::Error::InconsistentDbcTransaction) => {
+                Error::InconsistentDbcTransaction => {
                     // Verify that no inputs were present and we got correct verification error.
                     assert!(first_input_amounts.is_empty());
                     Ok(())
@@ -233,7 +233,7 @@ mod tests {
                 Error::SignedSpendInputIdMismatch => {
                     assert!(!invalid_signed_spends.is_empty());
                 }
-                Error::Transaction(crate::transaction::Error::InconsistentDbcTransaction) => {
+                Error::InconsistentDbcTransaction => {
                     if mock::GenesisMaterial::GENESIS_AMOUNT == output_total_amount {
                         // This can correctly occur if there are 0 outputs and inputs sum to zero.
                         //
@@ -245,7 +245,7 @@ mod tests {
                         assert!(!first_input_amounts.is_empty());
                     }
                 }
-                Error::Transaction(crate::transaction::Error::MissingTxInputs) => {
+                Error::MissingTxInputs => {
                     assert_eq!(first_input_amounts.len(), 0);
                 }
                 Error::InvalidSpendSignature(dbc_id) => {
