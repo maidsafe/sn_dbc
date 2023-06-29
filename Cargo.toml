@@ -1,6 +1,6 @@
 [package]
 name = "sn_dbc"
-version = "20.0.0"
+version = "19.1.1"
 description = "Safe Network DBC"
 license = "MIT OR BSD-3-Clause"
 repository = "https://github.com/maidsafe/sn_dbc"
@@ -19,7 +19,6 @@ blsttc = "8.0.1"
 custom_debug = "~0.5.0"
 hex = "0.4.3"
 thiserror = "1.0.24"
-
 
   [dependencies.serde]
   version = "1.0.133"
