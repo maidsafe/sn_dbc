@@ -85,6 +85,20 @@ impl SignedSpend {
             Err(Error::InvalidSpendSignature(*self.dbc_id()))
         }
     }
+
+    /// Self-verifies this SignedSpend and its linked DbcTransaction
+    ///
+    /// - Checks the hash of its spent tx equals the input dst tx hash that was
+    /// signed by the DerivedKey.
+    /// - Verifies that that signature is valid for this SignedSpend.
+    /// - Also checks if every input of the spent tx has the correct signature,
+    /// and that each public key of the inputs was the signer.
+    pub fn self_verify(&self) -> Result<()> {
+        let spent_tx_hash = self.spend.spent_tx.hash();
+        self.verify(spent_tx_hash)?;
+
+        self.spend.spent_tx.verify()
+    }
 }
 
 // Impl manually to avoid clippy complaint about Hash conflict.
