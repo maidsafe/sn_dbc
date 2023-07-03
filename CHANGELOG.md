@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [20.0.0](https://github.com/maidsafe/sn_dbc/compare/v19.1.0...v20.0.0) (2023-07-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* adding fee output type
+* replace `Amount` with `Token`
+* remove `DbcIdSource` struct
+* remove `Amount` struct
+* remove `*Intermediate` tpyes
+* simplifying codebase by removing unnecessary error and verification types
+
+### Features
+
+* adding fee output type ([c54c8f0](https://github.com/maidsafe/sn_dbc/commit/c54c8f03910a975baa7ed7b2ce6cef806018042c))
+
+
+### Bug Fixes
+
+* check for overflow while adding values ([3c27b94](https://github.com/maidsafe/sn_dbc/commit/3c27b94311db585a76cc94369142d50ccdfb61b0))
+
+
+* remove `*Intermediate` tpyes ([45ad40c](https://github.com/maidsafe/sn_dbc/commit/45ad40c180987fac7836ea9e8899c3ca28bcfbd7))
+* remove `Amount` struct ([d25479e](https://github.com/maidsafe/sn_dbc/commit/d25479e432c89118bace563a88c54ea6948c5cdc))
+* remove `DbcIdSource` struct ([5cfa96e](https://github.com/maidsafe/sn_dbc/commit/5cfa96e60b3c26ef86e80a06ccc1c4e9ca1cf664))
+* replace `Amount` with `Token` ([a4481fa](https://github.com/maidsafe/sn_dbc/commit/a4481fadada9a4d4c7d0aac774d136af2476497f))
+* simplifying codebase by removing unnecessary error and verification types ([2250b81](https://github.com/maidsafe/sn_dbc/commit/2250b8105eeb26b8446a28e7065fb45a990f5e16))
+
 ## [19.1.0](https://github.com/maidsafe/sn_dbc/compare/v19.0.1...v19.1.0) (2023-06-20)
 
 

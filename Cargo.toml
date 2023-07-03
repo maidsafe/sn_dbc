@@ -20,7 +20,6 @@ custom_debug = "~0.5.0"
 hex = "0.4.3"
 thiserror = "1.0.24"
 
-
   [dependencies.serde]
   version = "1.0.133"
   features = [ "derive", "rc" ]
