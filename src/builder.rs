@@ -8,7 +8,7 @@
 
 use crate::{
     transaction::{DbcTransaction, Output},
-    DbcId, DerivationIndex, DerivedKey, Input, PublicAddress, Spend,
+    DbcId, DerivationIndex, DerivedKey, FeeOutput, Input, PublicAddress, Spend,
 };
 use crate::{Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token};
 #[cfg(feature = "serde")]
@@ -24,6 +24,7 @@ pub type InputSrcTx = DbcTransaction;
 pub struct TransactionBuilder {
     inputs: Vec<Input>,
     outputs: Vec<Output>,
+    fee: FeeOutput,
     input_details: BTreeMap<DbcId, (DerivedKey, InputSrcTx)>,
     output_details: BTreeMap<DbcId, (PublicAddress, DerivationIndex)>,
 }
@@ -100,6 +101,12 @@ impl TransactionBuilder {
         self
     }
 
+    /// Sets the given fee output.
+    pub fn set_fee_output(mut self, output: FeeOutput) -> Self {
+        self.fee = output;
+        self
+    }
+
     /// Get a list of input ids.
     pub fn input_ids(&self) -> Vec<DbcId> {
         self.inputs.iter().map(|i| i.dbc_id()).collect()
@@ -113,7 +120,12 @@ impl TransactionBuilder {
 
     /// Get sum of output Tokens.
     pub fn outputs_tokens_sum(&self) -> Token {
-        let amount = self.outputs.iter().map(|o| o.token.as_nano()).sum();
+        let amount = self
+            .outputs
+            .iter()
+            .map(|o| o.token.as_nano())
+            .chain(std::iter::once(self.fee.token.as_nano()))
+            .sum();
         Token::from_nano(amount)
     }
 
@@ -132,6 +144,7 @@ impl TransactionBuilder {
         let spent_tx = DbcTransaction {
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
+            fee: self.fee.clone(),
         };
         let signed_spends: BTreeSet<_> = self
             .inputs

@@ -13,6 +13,7 @@ mod dbc;
 mod dbc_ciphers;
 mod dbc_id;
 mod error;
+mod fee_output;
 mod signed_spend;
 mod spentbook;
 mod token;
@@ -27,6 +28,7 @@ pub use crate::{
     dbc_ciphers::DbcCiphers,
     dbc_id::{random_derivation_index, DbcId, DerivationIndex, DerivedKey, MainKey, PublicAddress},
     error::{Error, Result},
+    fee_output::FeeOutput,
     signed_spend::{SignedSpend, Spend},
     token::Token,
     transaction::{DbcTransaction, Input, Output},

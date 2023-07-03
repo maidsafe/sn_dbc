@@ -31,6 +31,11 @@ impl Token {
         Self(0)
     }
 
+    /// Returns whether it's a representation of zero Token.
+    pub const fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+
     /// New value from a number of nano tokens.
     pub const fn from_nano(value: u64) -> Self {
         Self(value)

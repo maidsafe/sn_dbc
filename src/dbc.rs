@@ -8,7 +8,7 @@
 
 use crate::{
     dbc_id::PublicAddress, transaction::DbcTransaction, DbcCiphers, DbcId, DerivationIndex,
-    DerivedKey, Error, Hash, MainKey, Result, SignedSpend, Token,
+    DerivedKey, Error, FeeOutput, Hash, MainKey, Result, SignedSpend, Token,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -94,6 +94,11 @@ impl Dbc {
     /// Return the derivation index that was used to derive DbcId and corresponding DerivedKey of a Dbc.
     pub fn derivation_index(&self, main_key: &MainKey) -> Result<DerivationIndex> {
         self.ciphers.derivation_index(main_key)
+    }
+
+    /// Return the fee output used in the source transaction
+    pub fn fee_output(&self) -> &FeeOutput {
+        &self.src_tx.fee
     }
 
     /// Return the reason why this Dbc was spent.
@@ -194,7 +199,7 @@ pub(crate) mod tests {
         mock,
         rand::{CryptoRng, RngCore},
         transaction::Output,
-        Hash, Token,
+        FeeOutput, Hash, Token,
     };
     use blsttc::{PublicKey, SecretKey};
     use std::convert::TryInto;
@@ -209,6 +214,7 @@ pub(crate) mod tests {
         let tx = DbcTransaction {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
+            fee: FeeOutput::new(Hash::default(), 3_500, Hash::default()),
         };
         let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
@@ -222,6 +228,10 @@ pub(crate) mod tests {
 
         let dbc = Dbc::from_hex(&hex)?;
         assert_eq!(dbc.token()?.as_nano(), 1_530_000_000);
+
+        let fee_amount = dbc.fee_output().token;
+        assert_eq!(fee_amount, Token::from_nano(3_500));
+
         Ok(())
     }
 
@@ -235,6 +245,7 @@ pub(crate) mod tests {
         let tx = DbcTransaction {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
+            fee: FeeOutput::new(Hash::default(), 2_500, Hash::default()),
         };
         let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
@@ -248,6 +259,9 @@ pub(crate) mod tests {
         let dbc_from_hex = Dbc::from_hex(&hex)?;
 
         assert_eq!(dbc.token()?, dbc_from_hex.token()?);
+
+        let fee_amount = dbc.fee_output().token;
+        assert_eq!(fee_amount, Token::from_nano(2_500));
 
         Ok(())
     }
@@ -286,6 +300,7 @@ pub(crate) mod tests {
         let tx = DbcTransaction {
             inputs: vec![],
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
+            fee: FeeOutput::default(),
         };
 
         let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
