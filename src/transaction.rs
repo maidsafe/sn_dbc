@@ -4,7 +4,7 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use crate::{DbcId, SignedSpend, Token};
+use crate::{DbcId, FeeOutput, SignedSpend, Token};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BTreeSet};
@@ -73,6 +73,7 @@ impl Output {
 pub struct DbcTransaction {
     pub inputs: Vec<Input>,
     pub outputs: Vec<Output>,
+    pub fee: FeeOutput,
 }
 
 impl PartialEq for DbcTransaction {
@@ -96,6 +97,14 @@ impl Ord for DbcTransaction {
 }
 
 impl DbcTransaction {
+    pub fn empty() -> Self {
+        Self {
+            inputs: vec![],
+            outputs: vec![],
+            fee: FeeOutput::default(),
+        }
+    }
+
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
         v.extend("inputs".as_bytes());
@@ -106,6 +115,8 @@ impl DbcTransaction {
         for o in self.outputs.iter() {
             v.extend(&o.to_bytes());
         }
+        v.extend("fee".as_bytes());
+        v.extend(&self.fee.to_bytes());
         v.extend("end".as_bytes());
         v
     }
@@ -145,6 +156,7 @@ impl DbcTransaction {
             .outputs
             .iter()
             .map(|o| o.token)
+            .chain(std::iter::once(self.fee.token))
             .try_fold(0, |acc: u64, o| {
                 acc.checked_add(o.as_nano()).ok_or(Error::NumericOverflow)
             })?;

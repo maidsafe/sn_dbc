@@ -8,7 +8,7 @@
 
 use crate::{
     builder::InputSrcTx, transaction::Output, DbcId, DbcTransaction, DerivationIndex, DerivedKey,
-    Input, MainKey,
+    FeeOutput, Input, MainKey,
 };
 use blsttc::IntoFr;
 
@@ -51,12 +51,10 @@ impl Default for GenesisMaterial {
         let genesis_tx = DbcTransaction {
             inputs: vec![input],
             outputs: vec![output],
+            fee: FeeOutput::default(),
         };
 
-        let input_src_tx = DbcTransaction {
-            inputs: vec![],
-            outputs: vec![],
-        };
+        let input_src_tx = DbcTransaction::empty();
 
         Self {
             input_dbc_id: input_derived_key.dbc_id(), // the id of the fictional dbc being reissued to genesis dbc
