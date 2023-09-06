@@ -77,7 +77,7 @@ impl DerivedKey {
 /// corresponding to that DbcId, and thus unlock the value of the Dbc by using that DerivedKey.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Clone)]
-pub struct PublicAddress(PublicKey);
+pub struct PublicAddress(pub PublicKey);
 
 impl PublicAddress {
     pub fn new(public_key: PublicKey) -> Self {
@@ -115,6 +115,11 @@ impl MainKey {
     ///
     pub fn new(secret_key: SecretKey) -> Self {
         Self(SerdeSecret(secret_key))
+    }
+
+    /// Get the secret key.
+    pub fn secret_key(&self) -> &SecretKey {
+        &self.0
     }
 
     /// This is the static public address which is shared with others, and
