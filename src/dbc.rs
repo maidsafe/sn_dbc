@@ -7,7 +7,7 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    dbc_id::PublicAddress, transaction::DbcTransaction, DbcCiphers, DbcId, DerivationIndex,
+    dbc_id::PublicAddress, transaction::DbcTransaction, DbcId, DbcSecrets, DerivationIndex,
     DerivedKey, Error, FeeOutput, Hash, MainKey, Result, SignedSpend, Token,
 };
 #[cfg(feature = "serde")]
@@ -63,9 +63,9 @@ pub struct Dbc {
     /// The transaction where this DBC was created.
     #[debug(skip)]
     pub src_tx: DbcTransaction,
-    /// Encrypted information for and about the recipient of this Dbc.
+    /// Secret information for and about the recipient of this Dbc.
     #[debug(skip)]
-    pub ciphers: DbcCiphers,
+    pub secrets: DbcSecrets,
     /// The transaction's input's SignedSpends
     pub signed_spends: BTreeSet<SignedSpend>,
 }
@@ -78,7 +78,7 @@ impl Dbc {
 
     // Return PublicAddress from which DbcId is derived.
     pub fn public_address(&self) -> &PublicAddress {
-        &self.ciphers.public_address
+        &self.secrets.public_address
     }
 
     /// Return DerivedKey using MainKey supplied by caller.
@@ -88,12 +88,12 @@ impl Dbc {
         if &main_key.public_address() != self.public_address() {
             return Err(Error::MainKeyDoesNotMatchPublicAddress);
         }
-        Ok(main_key.derive_key(&self.derivation_index(main_key)?))
+        Ok(main_key.derive_key(&self.derivation_index()))
     }
 
     /// Return the derivation index that was used to derive DbcId and corresponding DerivedKey of a Dbc.
-    pub fn derivation_index(&self, main_key: &MainKey) -> Result<DerivationIndex> {
-        self.ciphers.derivation_index(main_key)
+    pub fn derivation_index(&self) -> DerivationIndex {
+        self.secrets.derivation_index
     }
 
     /// Return the fee output used in the source transaction
@@ -126,7 +126,7 @@ impl Dbc {
     pub fn hash(&self) -> Hash {
         let mut sha3 = Sha3::v256();
         sha3.update(self.src_tx.hash().as_ref());
-        sha3.update(&self.ciphers.to_bytes());
+        sha3.update(&self.secrets.to_bytes());
 
         for sp in self.signed_spends.iter() {
             sha3.update(&sp.to_bytes());
@@ -216,11 +216,11 @@ pub(crate) mod tests {
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
             fee: FeeOutput::new(Hash::default(), 3_500, Hash::default()),
         };
-        let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
+        let ciphers = DbcSecrets::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
-            ciphers,
+            secrets: ciphers,
             signed_spends: Default::default(),
         };
 
@@ -247,11 +247,11 @@ pub(crate) mod tests {
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
             fee: FeeOutput::new(Hash::default(), 2_500, Hash::default()),
         };
-        let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
+        let ciphers = DbcSecrets::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
-            ciphers,
+            secrets: ciphers,
             signed_spends: Default::default(),
         };
 
@@ -303,11 +303,11 @@ pub(crate) mod tests {
             fee: FeeOutput::default(),
         };
 
-        let ciphers = DbcCiphers::from((&main_key.public_address(), &derivation_index));
+        let ciphers = DbcSecrets::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
-            ciphers,
+            secrets: ciphers,
             signed_spends: Default::default(),
         };
 
