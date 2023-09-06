@@ -8,9 +8,9 @@
 
 use crate::{
     rand::{distributions::Standard, Rng, RngCore},
-    Error, PublicKey, Result,
+    PublicKey,
 };
-use blsttc::{serde_impl::SerdeSecret, Ciphertext, SecretKey, PK_SIZE};
+use blsttc::{serde_impl::SerdeSecret, SecretKey, PK_SIZE};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -70,7 +70,7 @@ impl DerivedKey {
 /// they generate the id of the Dbc - the DbcId - that shall hold the tokens.
 /// The DbcId is generated from this PublicAddress, and only the sender
 /// will at this point know that the DbcId is related to this PublicAddress.
-/// When creating the Dbc using that DbcId, the sender will also encrypt the
+/// When creating the Dbc using that DbcId, the sender will also include the
 /// DerivationIndex that was used to generate the DbcId, so that the recipient behind
 /// the PublicAddress can also see that the DbcId is related to this PublicAddress.
 /// The recipient can then use the received DerivationIndex to generate the DerivedKey
@@ -95,11 +95,6 @@ impl PublicAddress {
     /// When they create the new Dbc they will use this id, but that only works if this id was never used before.
     pub fn new_dbc_id(&self, index: &DerivationIndex) -> DbcId {
         DbcId(self.0.derive_child(index))
-    }
-
-    /// To send tokens to this address, a derivation index is encrypted
-    pub fn encrypt(&self, derivation_index: &DerivationIndex) -> Ciphertext {
-        self.0.encrypt(derivation_index)
     }
 
     pub fn to_bytes(self) -> [u8; PK_SIZE] {
@@ -133,24 +128,6 @@ impl MainKey {
         self.0.sign(msg)
     }
 
-    /// When someone wants to send tokens to the PublicAddress of this MainKey,
-    /// they generate the id of the Dbc - the DbcId - that shall hold the tokens.
-    /// The created Dbc contains the encrypted derivation index, that is decrypted using
-    /// this MainKey instance.
-    /// The index is then used to derive the key - the DerivedKey - corresponding to the DbcId of the
-    /// Dbc sent to you. With that DerivedKey you will have access to the tokens in the Dbc.
-    pub fn decrypt_index(&self, derivation_index_cipher: &Ciphertext) -> Result<DerivationIndex> {
-        let bytes = self
-            .0
-            .decrypt(derivation_index_cipher)
-            .ok_or(Error::DecryptionBySecretKeyFailed)?;
-
-        let mut index = [0u8; 32];
-        index.copy_from_slice(&bytes[0..32]);
-
-        Ok(index)
-    }
-
     /// Derive the key - the DerivedKey - corresponding to a DbcId
     /// which was also derived using the same DerivationIndex.
     ///
@@ -158,12 +135,10 @@ impl MainKey {
     /// they generate the id of the Dbc - the DbcId - that shall hold the tokens.
     /// The recipient of the tokens, is the person/entity that holds this MainKey.
     ///
-    /// The created Dbc contains the _encrypted_ form of the derivation index that was used to
-    /// generate that very DbcId. The sender encrypted it so that no-one but the recipient of the
-    /// tokens in the Dbc (and the sender itself of course) shall be able to see which index was used.
-    /// This encrypted index is then decrypted by the recipient, using this MainKey instance (see `fn decrypt_index` above).
+    /// The created Dbc contains the derivation index that was used to
+    /// generate that very DbcId.
     ///
-    /// When passing the resulting decrypted derivation index to this function (`fn derive_key`),
+    /// When passing the derivation index to this function (`fn derive_key`),
     /// a DerivedKey is generated corresponding to the DbcId. This DerivedKey can unlock the Dbc of that
     /// DbcId, thus giving access to the tokens it holds.
     /// By that, the recipient has received the tokens from the sender.

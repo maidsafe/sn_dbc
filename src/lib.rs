@@ -25,7 +25,7 @@ pub mod mock;
 pub use crate::{
     builder::{DbcBuilder, TransactionBuilder},
     dbc::Dbc,
-    dbc_ciphers::DbcCiphers,
+    dbc_ciphers::DbcSecrets,
     dbc_id::{random_derivation_index, DbcId, DerivationIndex, DerivedKey, MainKey, PublicAddress},
     error::{Error, Result},
     fee_output::FeeOutput,

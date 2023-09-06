@@ -10,7 +10,7 @@ use crate::{
     transaction::{DbcTransaction, Output},
     DbcId, DerivationIndex, DerivedKey, FeeOutput, Input, PublicAddress, Spend,
 };
-use crate::{Dbc, DbcCiphers, Error, Hash, Result, SignedSpend, Token};
+use crate::{Dbc, DbcSecrets, Error, Hash, Result, SignedSpend, Token};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -237,7 +237,7 @@ impl DbcBuilder {
                     Dbc {
                         id: public_address.new_dbc_id(derivation_index),
                         src_tx: self.spent_tx.clone(),
-                        ciphers: DbcCiphers::from((public_address, derivation_index)),
+                        secrets: DbcSecrets::from((public_address, derivation_index)),
                         signed_spends: self.signed_spends.clone(),
                     },
                     output.token,

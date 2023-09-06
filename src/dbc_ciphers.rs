@@ -6,15 +6,14 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{dbc_id::PublicAddress, DerivationIndex, Hash, MainKey, Result};
-use blsttc::Ciphertext;
+use crate::{dbc_id::PublicAddress, DerivationIndex, Hash};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use tiny_keccak::{Hasher, Sha3};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct DbcCiphers {
+pub struct DbcSecrets {
     /// This is the PublicAddress to which tokens are send. The PublicAddress may be published
     /// and multiple payments sent to this address by various parties.  It is useful for
     /// accepting donations, for example.
@@ -26,56 +25,44 @@ pub struct DbcCiphers {
     /// and never seen by the spentbook nodes.
     ///
     /// The DbcId used in the transaction is derived from this PublicAddress using a random
-    /// derivation index, which is stored (encrypted) in derivation_index_cipher.
+    /// derivation index, which is stored in derivation_index.
     pub public_address: PublicAddress,
 
     /// This indicates which index to use when deriving the DbcId of the
     /// Dbc, from the PublicAddress.
-    ///
-    /// This index is stored in encrypted form, and is encrypted to the PublicAddress.
-    /// So the actual PublicAddress the tokens in this Dbc was sent to, is unknown to
-    /// anyone not in posession of the MainKey corresponding to the above mentioned PublicAddress.
-    pub derivation_index_cipher: Ciphertext,
+    pub derivation_index: DerivationIndex,
 }
 
-/// Represents the ciphers of a Dbc.
-impl From<(PublicAddress, Ciphertext)> for DbcCiphers {
-    // Create a new DbcCiphers for signing.
-    fn from(params: (PublicAddress, Ciphertext)) -> Self {
-        let (public_address, derivation_index_cipher) = params;
+/// Represents the Secrets of a Dbc.
+impl From<(PublicAddress, DerivationIndex)> for DbcSecrets {
+    // Create a new DbcSecrets for signing.
+    fn from(params: (PublicAddress, DerivationIndex)) -> Self {
+        let (public_address, derivation_index) = params;
         Self {
             public_address,
-            derivation_index_cipher,
+            derivation_index,
         }
     }
 }
 
-/// Represents the ciphers of a Dbc.
-impl From<(&PublicAddress, &DerivationIndex)> for DbcCiphers {
-    // Create a new DbcCiphers for signing.
+/// Represents the Secrets of a Dbc.
+impl From<(&PublicAddress, &DerivationIndex)> for DbcSecrets {
+    // Create a new DbcSecrets for signing.
     fn from(params: (&PublicAddress, &DerivationIndex)) -> Self {
         let (public_address, derivation_index) = params;
-        let derivation_index_cipher = public_address.encrypt(derivation_index);
 
         Self {
             public_address: *public_address,
-            derivation_index_cipher,
+            derivation_index: *derivation_index,
         }
     }
 }
 
-impl DbcCiphers {
-    pub(crate) fn derivation_index(&self, key_source: &MainKey) -> Result<DerivationIndex> {
-        let bytes = key_source.decrypt_index(&self.derivation_index_cipher)?;
-        let mut idx = [0u8; 32];
-        idx.copy_from_slice(&bytes[0..32]);
-        Ok(idx)
-    }
-
+impl DbcSecrets {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
         bytes.extend(&self.public_address.to_bytes());
-        bytes.extend(&self.derivation_index_cipher.to_bytes());
+        bytes.extend(&self.derivation_index);
         bytes
     }
 
