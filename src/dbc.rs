@@ -216,11 +216,11 @@ pub(crate) mod tests {
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
             fee: FeeOutput::new(Hash::default(), 3_500, Hash::default()),
         };
-        let ciphers = DbcSecrets::from((&main_key.public_address(), &derivation_index));
+        let secrets = DbcSecrets::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
-            secrets: ciphers,
+            secrets,
             signed_spends: Default::default(),
         };
 
@@ -247,11 +247,11 @@ pub(crate) mod tests {
             outputs: vec![Output::new(derived_key.dbc_id(), amount)],
             fee: FeeOutput::new(Hash::default(), 2_500, Hash::default()),
         };
-        let ciphers = DbcSecrets::from((&main_key.public_address(), &derivation_index));
+        let secrets = DbcSecrets::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
-            secrets: ciphers,
+            secrets,
             signed_spends: Default::default(),
         };
 
@@ -303,11 +303,11 @@ pub(crate) mod tests {
             fee: FeeOutput::default(),
         };
 
-        let ciphers = DbcSecrets::from((&main_key.public_address(), &derivation_index));
+        let secrets = DbcSecrets::from((&main_key.public_address(), &derivation_index));
         let dbc = Dbc {
             id: derived_key.dbc_id(),
             src_tx: tx,
-            secrets: ciphers,
+            secrets,
             signed_spends: Default::default(),
         };
 
