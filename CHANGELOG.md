@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [20.0.0](https://github.com/maidsafe/sn_dbc/compare/v19.1.1...v20.0.0) (2023-09-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* PR makes encrypted ciphers public, thus obsoleting the sending of DBCs
+* removes derivation index ciphers
+
+### Features
+
+* make PublicAddress and MainKey transparent ([c597196](https://github.com/maidsafe/sn_dbc/commit/c597196f47412f0a12cb2f904a0adea8729b763c))
+* unencrypted derivation index ([cc1f0c3](https://github.com/maidsafe/sn_dbc/commit/cc1f0c31f8498f83c0a6c5f71ae514c637b84871))
+
+
+* cleanup renamings ([f498812](https://github.com/maidsafe/sn_dbc/commit/f498812fe63c34689d2c851c5b45a7754f50338f))
+
 ### [19.1.1](https://github.com/maidsafe/sn_dbc/compare/v19.1.0...v19.1.1) (2023-06-29)
 
 
