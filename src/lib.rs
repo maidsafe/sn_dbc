@@ -9,29 +9,30 @@
 #![allow(clippy::result_large_err)]
 
 mod builder;
-mod dbc;
-mod dbc_ciphers;
-mod dbc_id;
+mod cashnote;
 mod error;
 mod fee_output;
+mod nano;
 mod signed_spend;
 mod spentbook;
-mod token;
 mod transaction;
+mod unique_keys;
 
 #[cfg(feature = "mock")]
 pub mod mock;
 // re-export crates used in our public API
 pub use crate::{
-    builder::{DbcBuilder, TransactionBuilder},
-    dbc::Dbc,
-    dbc_ciphers::DbcSecrets,
-    dbc_id::{random_derivation_index, DbcId, DerivationIndex, DerivedKey, MainKey, PublicAddress},
+    builder::{CashNoteBuilder, TransactionBuilder},
+    cashnote::CashNote,
     error::{Error, Result},
     fee_output::FeeOutput,
+    nano::Nano,
     signed_spend::{SignedSpend, Spend},
-    token::Token,
-    transaction::{DbcTransaction, Input, Output},
+    transaction::{Input, Output, Transaction},
+    unique_keys::{
+        random_derivation_index, DerivationIndex, DerivedSecretKey, MainPubkey, MainSecretKey,
+        UniquePubkey,
+    },
 };
 pub use blsttc::{self, rand, Ciphertext, PublicKey, PublicKeySet, Signature, SignatureShare};
 

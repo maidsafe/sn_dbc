@@ -11,7 +11,7 @@ mod tests {
     use crate::{
         mock, random_derivation_index,
         tests::{TinyInt, TinyVec},
-        Dbc, DerivedKey, Error, Hash, MainKey, Result, SignedSpend, Spend, Token,
+        CashNote, DerivedSecretKey, Error, Hash, MainSecretKey, Nano, Result, SignedSpend, Spend,
         TransactionBuilder,
     };
     use blsttc::SecretKey;
@@ -21,17 +21,17 @@ mod tests {
 
     #[test]
     fn issue_genesis() -> Result<(), Error> {
-        let (_spentbook_node, genesis_dbc, genesis, _token) =
+        let (_spentbook_node, genesis_cashnote, genesis, _token) =
             mock::GenesisBuilder::init_genesis_single()?;
 
-        let verified = genesis_dbc.verify(&genesis.main_key);
+        let verified = genesis_cashnote.verify(&genesis.main_key);
         assert!(verified.is_ok());
 
         Ok(())
     }
 
     #[quickcheck]
-    fn prop_splitting_the_genesis_dbc(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
+    fn prop_splitting_the_genesis_cashnote(output_amounts: TinyVec<TinyInt>) -> Result<(), Error> {
         let mut rng = crate::rng::from_seed([0u8; 32]);
 
         let mut output_amounts =
@@ -42,25 +42,25 @@ mod tests {
         let n_outputs = output_amounts.len();
         let output_amount: u64 = output_amounts.iter().sum();
 
-        let (mut spentbook_node, genesis_dbc, genesis, _token) =
+        let (mut spentbook_node, genesis_cashnote, genesis, _token) =
             mock::GenesisBuilder::init_genesis_single()?;
 
         let first_output_key_map: BTreeMap<_, _> = output_amounts
             .iter()
             .map(|amount| {
-                let main_key = MainKey::random_from_rng(&mut rng);
+                let main_key = MainSecretKey::random_from_rng(&mut rng);
                 let derivation_index = random_derivation_index(&mut rng);
-                let dbc_id = main_key.public_address().new_dbc_id(&derivation_index);
+                let cashnote_id = main_key.public_address().new_cashnote_id(&derivation_index);
                 (
-                    dbc_id,
-                    (main_key, derivation_index, Token::from_nano(*amount)),
+                    cashnote_id,
+                    (main_key, derivation_index, Nano::from_nano(*amount)),
                 )
             })
             .collect();
 
-        let derived_key = genesis_dbc.derived_key(&genesis.main_key).unwrap();
-        let dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(&genesis_dbc, &derived_key)?
+        let derived_key = genesis_cashnote.derived_key(&genesis.main_key).unwrap();
+        let cashnote_builder = TransactionBuilder::default()
+            .add_input_cashnote(&genesis_cashnote, &derived_key)?
             .add_outputs(first_output_key_map.values().map(
                 |(main_key, derivation_index, amount)| {
                     (*amount, main_key.public_address(), *derivation_index)
@@ -71,7 +71,7 @@ mod tests {
         // We make this a closure to keep the spentbook loop readable.
         let check_error = |error: Error| -> Result<()> {
             match error {
-                Error::InconsistentDbcTransaction => {
+                Error::InconsistentTransaction => {
                     // Verify that no outputs were present and we got correct verification error.
                     assert_eq!(n_outputs, 0);
                     Ok(())
@@ -80,30 +80,30 @@ mod tests {
             }
         };
 
-        let tx = &dbc_builder.spent_tx;
-        for signed_spend in dbc_builder.signed_spends() {
+        let tx = &cashnote_builder.spent_tx;
+        for signed_spend in cashnote_builder.signed_spends() {
             match spentbook_node.log_spent(tx, signed_spend) {
                 Ok(s) => s,
                 Err(e) => return check_error(e),
             };
         }
-        let output_dbcs = dbc_builder.build()?;
+        let output_cashnotes = cashnote_builder.build()?;
 
-        for (dbc, output_token) in output_dbcs.iter() {
-            let (main_key, _, token) = first_output_key_map.get(&dbc.id()).unwrap();
-            let dbc_token = dbc.token()?;
-            assert_eq!(token, &dbc_token);
-            assert_eq!(dbc_token, *output_token);
-            assert!(dbc.verify(main_key).is_ok());
+        for (cashnote, output_token) in output_cashnotes.iter() {
+            let (main_key, _, token) = first_output_key_map.get(&cashnote.id()).unwrap();
+            let cashnote_token = cashnote.token()?;
+            assert_eq!(token, &cashnote_token);
+            assert_eq!(cashnote_token, *output_token);
+            assert!(cashnote.verify(main_key).is_ok());
         }
 
         assert_eq!(
             {
                 let mut sum: u64 = 0;
-                for (dbc, _) in output_dbcs.iter() {
-                    // note: we could just use the amount provided by DbcBuilder::build()
-                    // but we go further to verify the correct value is encrypted in the Dbc.
-                    sum += dbc.token()?.as_nano()
+                for (cashnote, _) in output_cashnotes.iter() {
+                    // note: we could just use the amount provided by CashNoteBuilder::build()
+                    // but we go further to verify the correct value is encrypted in the CashNote.
+                    sum += cashnote.token()?.as_nano()
                 }
                 sum
             },
@@ -114,7 +114,7 @@ mod tests {
     }
 
     #[quickcheck]
-    fn prop_dbc_transaction_many_to_many(
+    fn prop_cashnote_transaction_many_to_many(
         // the amount of each input transaction
         input_amounts: TinyVec<TinyInt>,
         // The amount for each transaction output
@@ -140,25 +140,27 @@ mod tests {
                 .map(TinyInt::coerce::<usize>),
         );
 
-        let (mut spentbook_node, genesis_dbc, genesis_material, _token) =
+        let (mut spentbook_node, genesis_cashnote, genesis_material, _token) =
             mock::GenesisBuilder::init_genesis_single()?;
 
         let mut first_output_key_map: BTreeMap<_, _> = first_input_amounts
             .iter()
             .map(|amount| {
-                let main_key = MainKey::random_from_rng(&mut rng);
+                let main_key = MainSecretKey::random_from_rng(&mut rng);
                 let derivation_index = random_derivation_index(&mut rng);
-                let dbc_id = main_key.public_address().new_dbc_id(&derivation_index);
+                let cashnote_id = main_key.public_address().new_cashnote_id(&derivation_index);
                 (
-                    dbc_id,
-                    (main_key, derivation_index, Token::from_nano(*amount)),
+                    cashnote_id,
+                    (main_key, derivation_index, Nano::from_nano(*amount)),
                 )
             })
             .collect();
 
-        let derived_key = genesis_dbc.derived_key(&genesis_material.main_key).unwrap();
-        let dbc_builder = TransactionBuilder::default()
-            .add_input_dbc(&genesis_dbc, &derived_key)?
+        let derived_key = genesis_cashnote
+            .derived_key(&genesis_material.main_key)
+            .unwrap();
+        let cashnote_builder = TransactionBuilder::default()
+            .add_input_cashnote(&genesis_cashnote, &derived_key)?
             .add_outputs(first_output_key_map.values().map(
                 |(main_key, derivation_index, token)| {
                     (*token, main_key.public_address(), *derivation_index)
@@ -169,7 +171,7 @@ mod tests {
         // note: we make this a closure to keep the spentbook loop readable.
         let check_tx_error = |error: Error| -> Result<()> {
             match error {
-                Error::InconsistentDbcTransaction => {
+                Error::InconsistentTransaction => {
                     // Verify that no inputs were present and we got correct verification error.
                     assert!(first_input_amounts.is_empty());
                     Ok(())
@@ -178,8 +180,8 @@ mod tests {
             }
         };
 
-        let tx1 = dbc_builder.spent_tx.clone();
-        for signed_spend in dbc_builder.signed_spends() {
+        let tx1 = cashnote_builder.spent_tx.clone();
+        for signed_spend in cashnote_builder.signed_spends() {
             // normally spentbook verifies the tx, but here we skip it in order check reissue results.
             match spentbook_node.log_spent_and_skip_tx_verification(&tx1, signed_spend) {
                 Ok(s) => s,
@@ -187,35 +189,35 @@ mod tests {
             };
         }
 
-        let first_output_dbcs = dbc_builder.build()?;
+        let first_output_cashnotes = cashnote_builder.build()?;
 
         // The outputs become inputs for next tx.
-        let second_inputs_dbcs: Vec<(Dbc, DerivedKey)> = first_output_dbcs
+        let second_inputs_cashnotes: Vec<(CashNote, DerivedSecretKey)> = first_output_cashnotes
             .into_iter()
-            .map(|(dbc, _)| {
-                let (main_key, _, _) = first_output_key_map.remove(&dbc.id()).unwrap();
-                let derived_key = dbc.derived_key(&main_key).unwrap();
-                (dbc, derived_key)
+            .map(|(cashnote, _)| {
+                let (main_key, _, _) = first_output_key_map.remove(&cashnote.id()).unwrap();
+                let derived_key = cashnote.derived_key(&main_key).unwrap();
+                (cashnote, derived_key)
             })
             .collect();
 
-        let second_inputs_dbcs_len = second_inputs_dbcs.len();
+        let second_inputs_cashnotes_len = second_inputs_cashnotes.len();
 
         let second_output_key_map: BTreeMap<_, _> = first_output_amounts
             .iter()
             .map(|amount| {
-                let main_key = MainKey::random_from_rng(&mut rng);
+                let main_key = MainSecretKey::random_from_rng(&mut rng);
                 let derivation_index = random_derivation_index(&mut rng);
-                let dbc_id = main_key.public_address().new_dbc_id(&derivation_index);
+                let cashnote_id = main_key.public_address().new_cashnote_id(&derivation_index);
                 (
-                    dbc_id,
-                    (main_key, derivation_index, Token::from_nano(*amount)),
+                    cashnote_id,
+                    (main_key, derivation_index, Nano::from_nano(*amount)),
                 )
             })
             .collect();
 
-        let dbc_builder = TransactionBuilder::default()
-            .add_input_dbcs(&second_inputs_dbcs)?
+        let cashnote_builder = TransactionBuilder::default()
+            .add_input_cashnotes(&second_inputs_cashnotes)?
             .add_outputs(second_output_key_map.values().map(
                 |(main_key, derivation_index, token)| {
                     (*token, main_key.public_address(), *derivation_index)
@@ -223,13 +225,19 @@ mod tests {
             ))
             .build(Hash::default())?;
 
-        let dbc_output_amounts = first_output_amounts.clone();
-        let output_total_amount: u64 = dbc_output_amounts.iter().sum();
+        let cashnote_output_amounts = first_output_amounts.clone();
+        let output_total_amount: u64 = cashnote_output_amounts.iter().sum();
 
-        assert_eq!(second_inputs_dbcs_len, dbc_builder.spent_tx.inputs.len());
-        assert_eq!(second_inputs_dbcs_len, dbc_builder.signed_spends().len());
+        assert_eq!(
+            second_inputs_cashnotes_len,
+            cashnote_builder.spent_tx.inputs.len()
+        );
+        assert_eq!(
+            second_inputs_cashnotes_len,
+            cashnote_builder.signed_spends().len()
+        );
 
-        let tx2 = dbc_builder.spent_tx.clone();
+        let tx2 = cashnote_builder.spent_tx.clone();
 
         // note: we make this a closure because the logic is needed in
         // a couple places.
@@ -237,12 +245,12 @@ mod tests {
             match error {
                 Error::SignedSpendInputLenMismatch { expected, .. } => {
                     assert!(!invalid_signed_spends.is_empty());
-                    assert_eq!(second_inputs_dbcs_len, expected);
+                    assert_eq!(second_inputs_cashnotes_len, expected);
                 }
                 Error::SignedSpendInputIdMismatch => {
                     assert!(!invalid_signed_spends.is_empty());
                 }
-                Error::InconsistentDbcTransaction => {
+                Error::InconsistentTransaction => {
                     if mock::GenesisMaterial::GENESIS_AMOUNT == output_total_amount {
                         // This can correctly occur if there are 0 outputs and inputs sum to zero.
                         //
@@ -257,11 +265,11 @@ mod tests {
                 Error::MissingTxInputs => {
                     assert_eq!(first_input_amounts.len(), 0);
                 }
-                Error::InvalidSpendSignature(dbc_id) => {
+                Error::InvalidSpendSignature(cashnote_id) => {
                     let idx = tx2
                         .inputs
                         .iter()
-                        .position(|i| i.dbc_id() == dbc_id)
+                        .position(|i| i.cashnote_id() == cashnote_id)
                         .unwrap();
                     assert!(invalid_signed_spends.contains(&idx));
                 }
@@ -270,8 +278,8 @@ mod tests {
             Ok(())
         };
 
-        let tx = &dbc_builder.spent_tx;
-        for (i, signed_spend) in dbc_builder.signed_spends().into_iter().enumerate() {
+        let tx = &cashnote_builder.spent_tx;
+        for (i, signed_spend) in cashnote_builder.signed_spends().into_iter().enumerate() {
             let is_invalid_signed_spend = invalid_signed_spends.contains(&i);
 
             let _signed_spend = match i % 2 {
@@ -287,11 +295,11 @@ mod tests {
                     };
                     SignedSpend {
                         spend: Spend {
-                            dbc_id: *signed_spend.dbc_id(),
+                            cashnote_id: *signed_spend.cashnote_id(),
                             spent_tx: signed_spend.spend.spent_tx.clone(),
                             reason: Hash::default(),
                             token: *signed_spend.token(),
-                            dbc_creation_tx: tx1.clone(),
+                            cashnote_creation_tx: tx1.clone(),
                         },
                         derived_key_sig: SecretKey::random().sign([0u8; 32]),
                     }
@@ -306,30 +314,30 @@ mod tests {
             };
         }
 
-        let many_to_many_result = dbc_builder.build();
+        let many_to_many_result = cashnote_builder.build();
 
         match many_to_many_result {
-            Ok(second_output_dbcs) => {
+            Ok(second_output_cashnotes) => {
                 assert_eq!(mock::GenesisMaterial::GENESIS_AMOUNT, output_total_amount);
                 // assert!(invalid_signed_spends.iter().all(|i| i >= &tx2.inputs.len()));
 
                 // The output amounts (from params) should correspond to the actual output_amounts
                 assert_eq!(
-                    BTreeSet::from_iter(dbc_output_amounts.clone()),
+                    BTreeSet::from_iter(cashnote_output_amounts.clone()),
                     BTreeSet::from_iter(first_output_amounts)
                 );
 
-                for (dbc, _) in second_output_dbcs.iter() {
-                    let (main_key, _, _) = second_output_key_map.get(&dbc.id()).unwrap();
-                    let dbc_confirm_result = dbc.verify(main_key);
-                    assert!(dbc_confirm_result.is_ok());
+                for (cashnote, _) in second_output_cashnotes.iter() {
+                    let (main_key, _, _) = second_output_key_map.get(&cashnote.id()).unwrap();
+                    let cashnote_confirm_result = cashnote.verify(main_key);
+                    assert!(cashnote_confirm_result.is_ok());
                 }
 
                 assert_eq!(
-                    second_output_dbcs
+                    second_output_cashnotes
                         .iter()
                         .enumerate()
-                        .map(|(idx, _dbc)| { dbc_output_amounts[idx] })
+                        .map(|(idx, _cashnote)| { cashnote_output_amounts[idx] })
                         .sum::<u64>(),
                     output_total_amount
                 );

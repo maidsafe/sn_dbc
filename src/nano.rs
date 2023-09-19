@@ -22,10 +22,10 @@ const TOKEN_TO_RAW_CONVERSION: u64 = 1_000_000_000;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Structure representing a Token amount.
-pub struct Token(u64);
+/// An amount in SNT Nanos. 10^9 Nanos = 1 SNT.
+pub struct Nano(u64);
 
-impl Token {
+impl Nano {
     /// Type safe representation of zero Token.
     pub const fn zero() -> Self {
         Self(0)
@@ -47,12 +47,12 @@ impl Token {
     }
 
     /// Computes `self + rhs`, returning `None` if overflow occurred.
-    pub fn checked_add(self, rhs: Token) -> Option<Token> {
+    pub fn checked_add(self, rhs: Nano) -> Option<Nano> {
         self.0.checked_add(rhs.0).map(Self::from_nano)
     }
 
     /// Computes `self - rhs`, returning `None` if overflow occurred.
-    pub fn checked_sub(self, rhs: Token) -> Option<Token> {
+    pub fn checked_sub(self, rhs: Nano) -> Option<Nano> {
         self.0.checked_sub(rhs.0).map(Self::from_nano)
     }
 
@@ -62,7 +62,7 @@ impl Token {
     }
 }
 
-impl FromStr for Token {
+impl FromStr for Nano {
     type Err = Error;
 
     fn from_str(value_str: &str) -> Result<Self> {
@@ -99,7 +99,7 @@ impl FromStr for Token {
     }
 }
 
-impl Display for Token {
+impl Display for Nano {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         let unit = self.0 / TOKEN_TO_RAW_CONVERSION;
         let remainder = self.0 % TOKEN_TO_RAW_CONVERSION;
@@ -114,79 +114,79 @@ mod tests {
 
     #[test]
     fn from_str() -> Result<()> {
-        assert_eq!(Token(0), Token::from_str("0")?);
-        assert_eq!(Token(0), Token::from_str("0.")?);
-        assert_eq!(Token(0), Token::from_str("0.0")?);
-        assert_eq!(Token(1), Token::from_str("0.000000001")?);
-        assert_eq!(Token(1_000_000_000), Token::from_str("1")?);
-        assert_eq!(Token(1_000_000_000), Token::from_str("1.")?);
-        assert_eq!(Token(1_000_000_000), Token::from_str("1.0")?);
-        assert_eq!(Token(1_000_000_001), Token::from_str("1.000000001")?);
-        assert_eq!(Token(1_100_000_000), Token::from_str("1.1")?);
-        assert_eq!(Token(1_100_000_001), Token::from_str("1.100000001")?);
+        assert_eq!(Nano(0), Nano::from_str("0")?);
+        assert_eq!(Nano(0), Nano::from_str("0.")?);
+        assert_eq!(Nano(0), Nano::from_str("0.0")?);
+        assert_eq!(Nano(1), Nano::from_str("0.000000001")?);
+        assert_eq!(Nano(1_000_000_000), Nano::from_str("1")?);
+        assert_eq!(Nano(1_000_000_000), Nano::from_str("1.")?);
+        assert_eq!(Nano(1_000_000_000), Nano::from_str("1.0")?);
+        assert_eq!(Nano(1_000_000_001), Nano::from_str("1.000000001")?);
+        assert_eq!(Nano(1_100_000_000), Nano::from_str("1.1")?);
+        assert_eq!(Nano(1_100_000_001), Nano::from_str("1.100000001")?);
         assert_eq!(
-            Token(4_294_967_295_000_000_000),
-            Token::from_str("4294967295")?
+            Nano(4_294_967_295_000_000_000),
+            Nano::from_str("4294967295")?
         );
         assert_eq!(
-            Token(4_294_967_295_999_999_999),
-            Token::from_str("4294967295.999999999")?,
+            Nano(4_294_967_295_999_999_999),
+            Nano::from_str("4294967295.999999999")?,
         );
         assert_eq!(
-            Token(4_294_967_295_999_999_999),
-            Token::from_str("4294967295.9999999990000")?,
+            Nano(4_294_967_295_999_999_999),
+            Nano::from_str("4294967295.9999999990000")?,
         );
 
         assert_eq!(
             Err(Error::FailedToParseToken(
                 "Can't parse token units".to_string()
             )),
-            Token::from_str("a")
+            Nano::from_str("a")
         );
         assert_eq!(
             Err(Error::FailedToParseToken(
                 "Can't parse token remainder".to_string()
             )),
-            Token::from_str("0.a")
+            Nano::from_str("0.a")
         );
         assert_eq!(
             Err(Error::FailedToParseToken(
                 "Can't parse token remainder".to_string()
             )),
-            Token::from_str("0.0.0")
+            Nano::from_str("0.0.0")
         );
         assert_eq!(
             Err(Error::LossOfTokenPrecision),
-            Token::from_str("0.0000000009")
+            Nano::from_str("0.0000000009")
         );
         assert_eq!(
             Err(Error::ExcessiveTokenValue),
-            Token::from_str("18446744074")
+            Nano::from_str("18446744074")
         );
         Ok(())
     }
 
     #[test]
     fn display() {
-        assert_eq!("0.000000000", format!("{}", Token(0)));
-        assert_eq!("0.000000001", format!("{}", Token(1)));
-        assert_eq!("0.000000010", format!("{}", Token(10)));
-        assert_eq!("1.000000000", format!("{}", Token(1_000_000_000)));
-        assert_eq!("1.000000001", format!("{}", Token(1_000_000_001)));
+        assert_eq!("0.000000000", format!("{}", Nano(0)));
+        assert_eq!("0.000000001", format!("{}", Nano(1)));
+        assert_eq!("0.000000010", format!("{}", Nano(10)));
+        assert_eq!("1.000000000", format!("{}", Nano(1_000_000_000)));
+        assert_eq!("1.000000001", format!("{}", Nano(1_000_000_001)));
         assert_eq!(
             "4294967295.000000000",
-            format!("{}", Token(4_294_967_295_000_000_000))
+            format!("{}", Nano(4_294_967_295_000_000_000))
         );
     }
 
     #[test]
     fn checked_add_sub() {
-        assert_eq!(Some(Token(3)), Token(1).checked_add(Token(2)));
-        assert_eq!(None, Token(u64::MAX).checked_add(Token(1)));
-        assert_eq!(None, Token(u64::MAX).checked_add(Token(u64::MAX)));
+        assert_eq!(Some(Nano(3)), Nano(1).checked_add(Nano(2)));
+        assert_eq!(None, Nano(u64::MAX).checked_add(Nano(1)));
+        assert_eq!(None, Nano(u64::MAX).checked_add(Nano(u64::MAX)));
 
-        assert_eq!(Some(Token(0)), Token(u64::MAX).checked_sub(Token(u64::MAX)));
-        assert_eq!(None, Token(0).checked_sub(Token(u64::MAX)));
-        assert_eq!(None, Token(10).checked_sub(Token(11)));
+        assert_eq!(Some(Nano(0)), Nano(u64::MAX).checked_sub(Nano(u64::MAX)));
+        assert_eq!(None, Nano(0).checked_sub(Nano(u64::MAX)));
+        assert_eq!(None, Nano(10).checked_sub(Nano(11)));
     }
 }

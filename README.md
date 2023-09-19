@@ -1,5 +1,5 @@
 # sn_dbc
-Safe Network Dbcs
+Safe Network CashNotes
 
 |Crate|Documentation|CI|Safe Rust|
 |:-:|:-:|:-:|:-:|
@@ -13,9 +13,9 @@ Safe Network Dbcs
 This crate provides a library and API for working with Digital Bearer Certificates (DBC)
 on the Safe Network.
 
-Safe Network Dbcs are envisioned to be a private and fungible digital currency that utilize a distributed (and sharded) spentbook of spends rather than a blockchain.
+Safe Network CashNotes are envisioned to be a private and fungible digital currency that utilize a distributed (and sharded) spentbook of spends rather than a blockchain.
 
-Some key properties of these Dbcs:
+Some key properties of these CashNotes:
 * Distributed spentbook means that it is not necessary to trust in a single entity.
 * Sharded spentbook means that the system scales indefinitely.
 * Transactions are settled immmediately.

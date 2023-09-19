@@ -8,8 +8,8 @@
 
 use super::GenesisMaterial;
 use crate::{
-    dbc_id::PublicAddress, transaction::DbcTransaction, DbcId, Error, Hash, Output, Result,
-    SignedSpend, Token,
+    transaction::Transaction, unique_keys::MainPubkey, Error, Hash, Nano, Output, Result,
+    SignedSpend, UniquePubkey,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -37,11 +37,11 @@ use std::collections::{BTreeMap, HashMap};
 /// a single map<public_key, tx>.
 #[derive(Debug, Clone)]
 pub struct SpentbookNode {
-    pub id: PublicAddress,
-    pub transactions: HashMap<Hash, DbcTransaction>,
-    pub dbc_ids: BTreeMap<DbcId, Hash>,
-    pub outputs_by_input_id: BTreeMap<DbcId, Output>,
-    pub genesis: (DbcId, Token),
+    pub id: MainPubkey,
+    pub transactions: HashMap<Hash, Transaction>,
+    pub cashnote_ids: BTreeMap<UniquePubkey, Hash>,
+    pub outputs_by_input_id: BTreeMap<UniquePubkey, Output>,
+    pub genesis: (UniquePubkey, Nano),
 }
 
 impl Default for SpentbookNode {
@@ -50,18 +50,18 @@ impl Default for SpentbookNode {
         let token = genesis_material.genesis_tx.0.inputs[0].token;
 
         Self {
-            id: PublicAddress::new(blsttc::SecretKey::random().public_key()),
+            id: MainPubkey::new(blsttc::SecretKey::random().public_key()),
             transactions: Default::default(),
-            dbc_ids: Default::default(),
+            cashnote_ids: Default::default(),
             outputs_by_input_id: Default::default(),
-            genesis: (genesis_material.input_dbc_id, token),
+            genesis: (genesis_material.input_cashnote_id, token),
         }
     }
 }
 
 impl SpentbookNode {
-    pub fn iter(&self) -> impl Iterator<Item = (&DbcId, &DbcTransaction)> + '_ {
-        self.dbc_ids.iter().map(move |(k, h)| {
+    pub fn iter(&self) -> impl Iterator<Item = (&UniquePubkey, &Transaction)> + '_ {
+        self.cashnote_ids.iter().map(move |(k, h)| {
             (
                 k,
                 match self.transactions.get(h) {
@@ -73,11 +73,11 @@ impl SpentbookNode {
         })
     }
 
-    pub fn is_spent(&self, dbc_id: &DbcId) -> bool {
-        self.dbc_ids.contains_key(dbc_id)
+    pub fn is_spent(&self, cashnote_id: &UniquePubkey) -> bool {
+        self.cashnote_ids.contains_key(cashnote_id)
     }
 
-    pub fn log_spent(&mut self, tx: &DbcTransaction, signed_spend: &SignedSpend) -> Result<()> {
+    pub fn log_spent(&mut self, tx: &Transaction, signed_spend: &SignedSpend) -> Result<()> {
         self.log_spent_worker(tx, signed_spend, true)
     }
 
@@ -87,7 +87,7 @@ impl SpentbookNode {
     #[cfg(test)]
     pub fn log_spent_and_skip_tx_verification(
         &mut self,
-        spent_tx: &DbcTransaction,
+        spent_tx: &Transaction,
         signed_spend: &SignedSpend,
     ) -> Result<()> {
         self.log_spent_worker(spent_tx, signed_spend, false)
@@ -95,11 +95,11 @@ impl SpentbookNode {
 
     fn log_spent_worker(
         &mut self,
-        spent_tx: &DbcTransaction,
+        spent_tx: &Transaction,
         signed_spend: &SignedSpend,
         verify_tx: bool,
     ) -> Result<()> {
-        let input_id = signed_spend.dbc_id();
+        let input_id = signed_spend.cashnote_id();
         let spent_tx_hash = signed_spend.spent_tx_hash();
         let tx_hash = spent_tx.hash();
 
@@ -112,8 +112,11 @@ impl SpentbookNode {
             spent_tx.verify()?;
         }
 
-        // Add dbc_id:tx_hash to dbc_id index.
-        let existing_tx_hash = self.dbc_ids.entry(*input_id).or_insert_with(|| tx_hash);
+        // Add cashnote_id:tx_hash to cashnote_id index.
+        let existing_tx_hash = self
+            .cashnote_ids
+            .entry(*input_id)
+            .or_insert_with(|| tx_hash);
 
         if *existing_tx_hash == tx_hash {
             // Add tx_hash:tx to transaction entries. (primary data store)
@@ -122,9 +125,9 @@ impl SpentbookNode {
                 .entry(tx_hash)
                 .or_insert_with(|| spent_tx.clone());
 
-            // Add dbc_id:output to dbc_id index.
+            // Add cashnote_id:output to cashnote_id index.
             for output in existing_tx.outputs.iter() {
-                let output_id = *output.dbc_id();
+                let output_id = *output.cashnote_id();
                 // This will make later inputs able to find its previous
                 // entry as an output, i.e. from when it was created.
                 self.outputs_by_input_id
@@ -134,7 +137,7 @@ impl SpentbookNode {
 
             Ok(())
         } else {
-            Err(crate::mock::Error::DbcAlreadySpent.into())
+            Err(crate::mock::Error::CashNoteAlreadySpent.into())
         }
     }
 }

@@ -4,7 +4,7 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use crate::{Hash, Token};
+use crate::{Hash, Nano};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub struct FeeOutput {
     /// is spent using its id to determine the location to store the signed spend.
     pub id: Hash,
     /// Amount being paid as storage fee to the network.
-    pub token: Token,
+    pub token: Nano,
     /// The root hash of the proof's Merkletree corresponding to the content being paid for.
     pub root_hash: Hash,
 }
@@ -27,7 +27,7 @@ impl Default for FeeOutput {
     fn default() -> Self {
         Self {
             id: Hash::default(),
-            token: Token::zero(),
+            token: Nano::zero(),
             root_hash: Hash::default(),
         }
     }
@@ -37,7 +37,7 @@ impl FeeOutput {
     pub fn new(id: Hash, amount: u64, root_hash: Hash) -> Self {
         Self {
             id,
-            token: Token::from_nano(amount),
+            token: Nano::from_nano(amount),
             root_hash,
         }
     }

@@ -6,46 +6,46 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::{DbcId, DbcTransaction, Error, Hash, Result, Signature, Token};
+use crate::{Error, Hash, Nano, Result, Signature, Transaction, UniquePubkey};
 use custom_debug::Debug;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
-/// SignedSpend's are constructed when a DBC is logged to the spentbook.
+/// SignedSpend's are constructed when a CashNote is logged to the spentbook.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialOrd, Ord)]
 pub struct SignedSpend {
     /// The Spend, which together with signature over it, constitutes the SignedSpend.
     pub spend: Spend,
-    /// The DerivedKey's signature over (the hash of) Spend, confirming that the Dbc was intended to be spent.
+    /// The DerivedSecretKey's signature over (the hash of) Spend, confirming that the CashNote was intended to be spent.
     #[debug(skip)]
     pub derived_key_sig: Signature,
 }
 
 impl SignedSpend {
-    /// Get public key of input Dbc.
-    pub fn dbc_id(&self) -> &DbcId {
-        &self.spend.dbc_id
+    /// Get public key of input CashNote.
+    pub fn cashnote_id(&self) -> &UniquePubkey {
+        &self.spend.cashnote_id
     }
 
-    /// Get the hash of the transaction this DBC is spent in
+    /// Get the hash of the transaction this CashNote is spent in
     pub fn spent_tx_hash(&self) -> Hash {
         self.spend.spent_tx.hash()
     }
 
-    /// Get the transaction this DBC is spent in
-    pub fn spent_tx(&self) -> DbcTransaction {
+    /// Get the transaction this CashNote is spent in
+    pub fn spent_tx(&self) -> Transaction {
         self.spend.spent_tx.clone()
     }
 
-    /// Get the hash of the transaction this DBC was created in
-    pub fn dbc_creation_tx_hash(&self) -> Hash {
-        self.spend.dbc_creation_tx.hash()
+    /// Get the hash of the transaction this CashNote was created in
+    pub fn cashnote_creation_tx_hash(&self) -> Hash {
+        self.spend.cashnote_creation_tx.hash()
     }
 
     /// Get Token
-    pub fn token(&self) -> &Token {
+    pub fn token(&self) -> &Nano {
         &self.spend.token
     }
 
@@ -65,24 +65,24 @@ impl SignedSpend {
     /// Verify this SignedSpend
     ///
     /// Checks that the provided spent_tx_hash equals the input dst tx hash that was
-    /// signed by the DerivedKey. Also verifies that that signature is
+    /// signed by the DerivedSecretKey. Also verifies that that signature is
     /// valid for this SignedSpend.
     pub fn verify(&self, spent_tx_hash: Hash) -> Result<()> {
-        // Verify that input spent_tx_hash matches self.spent_tx_hash which was signed by the DerivedKey of the input.
+        // Verify that input spent_tx_hash matches self.spent_tx_hash which was signed by the DerivedSecretKey of the input.
         if spent_tx_hash != self.spent_tx_hash() {
             return Err(Error::InvalidTransactionHash);
         }
 
-        // The spend is signed by the DerivedKey
-        // corresponding to the DbcId of the Dbc being spent.
+        // The spend is signed by the DerivedSecretKey
+        // corresponding to the UniquePubkey of the CashNote being spent.
         if self
             .spend
-            .dbc_id
+            .cashnote_id
             .verify(&self.derived_key_sig, self.spend.to_bytes())
         {
             Ok(())
         } else {
-            Err(Error::InvalidSpendSignature(*self.dbc_id()))
+            Err(Error::InvalidSpendSignature(*self.cashnote_id()))
         }
     }
 }
@@ -103,24 +103,24 @@ impl std::hash::Hash for SignedSpend {
     }
 }
 
-/// Represents the data to be signed by the DerivedKey of the Dbc being spent.
+/// Represents the data to be signed by the DerivedSecretKey of the CashNote being spent.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Spend {
-    /// DbcId of input Dbc that this SignedSpend is proving to be spent.
-    pub dbc_id: DbcId,
-    /// The transaction that the input Dbc is being spent in.
+    /// UniquePubkey of input CashNote that this SignedSpend is proving to be spent.
+    pub cashnote_id: UniquePubkey,
+    /// The transaction that the input CashNote is being spent in.
     #[debug(skip)]
-    pub spent_tx: DbcTransaction,
-    /// Reason why this Dbc was spent.
+    pub spent_tx: Transaction,
+    /// Reason why this CashNote was spent.
     #[debug(skip)]
     pub reason: Hash,
-    /// The amount of the input Dbc.
+    /// The amount of the input CashNote.
     #[debug(skip)]
-    pub token: Token,
-    /// The transaction that the input Dbc was created in.
+    pub token: Nano,
+    /// The transaction that the input CashNote was created in.
     #[debug(skip)]
-    pub dbc_creation_tx: DbcTransaction,
+    pub cashnote_creation_tx: Transaction,
 }
 
 impl Spend {
@@ -128,11 +128,11 @@ impl Spend {
     /// There is no from_bytes, because this function is not symetric as it uses hashes
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes: Vec<u8> = Default::default();
-        bytes.extend(self.dbc_id.to_bytes());
+        bytes.extend(self.cashnote_id.to_bytes());
         bytes.extend(self.spent_tx.hash().as_ref());
         bytes.extend(self.reason.as_ref());
         bytes.extend(self.token.to_bytes());
-        bytes.extend(self.dbc_creation_tx.hash().as_ref());
+        bytes.extend(self.cashnote_creation_tx.hash().as_ref());
         bytes
     }
 
@@ -150,6 +150,6 @@ impl PartialOrd for Spend {
 
 impl Ord for Spend {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.dbc_id.cmp(&other.dbc_id)
+        self.cashnote_id.cmp(&other.cashnote_id)
     }
 }

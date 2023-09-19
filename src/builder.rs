@@ -7,17 +7,17 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use crate::{
-    transaction::{DbcTransaction, Output},
-    DbcId, DerivationIndex, DerivedKey, FeeOutput, Input, PublicAddress, Spend,
+    transaction::{Output, Transaction},
+    DerivationIndex, DerivedSecretKey, FeeOutput, Input, MainPubkey, Spend, UniquePubkey,
 };
-use crate::{Dbc, DbcSecrets, Error, Hash, Result, SignedSpend, Token};
+use crate::{CashNote, Error, Hash, Nano, Result, SignedSpend};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub type InputSrcTx = DbcTransaction;
+pub type InputSrcTx = Transaction;
 
-/// A builder to create a DBC transaction from
+/// A builder to create a Transaction from
 /// inputs and outputs.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
@@ -25,8 +25,8 @@ pub struct TransactionBuilder {
     inputs: Vec<Input>,
     outputs: Vec<Output>,
     fee: FeeOutput,
-    input_details: BTreeMap<DbcId, (DerivedKey, InputSrcTx)>,
-    output_details: BTreeMap<DbcId, (PublicAddress, DerivationIndex)>,
+    input_details: BTreeMap<UniquePubkey, (DerivedSecretKey, InputSrcTx)>,
+    output_details: BTreeMap<UniquePubkey, (MainPubkey, DerivationIndex)>,
 }
 
 impl TransactionBuilder {
@@ -34,11 +34,11 @@ impl TransactionBuilder {
     pub fn add_input(
         mut self,
         input: Input,
-        derived_key: DerivedKey,
+        derived_key: DerivedSecretKey,
         input_src_tx: InputSrcTx,
     ) -> Self {
         self.input_details
-            .insert(input.dbc_id(), (derived_key, input_src_tx));
+            .insert(input.cashnote_id(), (derived_key, input_src_tx));
         self.inputs.push(input);
         self
     }
@@ -46,7 +46,7 @@ impl TransactionBuilder {
     /// Add an input given an iterator over the Input, the input's derived_key and the input's src transaction
     pub fn add_inputs(
         mut self,
-        inputs: impl IntoIterator<Item = (Input, DerivedKey, InputSrcTx)>,
+        inputs: impl IntoIterator<Item = (Input, DerivedSecretKey, InputSrcTx)>,
     ) -> Self {
         for (input, derived_key, input_src_tx) in inputs.into_iter() {
             self = self.add_input(input, derived_key, input_src_tx);
@@ -54,46 +54,53 @@ impl TransactionBuilder {
         self
     }
 
-    /// Add an input given a Dbc and its DerivedKey.
-    pub fn add_input_dbc(mut self, dbc: &Dbc, derived_key: &DerivedKey) -> Result<Self> {
-        let input_src_tx = dbc.src_tx.clone();
+    /// Add an input given a CashNote and its DerivedSecretKey.
+    pub fn add_input_cashnote(
+        mut self,
+        cashnote: &CashNote,
+        derived_key: &DerivedSecretKey,
+    ) -> Result<Self> {
+        let input_src_tx = cashnote.src_tx.clone();
         let input = Input {
-            dbc_id: dbc.id(),
-            token: dbc.token()?,
+            cashnote_id: cashnote.id(),
+            token: cashnote.token()?,
         };
         self = self.add_input(input, derived_key.clone(), input_src_tx);
         Ok(self)
     }
 
-    /// Add an input given a list of Dbcs and associated DerivedKeys.
-    pub fn add_input_dbcs(mut self, dbcs: &[(Dbc, DerivedKey)]) -> Result<Self> {
-        for (dbc, derived_key) in dbcs.iter() {
-            self = self.add_input_dbc(dbc, derived_key)?;
+    /// Add an input given a list of CashNotes and associated DerivedSecretKeys.
+    pub fn add_input_cashnotes(
+        mut self,
+        cashnotes: &[(CashNote, DerivedSecretKey)],
+    ) -> Result<Self> {
+        for (cashnote, derived_key) in cashnotes.iter() {
+            self = self.add_input_cashnote(cashnote, derived_key)?;
         }
         Ok(self)
     }
 
-    /// Add an output given the token, the PublicAddress and the DerivationIndex
+    /// Add an output given the token, the MainPubkey and the DerivationIndex
     pub fn add_output(
         mut self,
-        token: Token,
-        public_address: PublicAddress,
+        token: Nano,
+        public_address: MainPubkey,
         derivation_index: DerivationIndex,
     ) -> Self {
-        let dbc_id = public_address.new_dbc_id(&derivation_index);
+        let cashnote_id = public_address.new_cashnote_id(&derivation_index);
 
         self.output_details
-            .insert(dbc_id, (public_address, derivation_index));
-        let output = Output::new(dbc_id, token.as_nano());
+            .insert(cashnote_id, (public_address, derivation_index));
+        let output = Output::new(cashnote_id, token.as_nano());
         self.outputs.push(output);
 
         self
     }
 
-    /// Add a list of outputs given the tokens, the PublicAddress and the DerivationIndex
+    /// Add a list of outputs given the tokens, the MainPubkey and the DerivationIndex
     pub fn add_outputs(
         mut self,
-        outputs: impl IntoIterator<Item = (Token, PublicAddress, DerivationIndex)>,
+        outputs: impl IntoIterator<Item = (Nano, MainPubkey, DerivationIndex)>,
     ) -> Self {
         for (token, public_address, derivation_index) in outputs.into_iter() {
             self = self.add_output(token, public_address, derivation_index);
@@ -108,25 +115,25 @@ impl TransactionBuilder {
     }
 
     /// Get a list of input ids.
-    pub fn input_ids(&self) -> Vec<DbcId> {
-        self.inputs.iter().map(|i| i.dbc_id()).collect()
+    pub fn input_ids(&self) -> Vec<UniquePubkey> {
+        self.inputs.iter().map(|i| i.cashnote_id()).collect()
     }
 
     /// Get sum of input Tokens.
-    pub fn inputs_tokens_sum(&self) -> Token {
+    pub fn inputs_tokens_sum(&self) -> Nano {
         let amount = self.inputs.iter().map(|i| i.token.as_nano()).sum();
-        Token::from_nano(amount)
+        Nano::from_nano(amount)
     }
 
     /// Get sum of output Tokens.
-    pub fn outputs_tokens_sum(&self) -> Token {
+    pub fn outputs_tokens_sum(&self) -> Nano {
         let amount = self
             .outputs
             .iter()
             .map(|o| o.token.as_nano())
             .chain(std::iter::once(self.fee.token.as_nano()))
             .sum();
-        Token::from_nano(amount)
+        Nano::from_nano(amount)
     }
 
     /// Get inputs.
@@ -139,9 +146,9 @@ impl TransactionBuilder {
         &self.outputs
     }
 
-    /// Build the DbcTransaction by signing the inputs. Return a DbcBuilder.
-    pub fn build(self, reason: Hash) -> Result<DbcBuilder> {
-        let spent_tx = DbcTransaction {
+    /// Build the Transaction by signing the inputs. Return a CashNoteBuilder.
+    pub fn build(self, reason: Hash) -> Result<CashNoteBuilder> {
+        let spent_tx = Transaction {
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
             fee: self.fee.clone(),
@@ -150,13 +157,13 @@ impl TransactionBuilder {
             .inputs
             .iter()
             .flat_map(|input| {
-                let (derived_key, input_src_tx) = self.input_details.get(&input.dbc_id)?;
+                let (derived_key, input_src_tx) = self.input_details.get(&input.cashnote_id)?;
                 let spend = Spend {
-                    dbc_id: input.dbc_id(),
+                    cashnote_id: input.cashnote_id(),
                     spent_tx: spent_tx.clone(),
                     reason,
                     token: input.token,
-                    dbc_creation_tx: input_src_tx.clone(),
+                    cashnote_creation_tx: input_src_tx.clone(),
                 };
                 let derived_key_sig = derived_key.sign(&spend.to_bytes());
                 Some(SignedSpend {
@@ -166,7 +173,7 @@ impl TransactionBuilder {
             })
             .collect();
 
-        Ok(DbcBuilder::new(
+        Ok(CashNoteBuilder::new(
             spent_tx,
             self.output_details,
             signed_spends,
@@ -174,20 +181,20 @@ impl TransactionBuilder {
     }
 }
 
-/// A Builder for aggregating SignedSpends and generating the final Dbc outputs.
+/// A Builder for aggregating SignedSpends and generating the final CashNote outputs.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-pub struct DbcBuilder {
-    pub spent_tx: DbcTransaction,
-    pub output_details: BTreeMap<DbcId, (PublicAddress, DerivationIndex)>,
+pub struct CashNoteBuilder {
+    pub spent_tx: Transaction,
+    pub output_details: BTreeMap<UniquePubkey, (MainPubkey, DerivationIndex)>,
     pub signed_spends: BTreeSet<SignedSpend>,
 }
 
-impl DbcBuilder {
-    /// Create a new DbcBuilder.
+impl CashNoteBuilder {
+    /// Create a new CashNoteBuilder.
     pub fn new(
-        spent_tx: DbcTransaction,
-        output_details: BTreeMap<DbcId, (PublicAddress, DerivationIndex)>,
+        spent_tx: Transaction,
+        output_details: BTreeMap<UniquePubkey, (MainPubkey, DerivationIndex)>,
         signed_spends: BTreeSet<SignedSpend>,
     ) -> Self {
         Self {
@@ -203,42 +210,43 @@ impl DbcBuilder {
         self.signed_spends.iter().collect()
     }
 
-    /// Build the output Dbcs, verifying the transaction and SignedSpends.
+    /// Build the output CashNotes, verifying the transaction and SignedSpends.
     ///
     /// See TransactionVerifier::verify() for a description of
     /// verifier requirements.
-    pub fn build(self) -> Result<Vec<(Dbc, Token)>> {
+    pub fn build(self) -> Result<Vec<(CashNote, Nano)>> {
         // Verify the tx, along with signed spends.
-        // Note that we do this just once for entire tx, not once per output Dbc.
+        // Note that we do this just once for entire tx, not once per output CashNote.
         self.spent_tx
             .verify_against_inputs_spent(&self.signed_spends)?;
 
-        // Build output Dbcs.
-        self.build_output_dbcs()
+        // Build output CashNotes.
+        self.build_output_cashnotes()
     }
 
-    /// Build the output Dbcs (no verification over Tx or SignedSpend is performed).
-    pub fn build_without_verifying(self) -> Result<Vec<(Dbc, Token)>> {
-        self.build_output_dbcs()
+    /// Build the output CashNotes (no verification over Tx or SignedSpend is performed).
+    pub fn build_without_verifying(self) -> Result<Vec<(CashNote, Nano)>> {
+        self.build_output_cashnotes()
     }
 
-    // Private helper to build output Dbcs.
-    fn build_output_dbcs(self) -> Result<Vec<(Dbc, Token)>> {
+    // Private helper to build output CashNotes.
+    fn build_output_cashnotes(self) -> Result<Vec<(CashNote, Nano)>> {
         self.spent_tx
             .outputs
             .iter()
             .map(|output| {
                 let (public_address, derivation_index) = self
                     .output_details
-                    .get(&output.dbc_id)
-                    .ok_or(Error::DbcIdNotFound)?;
+                    .get(&output.cashnote_id)
+                    .ok_or(Error::UniquePubkeyNotFound)?;
 
                 Ok((
-                    Dbc {
-                        id: public_address.new_dbc_id(derivation_index),
+                    CashNote {
+                        id: public_address.new_cashnote_id(derivation_index),
                         src_tx: self.spent_tx.clone(),
-                        secrets: DbcSecrets::from((public_address, derivation_index)),
                         signed_spends: self.signed_spends.clone(),
+                        public_address: *public_address,
+                        derivation_index: *derivation_index,
                     },
                     output.token,
                 ))

@@ -12,7 +12,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use sn_dbc::{
     mock,
     rand::{CryptoRng, RngCore},
-    random_derivation_index, rng, Dbc, Hash, MainKey, Result, Token,
+    random_derivation_index, rng, CashNote, Hash, MainSecretKey, Nano, Result,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,17 +21,17 @@ const N_OUTPUTS: u64 = 100;
 fn bench_reissue_1_to_100(c: &mut Criterion) {
     let mut rng = rng::from_seed([0u8; 32]);
 
-    let (mut spentbook_node, (starting_dbc, starting_main_key)) =
-        generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
+    let (mut spentbook_node, (starting_cashnote, starting_main_key)) =
+        generate_cashnote_of_value(Nano::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
-    let derived_key = starting_dbc.derived_key(&starting_main_key).unwrap();
-    let dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_input_dbc(&starting_dbc, &derived_key)
+    let derived_key = starting_cashnote.derived_key(&starting_main_key).unwrap();
+    let cashnote_builder = sn_dbc::TransactionBuilder::default()
+        .add_input_cashnote(&starting_cashnote, &derived_key)
         .unwrap()
         .add_outputs((0..N_OUTPUTS).map(|_| {
-            let main_key = MainKey::random_from_rng(&mut rng);
+            let main_key = MainSecretKey::random_from_rng(&mut rng);
             (
-                Token::from_nano(1),
+                Nano::from_nano(1),
                 main_key.public_address(),
                 random_derivation_index(&mut rng),
             )
@@ -39,12 +39,16 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
         .build(Hash::default())
         .unwrap();
 
-    let spent_tx = &dbc_builder.spent_tx;
-    for signed_spend in dbc_builder.signed_spends() {
+    let spent_tx = &cashnote_builder.spent_tx;
+    for signed_spend in cashnote_builder.signed_spends() {
         spentbook_node.log_spent(spent_tx, signed_spend).unwrap();
     }
 
-    let signed_spends: BTreeSet<_> = dbc_builder.signed_spends().into_iter().cloned().collect();
+    let signed_spends: BTreeSet<_> = cashnote_builder
+        .signed_spends()
+        .into_iter()
+        .cloned()
+        .collect();
 
     c.bench_function(&format!("reissue split 1 to {N_OUTPUTS}"), |b| {
         #[cfg(unix)]
@@ -68,21 +72,24 @@ fn bench_reissue_1_to_100(c: &mut Criterion) {
 fn bench_reissue_100_to_1(c: &mut Criterion) {
     let mut rng = rng::from_seed([0u8; 32]);
 
-    let (mut spentbook_node, (starting_dbc, starting_main_key)) =
-        generate_dbc_of_value(Token::from_nano(N_OUTPUTS), &mut rng).unwrap();
+    let (mut spentbook_node, (starting_cashnote, starting_main_key)) =
+        generate_cashnote_of_value(Nano::from_nano(N_OUTPUTS), &mut rng).unwrap();
 
     let outputs: BTreeMap<_, _> = (0..N_OUTPUTS)
         .map(|_| {
-            let main_key = MainKey::random_from_rng(&mut rng);
+            let main_key = MainSecretKey::random_from_rng(&mut rng);
             let derivation_index = random_derivation_index(&mut rng);
-            let dbc_id = main_key.derive_key(&derivation_index).dbc_id();
-            (dbc_id, (main_key, derivation_index, Token::from_nano(1)))
+            let cashnote_id = main_key.derive_key(&derivation_index).unique_pubkey();
+            (
+                cashnote_id,
+                (main_key, derivation_index, Nano::from_nano(1)),
+            )
         })
         .collect();
 
-    let derived_key = starting_dbc.derived_key(&starting_main_key).unwrap();
-    let dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_input_dbc(&starting_dbc, &derived_key)
+    let derived_key = starting_cashnote.derived_key(&starting_main_key).unwrap();
+    let cashnote_builder = sn_dbc::TransactionBuilder::default()
+        .add_input_cashnote(&starting_cashnote, &derived_key)
         .unwrap()
         .add_outputs(
             outputs
@@ -94,40 +101,42 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
         .build(Hash::default())
         .unwrap();
 
-    let spent_tx = dbc_builder.spent_tx.clone();
-    for signed_spend in dbc_builder.signed_spends() {
+    let spent_tx = cashnote_builder.spent_tx.clone();
+    for signed_spend in cashnote_builder.signed_spends() {
         spentbook_node.log_spent(&spent_tx, signed_spend).unwrap();
     }
-    let dbcs = dbc_builder.build().unwrap();
+    let cashnotes = cashnote_builder.build().unwrap();
 
-    let main_key = MainKey::random_from_rng(&mut rng);
+    let main_key = MainSecretKey::random_from_rng(&mut rng);
     let derivation_index = random_derivation_index(&mut rng);
 
     let mut tx_builder = sn_dbc::TransactionBuilder::default();
 
-    for (dbc, _) in dbcs.into_iter() {
-        let (main_key, _, _) = outputs.get(&dbc.id()).unwrap();
-        let derived_key = dbc.derived_key(main_key).unwrap();
-        tx_builder = tx_builder.add_input_dbc(&dbc, &derived_key).unwrap();
+    for (cashnote, _) in cashnotes.into_iter() {
+        let (main_key, _, _) = outputs.get(&cashnote.id()).unwrap();
+        let derived_key = cashnote.derived_key(main_key).unwrap();
+        tx_builder = tx_builder
+            .add_input_cashnote(&cashnote, &derived_key)
+            .unwrap();
     }
 
-    let merge_dbc_builder = tx_builder
+    let merge_cashnote_builder = tx_builder
         .add_output(
-            Token::from_nano(N_OUTPUTS),
+            Nano::from_nano(N_OUTPUTS),
             main_key.public_address(),
             derivation_index,
         )
         .build(Hash::default())
         .unwrap();
 
-    let merge_spent_tx = merge_dbc_builder.spent_tx.clone();
-    for signed_spend in merge_dbc_builder.signed_spends() {
+    let merge_spent_tx = merge_cashnote_builder.spent_tx.clone();
+    for signed_spend in merge_cashnote_builder.signed_spends() {
         spentbook_node
             .log_spent(&merge_spent_tx, signed_spend)
             .unwrap();
     }
 
-    let signed_spends: BTreeSet<_> = merge_dbc_builder
+    let signed_spends: BTreeSet<_> = merge_cashnote_builder
         .signed_spends()
         .into_iter()
         .cloned()
@@ -153,23 +162,25 @@ fn bench_reissue_100_to_1(c: &mut Criterion) {
 }
 
 #[allow(clippy::result_large_err)]
-fn generate_dbc_of_value(
-    token: Token,
+fn generate_cashnote_of_value(
+    token: Nano,
     rng: &mut (impl RngCore + CryptoRng),
-) -> Result<(mock::SpentbookNode, (Dbc, MainKey))> {
-    let (mut spentbook_node, genesis_dbc, genesis_material, __token) =
+) -> Result<(mock::SpentbookNode, (CashNote, MainSecretKey))> {
+    let (mut spentbook_node, genesis_cashnote, genesis_material, __token) =
         mock::GenesisBuilder::init_genesis_single()?;
 
     let output_tokens = vec![
         token,
-        Token::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - token.as_nano()),
+        Nano::from_nano(mock::GenesisMaterial::GENESIS_AMOUNT - token.as_nano()),
     ];
 
-    let main_key = MainKey::random_from_rng(rng);
+    let main_key = MainSecretKey::random_from_rng(rng);
 
-    let derived_key = genesis_dbc.derived_key(&genesis_material.main_key).unwrap();
-    let dbc_builder = sn_dbc::TransactionBuilder::default()
-        .add_input_dbc(&genesis_dbc, &derived_key)
+    let derived_key = genesis_cashnote
+        .derived_key(&genesis_material.main_key)
+        .unwrap();
+    let cashnote_builder = sn_dbc::TransactionBuilder::default()
+        .add_input_cashnote(&genesis_cashnote, &derived_key)
         .unwrap()
         .add_outputs(output_tokens.into_iter().map(|token| {
             (
@@ -180,14 +191,14 @@ fn generate_dbc_of_value(
         }))
         .build(Hash::default())?;
 
-    let tx = dbc_builder.spent_tx.clone();
-    for signed_spend in dbc_builder.signed_spends() {
+    let tx = cashnote_builder.spent_tx.clone();
+    for signed_spend in cashnote_builder.signed_spends() {
         spentbook_node.log_spent(&tx, signed_spend)?;
     }
 
-    let (starting_dbc, _) = dbc_builder.build()?.into_iter().next().unwrap();
+    let (starting_cashnote, _) = cashnote_builder.build()?.into_iter().next().unwrap();
 
-    Ok((spentbook_node, (starting_dbc, main_key)))
+    Ok((spentbook_node, (starting_cashnote, main_key)))
 }
 
 criterion_group! {

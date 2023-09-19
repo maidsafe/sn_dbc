@@ -4,7 +4,7 @@
 // This SAFE Network Software is licensed under the BSD-3-Clause license.
 // Please see the LICENSE file for more details.
 
-use crate::{DbcId, FeeOutput, SignedSpend, Token};
+use crate::{FeeOutput, Nano, SignedSpend, UniquePubkey};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BTreeSet};
@@ -17,86 +17,86 @@ type Result<T> = std::result::Result<T, Error>;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Input {
-    pub dbc_id: DbcId,
-    pub token: Token,
+    pub cashnote_id: UniquePubkey,
+    pub token: Nano,
 }
 
 impl Input {
-    pub fn new(dbc_id: DbcId, amount: u64) -> Self {
+    pub fn new(cashnote_id: UniquePubkey, amount: u64) -> Self {
         Self {
-            dbc_id,
-            token: Token::from_nano(amount),
+            cashnote_id,
+            token: Nano::from_nano(amount),
         }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
-        v.extend(self.dbc_id.to_bytes().as_ref());
+        v.extend(self.cashnote_id.to_bytes().as_ref());
         v.extend(self.token.to_bytes());
         v
     }
 
-    pub fn dbc_id(&self) -> DbcId {
-        self.dbc_id
+    pub fn cashnote_id(&self) -> UniquePubkey {
+        self.cashnote_id
     }
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Output {
-    pub dbc_id: DbcId,
-    pub token: Token,
+    pub cashnote_id: UniquePubkey,
+    pub token: Nano,
 }
 
 impl Output {
-    pub fn new(dbc_id: DbcId, amount: u64) -> Self {
+    pub fn new(cashnote_id: UniquePubkey, amount: u64) -> Self {
         Self {
-            dbc_id,
-            token: Token::from_nano(amount),
+            cashnote_id,
+            token: Nano::from_nano(amount),
         }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v: Vec<u8> = Default::default();
-        v.extend(self.dbc_id.to_bytes().as_ref());
+        v.extend(self.cashnote_id.to_bytes().as_ref());
         v.extend(self.token.to_bytes());
         v
     }
 
-    pub fn dbc_id(&self) -> &DbcId {
-        &self.dbc_id
+    pub fn cashnote_id(&self) -> &UniquePubkey {
+        &self.cashnote_id
     }
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Default)]
-pub struct DbcTransaction {
+pub struct Transaction {
     pub inputs: Vec<Input>,
     pub outputs: Vec<Output>,
     pub fee: FeeOutput,
 }
 
-impl PartialEq for DbcTransaction {
+impl PartialEq for Transaction {
     fn eq(&self, other: &Self) -> bool {
         self.hash().eq(&other.hash())
     }
 }
 
-impl Eq for DbcTransaction {}
+impl Eq for Transaction {}
 
-impl PartialOrd for DbcTransaction {
+impl PartialOrd for Transaction {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for DbcTransaction {
+impl Ord for Transaction {
     fn cmp(&self, other: &Self) -> Ordering {
         self.hash().cmp(&other.hash())
     }
 }
 
-impl DbcTransaction {
+impl Transaction {
     pub fn empty() -> Self {
         Self {
             inputs: vec![],
@@ -137,11 +137,11 @@ impl DbcTransaction {
             return Err(Error::MissingTxInputs);
         }
 
-        // Verify that each dbc id is unique.
+        // Verify that each cashnote id is unique.
         let id_count = self.inputs.len();
-        let unique_ids: BTreeSet<_> = self.inputs.iter().map(|input| input.dbc_id).collect();
+        let unique_ids: BTreeSet<_> = self.inputs.iter().map(|input| input.cashnote_id).collect();
         if unique_ids.len() != id_count {
-            return Err(Error::DbcIdNotUniqueAcrossInputs);
+            return Err(Error::UniquePubkeyNotUniqueAcrossInputs);
         }
 
         // Check that the input and output tokens are equal.
@@ -162,7 +162,7 @@ impl DbcTransaction {
             })?;
 
         if input_sum != output_sum {
-            Err(Error::InconsistentDbcTransaction)
+            Err(Error::InconsistentTransaction)
         } else {
             Ok(())
         }
@@ -171,7 +171,7 @@ impl DbcTransaction {
     /// Verifies a transaction including signed spends.
     ///
     /// This function relies/assumes that the caller (wallet/client) obtains
-    /// the DbcTransaction (held by every input spend's close group) in a
+    /// the Transaction (held by every input spend's close group) in a
     /// trustless/verified way. I.e., the caller should not simply obtain a
     /// spend from a single peer, but must get the same spend from all in the close group.
     pub fn verify_against_inputs_spent(&self, signed_spends: &BTreeSet<SignedSpend>) -> Result<()> {
@@ -189,9 +189,10 @@ impl DbcTransaction {
         let spent_tx_hash = self.hash();
 
         // Verify that each pubkey is unique in this transaction.
-        let unique_dbc_ids: BTreeSet<DbcId> = self.outputs.iter().map(|o| (*o.dbc_id())).collect();
-        if unique_dbc_ids.len() != self.outputs.len() {
-            return Err(Error::DbcIdNotUniqueAcrossOutputs);
+        let unique_cashnote_ids: BTreeSet<UniquePubkey> =
+            self.outputs.iter().map(|o| (*o.cashnote_id())).collect();
+        if unique_cashnote_ids.len() != self.outputs.len() {
+            return Err(Error::UniquePubkeyNotUniqueAcrossOutputs);
         }
 
         // Verify that each input has a corresponding signed spend.
@@ -199,7 +200,7 @@ impl DbcTransaction {
             if !self
                 .inputs
                 .iter()
-                .any(|m| m.dbc_id == *signed_spend.dbc_id())
+                .any(|m| m.cashnote_id == *signed_spend.cashnote_id())
             {
                 return Err(Error::SignedSpendInputIdMismatch);
             }
@@ -218,7 +219,7 @@ impl DbcTransaction {
             .filter_map(|s| {
                 self.inputs
                     .iter()
-                    .position(|m| m.dbc_id == *s.dbc_id())
+                    .position(|m| m.cashnote_id == *s.cashnote_id())
                     .map(|idx| (idx, s))
             })
             .collect();

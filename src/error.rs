@@ -6,7 +6,7 @@
 // KIND, either express or implied. Please review the Licences for the specific language governing
 // permissions and limitations relating to use of the SAFE Network Software.
 
-use crate::DbcId;
+use crate::UniquePubkey;
 use thiserror::Error;
 
 /// Specialisation of `std::Result`.
@@ -28,57 +28,57 @@ pub enum Error {
     FailedToParseToken(String),
 
     #[error("Invalid Spend Signature for {0:?}")]
-    InvalidSpendSignature(DbcId),
+    InvalidSpendSignature(UniquePubkey),
 
     #[error("Transaction hash does not match the transaction signed by spentbook.")]
     InvalidTransactionHash,
 
-    #[error("Dbc ciphers are not present in transaction outputs.")]
-    DbcCiphersNotPresentInTransactionOutput,
+    #[error("CashNote ciphers are not present in transaction outputs.")]
+    CashNoteCiphersNotPresentInTransactionOutput,
 
     #[error("Output not found in transaction outputs.")]
     OutputNotFound,
 
-    #[error("DbcId is not unique across all transaction outputs.")]
-    DbcIdNotUniqueAcrossOutputs,
+    #[error("UniquePubkey is not unique across all transaction outputs.")]
+    UniquePubkeyNotUniqueAcrossOutputs,
 
     #[error(
         "The number of SignedSpend ({current}) does not match the number of inputs ({expected})."
     )]
     SignedSpendInputLenMismatch { current: usize, expected: usize },
 
-    #[error("A SignedSpend DbcId does not match an MlsagSignature DbcId.")]
+    #[error("A SignedSpend UniquePubkey does not match an MlsagSignature UniquePubkey.")]
     SignedSpendInputIdMismatch,
 
     #[error("SignedSpends for {0:?} have mismatching reasons.")]
-    SignedSpendReasonMismatch(DbcId),
+    SignedSpendReasonMismatch(UniquePubkey),
 
     #[error("Decryption failed.")]
     DecryptionBySecretKeyFailed,
 
-    #[error("DbcId not found.")]
-    DbcIdNotFound,
+    #[error("UniquePubkey not found.")]
+    UniquePubkeyNotFound,
 
     #[error("Main key does not match public address.")]
-    MainKeyDoesNotMatchPublicAddress,
+    MainSecretKeyDoesNotMatchMainPubkey,
 
-    #[error("Could not deserialize specified hex string to a DBC: {0}")]
+    #[error("Could not deserialize specified hex string to a CashNote: {0}")]
     HexDeserializationFailed(String),
 
-    #[error("Could not serialize DBC to hex: {0}")]
+    #[error("Could not serialize CashNote to hex: {0}")]
     HexSerializationFailed(String),
 
     #[error("Bls error: {0}")]
     Blsttc(#[from] blsttc::error::Error),
 
     #[error("The input and output amounts of the tx do not match.")]
-    InconsistentDbcTransaction,
+    InconsistentTransaction,
 
-    #[error("The Dbc tx must have at least one input.")]
+    #[error("The CashNote tx must have at least one input.")]
     MissingTxInputs,
 
-    #[error("Dbc id is not unique across all tx inputs.")]
-    DbcIdNotUniqueAcrossInputs,
+    #[error("CashNote id is not unique across all tx inputs.")]
+    UniquePubkeyNotUniqueAcrossInputs,
 
     #[error("Overflow occurred while adding values")]
     NumericOverflow,

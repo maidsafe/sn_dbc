@@ -7,10 +7,10 @@
 // permissions and limitations relating to use of the SAFE Network Software.
 
 use super::GenesisMaterial;
-use crate::{mock, Dbc, Hash, Result, Token, TransactionBuilder};
+use crate::{mock, CashNote, Hash, Nano, Result, TransactionBuilder};
 
 /// A builder for initializing a set of N spentbooks and generating a
-/// genesis dbc with amount Z.
+/// genesis cashnote with amount Z.
 ///
 /// In SafeNetwork terms, the set of SpentBooksNodes represents a
 /// single Spentbook section.
@@ -34,11 +34,11 @@ impl GenesisBuilder {
         self
     }
 
-    /// builds and returns spentbooks, genesis_dbc_shares, and genesis dbc
+    /// builds and returns spentbooks, genesis_cashnote_shares, and genesis cashnote
     #[allow(clippy::type_complexity)]
-    pub fn build(mut self) -> Result<(Vec<mock::SpentbookNode>, Dbc, GenesisMaterial, Token)> {
+    pub fn build(mut self) -> Result<(Vec<mock::SpentbookNode>, CashNote, GenesisMaterial, Nano)> {
         let genesis_material = GenesisMaterial::default();
-        let dbc_builder = TransactionBuilder::default()
+        let cashnote_builder = TransactionBuilder::default()
             .add_input(
                 genesis_material.genesis_tx.0.inputs[0].clone(),
                 genesis_material.genesis_tx.1.clone(),
@@ -51,34 +51,39 @@ impl GenesisBuilder {
             )
             .build(Hash::default())?;
 
-        let tx = &dbc_builder.spent_tx;
-        for signed_spend in dbc_builder.signed_spends() {
+        let tx = &cashnote_builder.spent_tx;
+        for signed_spend in cashnote_builder.signed_spends() {
             for spentbook_node in self.spentbook_nodes.iter_mut() {
                 spentbook_node.log_spent(tx, signed_spend)?;
             }
         }
 
-        let (genesis_dbc, token) = dbc_builder.build()?.into_iter().next().unwrap();
-        Ok((self.spentbook_nodes, genesis_dbc, genesis_material, token))
+        let (genesis_cashnote, token) = cashnote_builder.build()?.into_iter().next().unwrap();
+        Ok((
+            self.spentbook_nodes,
+            genesis_cashnote,
+            genesis_material,
+            token,
+        ))
     }
 
-    /// builds and returns spentbooks, genesis_dbc_shares, and genesis dbc
+    /// builds and returns spentbooks, genesis_cashnote_shares, and genesis cashnote
     /// the spentbook nodes use a shared randomly generated SecretKeySet
     #[allow(clippy::type_complexity)]
     pub fn init_genesis(
         num_spentbook_nodes: usize,
-    ) -> Result<(Vec<mock::SpentbookNode>, Dbc, GenesisMaterial, Token)> {
+    ) -> Result<(Vec<mock::SpentbookNode>, CashNote, GenesisMaterial, Nano)> {
         Self::default()
             .gen_spentbook_nodes(num_spentbook_nodes)
             .build()
     }
 
-    /// Builds and returns a single spentbook, single genesis_dbc_shares,
-    /// and genesis dbc.
+    /// Builds and returns a single spentbook, single genesis_cashnote_shares,
+    /// and genesis cashnote.
     /// The spentbook node uses a shared randomly generated SecretKeySet.
     #[allow(clippy::type_complexity)]
-    pub fn init_genesis_single() -> Result<(mock::SpentbookNode, Dbc, GenesisMaterial, Token)> {
-        let (spentbook_nodes, genesis_dbc, genesis_material, token) =
+    pub fn init_genesis_single() -> Result<(mock::SpentbookNode, CashNote, GenesisMaterial, Nano)> {
+        let (spentbook_nodes, genesis_cashnote, genesis_material, token) =
             Self::default().gen_spentbook_nodes(1).build()?;
 
         // Note: these unwraps are safe because the above call returned Ok.
@@ -88,7 +93,7 @@ impl GenesisBuilder {
         // so not worth making a never-used Error variant.
         Ok((
             spentbook_nodes.into_iter().next().unwrap(),
-            genesis_dbc,
+            genesis_cashnote,
             genesis_material,
             token,
         ))
