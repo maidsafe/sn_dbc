@@ -27,7 +27,7 @@ Multi-sig is a concern of the user of this library.
 
 Some writeups about the technology can be found at:
 
-https://safenetforum.org/t/safenetwork-dbc-technical-series
+https://forum.autonomi.community/t/safenetwork-dbc-technical-series
 
 
 # Building
